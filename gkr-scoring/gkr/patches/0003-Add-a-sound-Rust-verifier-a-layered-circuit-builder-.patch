@@ -1,0 +1,514 @@
+From 7669e2c4828623c0c39ab6a124a31d9d4554b78f Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 12:41:45 +0900
+Subject: [PATCH 03/12] Add a sound Rust verifier, a layered-circuit builder
+ and soundness tests
+
+Upstream had no Rust verifier; its Python/circom verifiers trusted prover
+supplied data. verifier::verify recomputes every challenge from the
+transcript, enforces exact round counts and degree bounds, starts from
+D~(z0) of the verifier's claimed output, checks each layer against the
+verifier-side add~/mult~ wiring, and finally checks the verifier's own
+input MLE. Prover hints (z, r, sumcheck_r, k, depth, d, input_func) are
+ignored. Malformed proofs return errors instead of panicking.
+---
+ rust/src/gkr.rs          |   2 +
+ rust/src/gkr/builder.rs  | 118 ++++++++++++++++++++++
+ rust/src/gkr/poly.rs     |  29 ++++++
+ rust/src/gkr/verifier.rs |  90 +++++++++++++++++
+ rust/tests/verifier.rs   | 210 +++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 449 insertions(+)
+ create mode 100644 rust/src/gkr/builder.rs
+ create mode 100644 rust/src/gkr/verifier.rs
+ create mode 100644 rust/tests/verifier.rs
+
+diff --git a/rust/src/gkr.rs b/rust/src/gkr.rs
+index 26646fd..075ee09 100644
+--- a/rust/src/gkr.rs
++++ b/rust/src/gkr.rs
+@@ -1,7 +1,9 @@
++pub mod builder;
+ pub mod poly;
+ pub mod prover;
+ pub mod sumcheck;
+ pub mod transcript;
++pub mod verifier;
+ 
+ use ff::PrimeField;
+ use std::fmt;
+diff --git a/rust/src/gkr/builder.rs b/rust/src/gkr/builder.rs
+new file mode 100644
+index 0000000..8e738af
+--- /dev/null
++++ b/rust/src/gkr/builder.rs
+@@ -0,0 +1,118 @@
++//! Builds `GKRCircuit`/`Input` values directly from layered gate lists (without circom),
++//! using the same encodings as `convert.rs`. Used by tests and the baseline benchmark.
++use super::{poly::*, GKRCircuit, Input, Layer};
++use ff::PrimeField;
++
++#[derive(Clone, Copy, Debug)]
++pub enum Gate {
++    Add(usize, usize),
++    Mult(usize, usize),
++}
++
++/// `layers[0]` is the output layer; gate operands index into the next layer
++/// (`layers[i + 1]`, or the input for the last layer).
++#[derive(Clone, Debug)]
++pub struct LayeredCircuit {
++    pub layers: Vec<Vec<Gate>>,
++    pub input_size: usize,
++}
++
++pub fn log2_ceil(n: usize) -> usize {
++    let mut k = 0;
++    while (1usize << k) < n {
++        k += 1;
++    }
++    k
++}
++
++fn bits(value: usize, k: usize) -> String {
++    if k == 0 {
++        String::new()
++    } else {
++        format!("{:0k$b}", value, k = k)
++    }
++}
++
++impl LayeredCircuit {
++    fn k(&self, i: usize) -> usize {
++        if i == self.layers.len() {
++            log2_ceil(self.input_size)
++        } else {
++            log2_ceil(self.layers[i].len())
++        }
++    }
++
++    pub fn to_gkr<S: PrimeField + std::hash::Hash>(&self) -> GKRCircuit<S> {
++        let mut layers = vec![];
++        for (i, gates) in self.layers.iter().enumerate() {
++            let (k_i, k_next) = (self.k(i), self.k(i + 1));
++            let v = k_i + 2 * k_next;
++            let mut add_strings = vec![];
++            let mut mult_strings = vec![];
++            for (curr, gate) in gates.iter().enumerate() {
++                let (l, r, target) = match gate {
++                    Gate::Add(l, r) => (*l, *r, &mut add_strings),
++                    Gate::Mult(l, r) => (*l, *r, &mut mult_strings),
++                };
++                target.push(format!("{}{}{}", bits(curr, k_i), bits(l, k_next), bits(r, k_next)));
++            }
++            let to_vec = |s: &String| -> Vec<S> {
++                s.chars().map(|c| if c == '1' { S::ONE } else { S::ZERO }).collect()
++            };
++            let to_poly = |strings: &Vec<String>| -> Vec<Vec<S>> {
++                let mut acc = get_empty::<S>(v);
++                for s in strings {
++                    acc = add_poly(&acc, &chi_w_for_binary::<S>(s));
++                }
++                if acc.is_empty() {
++                    get_empty::<S>(v)
++                } else {
++                    acc
++                }
++            };
++            let wire = (
++                add_strings.iter().map(to_vec).collect(),
++                mult_strings.iter().map(to_vec).collect(),
++            );
++            layers.push(Layer::new(k_i, to_poly(&add_strings), to_poly(&mult_strings), wire));
++        }
++        GKRCircuit::new(layers, self.k(self.layers.len()))
++    }
++
++    /// Values of every layer (padded to 2^k_i with zeros); index 0 is the output layer.
++    pub fn evaluate<S: PrimeField>(&self, input: &[S]) -> Vec<Vec<S>> {
++        let mut current = input.to_vec();
++        current.resize(1 << self.k(self.layers.len()), S::ZERO);
++        let mut values = vec![current.clone()];
++        for (i, gates) in self.layers.iter().enumerate().rev() {
++            let mut next: Vec<S> = gates
++                .iter()
++                .map(|g| match g {
++                    Gate::Add(l, r) => current[*l] + current[*r],
++                    Gate::Mult(l, r) => current[*l] * current[*r],
++                })
++                .collect();
++            next.resize(1 << self.k(i), S::ZERO);
++            values.push(next.clone());
++            current = next;
++        }
++        values.reverse();
++        values
++    }
++
++    /// Prover witness in the upstream (monomial) representation.
++    pub fn witness<S: PrimeField + std::hash::Hash>(&self, input: &[S]) -> Input<S> {
++        let values = self.evaluate(input);
++        let w: Vec<Vec<Vec<S>>> = values
++            .iter()
++            .enumerate()
++            .map(|(i, v)| get_multi_ext(v, self.k(i)))
++            .collect();
++        Input {
++            d: w[0].clone(),
++            w,
++            output_values: values[0].clone(),
++            input_values: values[values.len() - 1].clone(),
++        }
++    }
++}
+diff --git a/rust/src/gkr/poly.rs b/rust/src/gkr/poly.rs
+index d134a4f..7a38b18 100644
+--- a/rust/src/gkr/poly.rs
++++ b/rust/src/gkr/poly.rs
+@@ -554,3 +554,32 @@ pub fn l_function<S: PrimeField>(b: &Vec<S>, c: &Vec<S>, r: &S) -> Vec<S> {
+     res
+ }
+ 
++/// Multilinear extension of `values` (length 2^point.len()) at `point`, using the same
++/// variable order as the rest of this crate: variable 1 is the most significant bit of
++/// the gate index.
++pub fn mle_eval<S: PrimeField>(values: &[S], point: &[S]) -> Option<S> {
++    if values.len() != 1usize.checked_shl(point.len() as u32)? {
++        return None;
++    }
++    let mut cur = values.to_vec();
++    for x in point {
++        let half = cur.len() / 2;
++        let next: Vec<S> = (0..half)
++            .map(|i| cur[i] + (cur[i + half] - cur[i]) * x)
++            .collect();
++        cur = next;
++    }
++    Some(cur[0])
++}
++
++/// eq(bits, x) = prod_j (bits_j x_j + (1 - bits_j)(1 - x_j)) for an index written
++/// MSB-first on `x.len()` bits.
++pub fn eq_index<S: PrimeField>(index: usize, x: &[S]) -> S {
++    let n = x.len();
++    let mut acc = S::ONE;
++    for (j, xj) in x.iter().enumerate() {
++        let bit = (index >> (n - 1 - j)) & 1;
++        acc *= if bit == 1 { *xj } else { S::ONE - xj };
++    }
++    acc
++}
+diff --git a/rust/src/gkr/verifier.rs b/rust/src/gkr/verifier.rs
+new file mode 100644
+index 0000000..e8baec0
+--- /dev/null
++++ b/rust/src/gkr/verifier.rs
+@@ -0,0 +1,90 @@
++//! Sound GKR verifier (upstream shipped none in Rust).
++//!
++//! Everything the verifier relies on comes from the verifier-side circuit, the public
++//! input and the claimed output: the proof only contributes round polynomials and the
++//! q_i polynomials. All challenges are recomputed from the transcript.
++use super::{
++    poly::{eq_index, eval_univariate, l_function, mle_eval},
++    prover::{pad_to, start_transcript},
++    sumcheck::ROUND_COEFFS,
++    transcript::Transcript,
++    GKRCircuit, GkrError, Proof,
++};
++use ff::PrimeField;
++
++/// Evaluates the multilinear extension of a wiring predicate given as gate triples.
++fn wiring_eval<S: PrimeField>(
++    gates: &[(usize, usize, usize)],
++    z: &[S],
++    b: &[S],
++    c: &[S],
++) -> S {
++    gates
++        .iter()
++        .map(|(gz, gb, gc)| eq_index(*gz, z) * eq_index(*gb, b) * eq_index(*gc, c))
++        .fold(S::ZERO, |a, x| a + x)
++}
++
++/// Verifies that `output` is the result of evaluating `circuit` on `input`.
++pub fn verify<S: PrimeField, T: Transcript<S>>(
++    circuit: &GKRCircuit<S>,
++    input: &[S],
++    output: &[S],
++    proof: &Proof<S>,
++) -> Result<(), GkrError> {
++    circuit.validate()?;
++    let depth = circuit.depth();
++    if proof.sumcheck_proofs.len() != depth || proof.q.len() != depth {
++        return Err(GkrError::MalformedProof("wrong number of layers"));
++    }
++    let input_values = pad_to(input, circuit.k(depth), "input longer than input layer")?;
++    let output_values = pad_to(output, circuit.k(0), "output longer than output layer")?;
++    let mut transcript: T = start_transcript(circuit, &input_values, &output_values)?;
++
++    let mut z = transcript.squeeze_n(circuit.k(0));
++    let mut claim = mle_eval(&output_values, &z).ok_or(GkrError::BadPublicIo("output size"))?;
++
++    for i in 0..depth {
++        let k_next = circuit.k(i + 1);
++        let rounds = &proof.sumcheck_proofs[i];
++        if rounds.len() != 2 * k_next {
++            return Err(GkrError::MalformedProof("wrong number of sumcheck rounds"));
++        }
++        let mut r = Vec::with_capacity(2 * k_next);
++        for g in rounds {
++            if g.len() != ROUND_COEFFS {
++                return Err(GkrError::MalformedProof("round polynomial exceeds degree bound"));
++            }
++            if eval_univariate(g, &S::ZERO) + eval_univariate(g, &S::ONE) != claim {
++                return Err(GkrError::Rejected("sumcheck round g(0)+g(1) != claim"));
++            }
++            transcript.absorb(g);
++            let r_j = transcript.squeeze();
++            claim = eval_univariate(g, &r_j);
++            r.push(r_j);
++        }
++        let (b_star, c_star) = r.split_at(k_next);
++
++        let q = &proof.q[i];
++        if q.len() != k_next + 1 {
++            return Err(GkrError::MalformedProof("q exceeds degree bound"));
++        }
++        let (w_b, w_c) = (eval_univariate(q, &S::ZERO), eval_univariate(q, &S::ONE));
++        let (add, mult) = circuit.gates(i);
++        let expected = wiring_eval(&add, &z, b_star, c_star) * (w_b + w_c)
++            + wiring_eval(&mult, &z, b_star, c_star) * w_b * w_c;
++        if expected != claim {
++            return Err(GkrError::Rejected("layer relation does not match sumcheck"));
++        }
++        transcript.absorb(q);
++        let r_star = transcript.squeeze();
++        claim = eval_univariate(q, &r_star);
++        z = l_function(&b_star.to_vec(), &c_star.to_vec(), &r_star);
++    }
++
++    let input_eval = mle_eval(&input_values, &z).ok_or(GkrError::BadPublicIo("input size"))?;
++    if input_eval != claim {
++        return Err(GkrError::Rejected("input layer evaluation mismatch"));
++    }
++    Ok(())
++}
+diff --git a/rust/tests/verifier.rs b/rust/tests/verifier.rs
+new file mode 100644
+index 0000000..04a71ca
+--- /dev/null
++++ b/rust/tests/verifier.rs
+@@ -0,0 +1,210 @@
++//! Completeness and soundness regression tests for the fixed prover/verifier.
++use ff::Field;
++use gkr::gkr::{
++    builder::{Gate, LayeredCircuit},
++    poly::mle_eval,
++    prover::prove,
++    transcript::MimcTranscript,
++    verifier::verify,
++    GkrError, Proof,
++};
++use halo2curves::bn256::Fr;
++
++type T = MimcTranscript;
++
++fn fr(x: u64) -> Fr {
++    Fr::from(x)
++}
++
++/// Binary tree reducing 2^n inputs with alternating mult/add layers.
++fn tree(n: usize) -> LayeredCircuit {
++    let mut layers = vec![];
++    for level in 0..n {
++        let width = 1 << level;
++        layers.push(
++            (0..width)
++                .map(|g| if level % 2 == 0 { Gate::Mult(2 * g, 2 * g + 1) } else { Gate::Add(2 * g, 2 * g + 1) })
++                .collect(),
++        );
++    }
++    LayeredCircuit { layers, input_size: 1 << n }
++}
++
++/// Upstream's python example: (3*3 * 2*2, 2*3 * 1*1) with shared operands.
++fn shared_operands() -> LayeredCircuit {
++    LayeredCircuit {
++        layers: vec![
++            vec![Gate::Mult(0, 1), Gate::Mult(2, 3)],
++            vec![Gate::Mult(0, 0), Gate::Mult(1, 1), Gate::Mult(1, 2), Gate::Mult(3, 3)],
++        ],
++        input_size: 4,
++    }
++}
++
++/// Several outputs, mixed gates, and a padded (non power-of-two) layer.
++fn mixed() -> LayeredCircuit {
++    LayeredCircuit {
++        layers: vec![
++            vec![Gate::Add(0, 1), Gate::Mult(1, 2), Gate::Add(2, 2)],
++            vec![Gate::Mult(0, 3), Gate::Add(1, 2), Gate::Mult(4, 5), Gate::Add(6, 7), Gate::Mult(0, 7)],
++        ],
++        input_size: 8,
++    }
++}
++
++fn inputs(n: usize) -> Vec<Fr> {
++    (0..n).map(|i| fr(3 + 7 * i as u64)).collect()
++}
++
++fn setup(c: &LayeredCircuit) -> (gkr::gkr::GKRCircuit<Fr>, Vec<Fr>, Vec<Fr>, Proof<Fr>) {
++    let circuit = c.to_gkr::<Fr>();
++    let input = inputs(c.input_size);
++    let witness = c.witness(&input);
++    let output = witness.output_values.clone();
++    let proof = prove::<Fr, T>(&circuit, &witness).expect("honest proving");
++    (circuit, input, output, proof)
++}
++
++fn cases() -> Vec<LayeredCircuit> {
++    vec![tree(2), tree(3), tree(5), shared_operands(), mixed()]
++}
++
++#[test]
++fn honest_proofs_verify() {
++    for c in cases() {
++        let (circuit, input, output, proof) = setup(&c);
++        assert_eq!(verify::<Fr, T>(&circuit, &input, &output, &proof), Ok(()));
++    }
++}
++
++#[test]
++fn wrong_output_rejected_including_non_first_gates() {
++    // Upstream fixed z0 = 0, so only output gate 0 was ever checked.
++    let (circuit, input, output, proof) = setup(&mixed());
++    let mut forged = output.clone();
++    forged[1] += Fr::ONE;
++    let zeros = vec![Fr::ZERO; circuit.k(0)];
++    assert_eq!(mle_eval(&output, &zeros), mle_eval(&forged, &zeros), "z0 = 0 cannot see gate 1");
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &forged, &proof), Err(GkrError::Rejected(_))));
++    for i in 0..output.len() {
++        let mut forged = output.clone();
++        forged[i] += Fr::ONE;
++        assert!(verify::<Fr, T>(&circuit, &input, &forged, &proof).is_err(), "output gate {i}");
++    }
++}
++
++#[test]
++fn proof_bound_to_input_output_and_circuit() {
++    let (circuit, input, output, proof) = setup(&tree(3));
++    let mut other_input = input.clone();
++    other_input[5] += Fr::ONE;
++    assert!(verify::<Fr, T>(&circuit, &other_input, &output, &proof).is_err());
++    // Same shape, different wiring (Add instead of Mult at the root): the digest differs.
++    let mut c2 = tree(3);
++    c2.layers[0][0] = Gate::Add(0, 1);
++    let circuit2 = c2.to_gkr::<Fr>();
++    assert!(verify::<Fr, T>(&circuit2, &input, &output, &proof).is_err());
++    // A correct proof for the other circuit still verifies against that circuit only.
++    let w2 = c2.witness(&input);
++    let p2 = prove::<Fr, T>(&circuit2, &w2).unwrap();
++    assert_eq!(verify::<Fr, T>(&circuit2, &input, &w2.output_values, &p2), Ok(()));
++    assert!(verify::<Fr, T>(&circuit, &input, &w2.output_values, &p2).is_err());
++}
++
++#[test]
++fn tampered_messages_rejected() {
++    let (circuit, input, output, proof) = setup(&mixed());
++    for layer in 0..proof.sumcheck_proofs.len() {
++        for round in 0..proof.sumcheck_proofs[layer].len() {
++            for coeff in 0..3 {
++                let mut p = proof.clone();
++                p.sumcheck_proofs[layer][round][coeff] += Fr::ONE;
++                assert!(verify::<Fr, T>(&circuit, &input, &output, &p).is_err());
++            }
++        }
++        for coeff in 0..proof.q[layer].len() {
++            let mut p = proof.clone();
++            p.q[layer][coeff] += Fr::ONE;
++            assert!(verify::<Fr, T>(&circuit, &input, &output, &p).is_err());
++        }
++    }
++}
++
++#[test]
++fn consistent_round_forgery_rejected() {
++    // Keep g(0)+g(1) = claim in round 0 while changing g: passes the local check but the
++    // re-derived challenge and final layer check must reject it.
++    let (circuit, input, output, proof) = setup(&tree(3));
++    let mut p = proof.clone();
++    let g = &mut p.sumcheck_proofs[0][0];
++    // g(X) = a X^2 + b X + c: adding (2X - 1) keeps g(0) + g(1) unchanged.
++    g[1] += Fr::from(2);
++    g[2] -= Fr::ONE;
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &output, &p), Err(GkrError::Rejected(_))));
++}
++
++#[test]
++fn degree_and_shape_bounds_enforced() {
++    let (circuit, input, output, proof) = setup(&tree(3));
++    let mut p = proof.clone();
++    p.sumcheck_proofs[0][0].insert(0, Fr::ZERO); // 4 coefficients, even if leading is zero
++    assert_eq!(
++        verify::<Fr, T>(&circuit, &input, &output, &p),
++        Err(GkrError::MalformedProof("round polynomial exceeds degree bound"))
++    );
++    let mut p = proof.clone();
++    p.q[1].insert(0, Fr::ZERO);
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &output, &p), Err(GkrError::MalformedProof(_))));
++    let mut p = proof.clone();
++    p.sumcheck_proofs[1].pop();
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &output, &p), Err(GkrError::MalformedProof(_))));
++    let mut p = proof.clone();
++    p.sumcheck_proofs.pop();
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &output, &p), Err(GkrError::MalformedProof(_))));
++}
++
++#[test]
++fn malformed_proofs_do_not_panic() {
++    let (circuit, input, output, proof) = setup(&tree(3));
++    let mut shapes = vec![];
++    let mut p = proof.clone();
++    p.sumcheck_proofs = vec![vec![]; 3];
++    shapes.push(p);
++    let mut p = proof.clone();
++    p.q = vec![vec![]; 3];
++    shapes.push(p);
++    let mut p = proof.clone();
++    p.sumcheck_proofs[2] = vec![vec![]; 6];
++    shapes.push(p);
++    for p in shapes {
++        assert!(verify::<Fr, T>(&circuit, &input, &output, &p).is_err());
++    }
++    let too_long = vec![Fr::ONE; 1 + (1 << circuit.k(0))];
++    assert!(matches!(verify::<Fr, T>(&circuit, &input, &too_long, &proof), Err(GkrError::BadPublicIo(_))));
++}
++
++#[test]
++fn prover_hints_are_ignored() {
++    // z, r, sumcheck_r, k, depth, d and input_func are not trusted by the verifier.
++    let (circuit, input, output, mut proof) = setup(&mixed());
++    for z in proof.z.iter_mut() {
++        for x in z.iter_mut() {
++            *x = Fr::ZERO;
++        }
++    }
++    proof.r = vec![Fr::ONE; proof.r.len()];
++    proof.sumcheck_r = vec![];
++    proof.k = vec![0; 1];
++    proof.depth = 99;
++    proof.d = vec![];
++    proof.input_func = vec![];
++    assert_eq!(verify::<Fr, T>(&circuit, &input, &output, &proof), Ok(()));
++}
++
++#[test]
++fn unsupported_circuits_error_instead_of_panicking() {
++    let c = LayeredCircuit { layers: vec![vec![Gate::Add(0, 0)]], input_size: 1 };
++    let circuit = c.to_gkr::<Fr>();
++    let w = c.witness(&[fr(1)]);
++    assert!(matches!(prove::<Fr, T>(&circuit, &w), Err(GkrError::UnsupportedCircuit(_))));
++}
+-- 
+2.53.0
+

@@ -1,0 +1,10 @@
+target/
+**/target/
+contracts/out/
+contracts/cache/
+artifacts/
+__pycache__/
+contracts/broadcast/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,67 @@
+# Baseline: fixed upstream generic GKR prover
+
+Machine: Apple M3 Max (16 cores), 48 GiB, rust 1.94.1, release build. Single run each,
+2026-09-25. Nothing else heavy was running.
+
+```sh
+cd rust
+cargo build --release --no-default-features --bin gkr-baseline
+./target/release/gkr-baseline 14 300    # max log2 size, per-run budget in seconds
+```
+
+- `tree 2^n`: binary reduction of 2^n inputs, alternating mult/add layers (depth n).
+- `parallel-4 2^n`: 4 layers of width 2^n, gate g reads (g, g^1) of the next layer.
+- "witness+circuit" = building the upstream monomial-form circuit and witness
+  (`builder::LayeredCircuit::{to_gkr, witness}`); "prove" = `gkr::prover::prove`
+  (fixed Fiat–Shamir, upstream algorithm); "verify" = new `gkr::verifier::verify`
+  (MiMC transcript + O(gates) wiring evaluation). Proof elements = field elements in round
+  polynomials and q's.
+
+| circuit | inputs | gates | depth | witness+circuit ms | prove ms | verify ms | proof elements |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tree 2^4 | 16 | 15 | 4 | 0.4 | 6.3 | 4.4 | 74 |
+| tree 2^5 | 32 | 31 | 5 | 0.6 | 9.7 | 4.6 | 110 |
+| tree 2^6 | 64 | 63 | 6 | 1.9 | 12.6 | 5.8 | 153 |
+| tree 2^7 | 128 | 127 | 7 | 5.6 | 19.6 | 7.0 | 203 |
+| tree 2^8 | 256 | 255 | 8 | 18.9 | 30.8 | 12.2 | 260 |
+| tree 2^9 | 512 | 511 | 9 | 76.3 | 80.4 | 21.2 | 324 |
+| tree 2^10 | 1024 | 1023 | 10 | 318.0 | 262.7 | 38.4 | 395 |
+| tree 2^11 | 2048 | 2047 | 11 | 1315.7 | 1047.8 | 71.9 | 473 |
+| tree 2^12 | 4096 | 4095 | 12 | 5516.0 | 6420.6 | 137.7 | 558 |
+| tree 2^13 | 8192 | 8191 | 13 | 23421.2 | 28848.9 | 270.6 | 650 |
+| tree 2^14 | 16384 | 16383 | 14 | 99753.9 | 132264.4 | 528.0 | 749 |
+| parallel-4 2^4 | 16 | 64 | 4 | 0.6 | 7.8 | 3.8 | 116 |
+| parallel-4 2^5 | 32 | 128 | 4 | 2.4 | 11.5 | 5.9 | 144 |
+| parallel-4 2^6 | 64 | 256 | 4 | 9.9 | 21.0 | 9.8 | 172 |
+| parallel-4 2^7 | 128 | 512 | 4 | 43.1 | 52.8 | 17.4 | 200 |
+| parallel-4 2^8 | 256 | 1024 | 4 | 192.2 | 161.1 | 31.7 | 228 |
+| parallel-4 2^9 | 512 | 2048 | 4 | 833.5 | 589.2 | 59.9 | 256 |
+| parallel-4 2^10 | 1024 | 4096 | 4 | 3604.8 | 2748.0 | 117.8 | 284 |
+| parallel-4 2^11 | 2048 | 8192 | 4 | 15248.3 | 14289.7 | 236.1 | 312 |
+| parallel-4 2^12 | 4096 | 16384 | 4 | 66108.0 | 81130.0 | 470.1 | 340 |
+| parallel-4 2^13 | 8192 | 32768 | 4 | 308794.0 | 404052.6 | 930.8 | 368 |
+| parallel-4 2^13 | stopped: 713 s > budget 300 s |
+
+Total wall time of the command: 20 min. The run stops scaling a family after the first
+size whose witness+prove time exceeds the 300 s budget.
+
+## Observations
+
+- Prover cost grows ~4–5x per doubling of the circuit (super-linear): the upstream
+  representation stores every multilinear polynomial as a list of monomials
+  (`get_multi_ext` expands each hypercube point into 2^{#zero bits} monomials, 3^k terms
+  per layer) and each sumcheck round re-evaluates those lists. It is infeasible beyond
+  roughly 2^13–2^14 gates per circuit: `tree 2^14` (16,383 gates) took 232 s,
+  `parallel-4 2^13` (32,768 gates) 713 s.
+- Verification is cheap by comparison (sub-second at these sizes) but linear in the
+  number of gates, because it evaluates the wiring predicates from the gate list.
+- Recursive aggregation with the sound circom verifier: round 1 of the `t.circom`
+  example (one MiMC7) proves in ~0.13 s as 12 GKR sub-circuits and the generated
+  verifiers accept them in-circuit (witness generation of the 420 MB aggregated r1cs,
+  ~2.4 M wires, succeeds). The upstream converter could not finish converting that
+  aggregated circuit for round 2: stopped after 25 min wall / 22 min CPU, ~9 GB RSS,
+  still in `convert` (O(n^2) node deduplication). The in-circuit MiMC transcript costs
+  ~364 constraints per absorbed element.
+
+For comparison, a data-parallel prover (dense evaluation tables, linear-time sumcheck)
+does the same work in O(gates) field operations per layer.

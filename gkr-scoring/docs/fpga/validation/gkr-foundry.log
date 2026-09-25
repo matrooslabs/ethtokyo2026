@@ -1,0 +1,113 @@
+No files changed, compilation skipped
+
+Ran 1 test for test/RelationGas.t.sol:RelationGasTest
+[PASS] testRelationGas() (gas: 2555440)
+Logs:
+  rowPoly call gas (3000-note shape): 336711
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 1.18ms (985.00µs CPU time)
+
+Ran 10 tests for test/GkrScore.t.sol:GkrScoreTest
+[PASS] testChartRegistrationValidatesAndBinds() (gas: 3927044)
+Logs:
+  registerChart gas: 1494938
+
+[PASS] testEndToEndModeA() (gas: 2507737)
+Logs:
+  registerChart gas: 351037
+  submitCalldata execution gas (demo): 1439434
+
+[PASS] testEndToEndModeB() (gas: 2385415)
+Logs:
+  registerChart gas: 351037
+  submitCommitted execution gas (perfect): 1437035
+
+[PASS] testExpiredAndRevokedSessionsRejected() (gas: 1034563)
+Logs:
+  registerChart gas: 351037
+
+[PASS] testGasAccountingBench() (gas: 67992660)
+Logs:
+  registerChart gas: 1494938
+  gas case: bench500 mode A (calldata trace)
+    calldata bytes: 36420
+    calldata nonzero bytes: 27504
+    execution gas (incl. CALL overhead): 2552748
+    intrinsic gas (21000 + EIP-2028 calldata): 496728
+    total transaction gas: 3049476
+  registerChart gas: 6936662
+  gas case: bench3000 mode A (calldata trace)
+    calldata bytes: 112452
+    calldata nonzero bytes: 69580
+    execution gas (incl. CALL overhead): 7076930
+    intrinsic gas (21000 + EIP-2028 calldata): 1305768
+    total transaction gas: 8382698
+
+[PASS] testGasAccountingBenchB() (gas: 31826763)
+Logs:
+  registerChart gas: 1494938
+  gas case: bench500 mode B (device KZG)
+    calldata bytes: 22500
+    calldata nonzero bytes: 20860
+    execution gas (incl. CALL overhead): 1705320
+    intrinsic gas (21000 + EIP-2028 calldata): 361320
+    total transaction gas: 2066640
+  registerChart gas: 6936662
+  gas case: bench3000 mode B (device KZG)
+    calldata bytes: 28548
+    calldata nonzero bytes: 26918
+    execution gas (incl. CALL overhead): 1899762
+    intrinsic gas (21000 + EIP-2028 calldata): 458208
+    total transaction gas: 2357970
+
+[PASS] testModeBBindsTraceCommitment() (gas: 2322958)
+[PASS] testTamperEveryProofSection() (gas: 18446727024874711030)
+[PASS] testTamperStatementAndTrace() (gas: 4505039)
+[PASS] testVerifyAllExportedCases() (gas: 51966355)
+Logs:
+  case: demo-a
+    verify execution gas: 1397548
+    proof words: 395
+  case: demo-b
+    verify execution gas: 1391253
+    proof words: 396
+  case: perfect-a
+    verify execution gas: 1382548
+    proof words: 395
+  case: perfect-b
+    verify execution gas: 1397484
+    proof words: 396
+  case: random0-a
+    verify execution gas: 1566594
+    proof words: 522
+  case: random0-b
+    verify execution gas: 1552710
+    proof words: 523
+  case: random1-a
+    verify execution gas: 1507879
+    proof words: 478
+  case: random1-b
+    verify execution gas: 1510369
+    proof words: 479
+  case: random2-a
+    verify execution gas: 1494871
+    proof words: 478
+  case: random2-b
+    verify execution gas: 1517100
+    proof words: 479
+  case: bench500-a
+    verify execution gas: 2192127
+    proof words: 680
+  case: bench500-b
+    verify execution gas: 1706047
+    proof words: 681
+  case: bench3000-a
+    verify execution gas: 4830694
+    proof words: 869
+  case: bench3000-b
+    verify execution gas: 1916318
+    proof words: 870
+
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 4.05s (10.15s CPU time)
+
+Ran 2 test suites in 4.05s (4.05s CPU time): 11 tests passed, 0 failed, 0 skipped (11 total tests)

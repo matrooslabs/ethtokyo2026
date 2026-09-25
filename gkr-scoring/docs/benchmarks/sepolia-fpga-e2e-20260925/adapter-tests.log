@@ -1,0 +1,16 @@
+test_commitment_cannot_be_replaced (__main__.SealedAdapter) ... ok
+test_count_must_match (__main__.SealedAdapter) ... ok
+test_decreasing_clock_rejected (__main__.SealedAdapter) ... ok
+test_digest_cannot_be_replaced (__main__.SealedAdapter) ... ok
+test_duplicate_down_rejected (__main__.SealedAdapter) ... ok
+test_duration_must_match (__main__.SealedAdapter) ... ok
+test_header_cannot_be_rebound (__main__.SealedAdapter) ... ok
+test_honest_score_and_original_digest (__main__.SealedAdapter) ... ok
+test_initial_up_rejected (__main__.SealedAdapter) ... ok
+test_root_cannot_be_resealed (__main__.SealedAdapter) ... ok
+test_srs_must_match (__main__.SealedAdapter) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 1.062s
+
+OK

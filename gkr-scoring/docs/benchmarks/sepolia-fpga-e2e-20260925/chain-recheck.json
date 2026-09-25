@@ -1,0 +1,398 @@
+{
+  "checkedUtc": "2026-09-25T08:43:54Z",
+  "chainId": 11155111,
+  "headBlock": 11778096,
+  "headBlockHash": "0x4291dcc6529b7199aaf48dc1d49322ee45092ca49407badc7e87a987631f08cc",
+  "finalizedBlock": 11778014,
+  "allChecksPassed": true,
+  "transactions": [
+    {
+      "hash": "0x7f430c8ebe11a891798d511c57d6c85848d098f175878a1923b2974dd157e971",
+      "label": "deploy-GkrRelation",
+      "block": 11778034,
+      "blockHash": "0x7bb568c3739e8b640923be4eba24a1621b20e71838bb0560ebfb64974af7bcaa",
+      "status": 1,
+      "confirmationsAtSnapshot": 63,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x0211ae1d991fd9bd3e92fe2e0775fbc997247f2ecaf741c6e088500995b290f7",
+      "label": "deploy-GkrScoreVerifier",
+      "block": 11778036,
+      "blockHash": "0x79b35d300a0fac5f31e04aae74532c2da0b4d896988ac152874001f11995980b",
+      "status": 1,
+      "confirmationsAtSnapshot": 61,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x119cf33f39cc32faf1b4e96d59f4ae68d595c46bad7a914c92c58b2b3b880193",
+      "label": "deploy-ManiaGkrRegistry",
+      "block": 11778038,
+      "blockHash": "0x1bbea7e67578f3910fa09bb43f6f5d998647779e222a73a5a6603f60d302cca2",
+      "status": 1,
+      "confirmationsAtSnapshot": 59,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x170770c24f13cfd3d4c9398b43423118a4e7e48ae5738e7792656415ed834f93",
+      "label": "register-software-device",
+      "block": 11778041,
+      "blockHash": "0x70b726f6954393ae9ef716df2de7329c93e4875fa0175331f0b6db53ab716558",
+      "status": 1,
+      "confirmationsAtSnapshot": 56,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xf65c7eb9f81699f73236b0e32bfb7118d39d75346ffcc5254d2644337c24d8f8",
+      "label": "register-chart-500",
+      "block": 11778043,
+      "blockHash": "0x80dec78e1bddcea9d00e1970adcb8acc87347f0b2a21e8b9843106bb34db544c",
+      "status": 1,
+      "confirmationsAtSnapshot": 54,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x0d623e24dd0645ccabc53956a38986d6b567e5c2b94e4ea9dd449350074f8ea2",
+      "label": "open-500-r1",
+      "block": 11778045,
+      "blockHash": "0xdcb8fbd30d6e85e38156ae7e5a26efced341905d857c49c963a57ffc79d79f80",
+      "status": 1,
+      "confirmationsAtSnapshot": 52,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xa3d1b2350e2359a240d19a21980d12a4b342b2e3c2cd59bf28255fe1f3af3a17",
+      "label": "submit-500-r1",
+      "block": 11778047,
+      "blockHash": "0x3588912c5f05fff754f2a744a39e0c7b50968beec78dca069ca3fc1e59b5185f",
+      "status": 1,
+      "confirmationsAtSnapshot": 50,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xd23788b0945e45fe8e7e556d8be566099d2432a7527920e5f484432e65e601b5",
+      "label": "open-500-r2",
+      "block": 11778049,
+      "blockHash": "0x0edf17a6be32a91c12aa89ef8468e0a680b98a87c26b98b9f1a8ae519b00e585",
+      "status": 1,
+      "confirmationsAtSnapshot": 48,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x8eaf2498c0655e1f4bb930490c45702eddbfc57ef98ee25e2b1ac4c079354ee7",
+      "label": "submit-500-r2",
+      "block": 11778052,
+      "blockHash": "0x717fa85e292179bf45ca1e551d7efe98284506e3c9238b877a3c86da71808852",
+      "status": 1,
+      "confirmationsAtSnapshot": 45,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xbfc8117077fa561ff7fdd8c9d5117bba32b2df9f76b7c5e1bbade1d54fc796d5",
+      "label": "open-500-r3",
+      "block": 11778054,
+      "blockHash": "0xd4836a2a866aae770b2bd4d2c67b9ece5632f63db30af226c48dc2aaa1ddf49d",
+      "status": 1,
+      "confirmationsAtSnapshot": 43,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x4c85f1812a5d11df4fe2f2bd9a27fc0cfc93bc299a1eed7deaff3f1d43b61c5d",
+      "label": "submit-500-r3",
+      "block": 11778056,
+      "blockHash": "0xb14208b99dbc32f415a91995ab8d80c84938d1b2c94e06c65651cf543bc8c620",
+      "status": 1,
+      "confirmationsAtSnapshot": 41,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x1e14e9f02fb6f74adc15244c52e62b683c68772aa3afc228fcb5de9ec8ce2396",
+      "label": "register-chart-1500",
+      "block": 11778058,
+      "blockHash": "0xc9a56f9d70e66cfed452a04092298f5d8aaeae528bc7bfac0d98ca185b524680",
+      "status": 1,
+      "confirmationsAtSnapshot": 39,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xd9ce98f10478ede827989cc0bcb951852d901db030866fa58f68242e81f52bf8",
+      "label": "open-1500-r1",
+      "block": 11778060,
+      "blockHash": "0xd9c8c53fa758fd468e0939ea761b1a67da4b5c07a2e9f7edf7570a967afd4cfe",
+      "status": 1,
+      "confirmationsAtSnapshot": 37,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xacb0d3e8a073a34e12da9e770439779ad6b881df4eb457cae1fa541a39e9c9a3",
+      "label": "submit-1500-r1",
+      "block": 11778062,
+      "blockHash": "0x47307c153eb2e5f1837c8ab0166520db93d649df05027e0291f7b74bbbf6148e",
+      "status": 1,
+      "confirmationsAtSnapshot": 35,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x0f97d0683cff7c2d29ad889a678045e6da17a6f072f9d33cdfe39647e97f5e5e",
+      "label": "open-1500-r2",
+      "block": 11778065,
+      "blockHash": "0xc8cbfc783026555bf7134624711692c9868697a6733bfa4d4f4a4a2ea4c9b108",
+      "status": 1,
+      "confirmationsAtSnapshot": 32,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x87d30d5b332f2143d447f09aad8c4d45899d8512ef131cd1a6d1fb99f4522462",
+      "label": "submit-1500-r2",
+      "block": 11778068,
+      "blockHash": "0x0444f18bb0f1c19ffbcec1c274845c68b5654d6fca4b26a4832560f85e8a94bb",
+      "status": 1,
+      "confirmationsAtSnapshot": 29,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x69992eda7274caa358f9478623863ebc3533b6fb696d1fbeede26f21d0ef9315",
+      "label": "open-1500-r3",
+      "block": 11778070,
+      "blockHash": "0xd1294e406f867c5566af5d3aeda3342ee3429eecd737c656079edab4289438b5",
+      "status": 1,
+      "confirmationsAtSnapshot": 27,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xf3632c7b7d868c6fff070cc968ab65bdd7f7441c4f2cfa176fc15c6c7ee20273",
+      "label": "submit-1500-r3",
+      "block": 11778072,
+      "blockHash": "0xb37ec84a5e009543c975356ebfbce5a4fbe3f2682138e91cfb2a7eb5f106d760",
+      "status": 1,
+      "confirmationsAtSnapshot": 25,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x60ebaf4342473a18f5418dd5fcab8b0803fdc0cd29105ad273888911d61f1701",
+      "label": "register-chart-3000",
+      "block": 11778074,
+      "blockHash": "0xcbf311901654488077c34b8a2e33d0d376829e43f464404cd1652779f5b94ca6",
+      "status": 1,
+      "confirmationsAtSnapshot": 23,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xce76b39e2b87dc9da2cc1001a271f24da026ce34941d497cde854be1528f7bc0",
+      "label": "open-3000-r1",
+      "block": 11778077,
+      "blockHash": "0xa1a9ae78a9337e70f6202eda2dd7b36848ff1bc2ee44d40b980145b278210c1f",
+      "status": 1,
+      "confirmationsAtSnapshot": 20,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x7152c117e4e8cd0ee7d882aba52dd9f483842c853c1a806b3936905a2d9afa00",
+      "label": "submit-3000-r1",
+      "block": 11778080,
+      "blockHash": "0xe5c233b8f3f4e49cab897e9bbe96a80f993a5137eb389bff84c3b8475a6ab561",
+      "status": 1,
+      "confirmationsAtSnapshot": 17,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xf47f7064941153b8d85332728217193ecf783f5a65b4bb1f8262affec4b2e7b0",
+      "label": "open-3000-r2",
+      "block": 11778082,
+      "blockHash": "0xbe7bb87e4113c3997f73ca94b250a32f5e9c1a6931ab531dacca1fbdb817b2fe",
+      "status": 1,
+      "confirmationsAtSnapshot": 15,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xc984255f444cfb2da0c2d1b7482fcb9514dac8d9f232c7a7e375121952472e48",
+      "label": "submit-3000-r2",
+      "block": 11778086,
+      "blockHash": "0xb969cadaf0bc888b88d3aa98fd0046a18c5e2722d8c28fa0ce76b241ade93296",
+      "status": 1,
+      "confirmationsAtSnapshot": 11,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0x47c3103eab7e3b730f8c9cad1f2f830a9a5b599c99165bb364e5a1a95cd9ec39",
+      "label": "open-3000-r3",
+      "block": 11778089,
+      "blockHash": "0x6b96ec90a591fe9404e1e06621616d4b4148fb2f2b2dbf151571da813c9efbea",
+      "status": 1,
+      "confirmationsAtSnapshot": 8,
+      "finalizedAtSnapshot": false
+    },
+    {
+      "hash": "0xb692ebd6f4643e4f60cd8464992c8eb7e80221b121a794d6c9219bfb087575e2",
+      "label": "submit-3000-r3",
+      "block": 11778092,
+      "blockHash": "0x933d87e0875513ae08cd6345ca178f5de50130622ea7cfdced330485413c3995",
+      "status": 1,
+      "confirmationsAtSnapshot": 5,
+      "finalizedAtSnapshot": false
+    }
+  ],
+  "sessions": [
+    {
+      "sessionId": "0x37d905a98bdf18c68bf64aa331290d9ce792bd38651e1f74a1e62ed4d6911208",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        625,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 500,
+      "rep": 1
+    },
+    {
+      "sessionId": "0xfbd5a40c9dee3469c764823474ac27c4feac049bc1e7474c51ed7775dc5240d5",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        625,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 500,
+      "rep": 2
+    },
+    {
+      "sessionId": "0x49291d383ceee5c9e5753bb8d96a78dc03a3709b62510a9d2f87f850b045ca0a",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        625,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 500,
+      "rep": 3
+    },
+    {
+      "sessionId": "0x729e8285a3be62a262739e6c775f40fe9b647cd41f61195b29baa18c98441eca",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        1875,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 1500,
+      "rep": 1
+    },
+    {
+      "sessionId": "0x3ca323def1eede325c3908e3689675c65c05d9a5a83938b8ea95a17e35a7122e",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        1875,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 1500,
+      "rep": 2
+    },
+    {
+      "sessionId": "0x3382c8b14998dd7019cc8423690d5c0a77857b7b6eb79de7e5292f28294950a1",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        1875,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 1500,
+      "rep": 3
+    },
+    {
+      "sessionId": "0x5268c108ac4c120e03673f8d3fa2d9fcaa82e9d4c5d3c139eb47476ffd52f8e7",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        3750,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 3000,
+      "rep": 1
+    },
+    {
+      "sessionId": "0x5f14710b156dee9edfd112ef02604d0145e7559facaef4b3e6d1a781729694fc",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        3750,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 3000,
+      "rep": 2
+    },
+    {
+      "sessionId": "0xd8441b51fac203650a0174e830c2e174f0679f8eae6c40c3c008e6a9b53ea8bc",
+      "mode": 2,
+      "consumed": true,
+      "score": 1000000,
+      "judgements": [
+        3750,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": 3000,
+      "rep": 3
+    }
+  ],
+  "contracts": {
+    "GkrRelation": {
+      "address": "0xdbcf4f998de366ee0fa858caf7fa9006a415c396",
+      "runtimeBytes": 10364,
+      "runtimeSha256": "b2f70f542633eee9b82734d437abfbcbf1976b0731ad203a37a8e29df1bb39b3"
+    },
+    "GkrScoreVerifier": {
+      "address": "0xeb1b93855124918ddf710f244c2a3fa41f0d4963",
+      "runtimeBytes": 19701,
+      "runtimeSha256": "368cca5c1db868764ad1b087a092957cd9b4cd643c31a46071ad21bfea74a09a"
+    },
+    "ManiaGkrRegistry": {
+      "address": "0xd5e42d493efb44d69ca9185d33e41860b4f5254e",
+      "runtimeBytes": 9829,
+      "runtimeSha256": "ae6ad5312e82eb96e50a0d9972c57edae704c5881f3ad74b67a19d989ece0331"
+    }
+  }
+}

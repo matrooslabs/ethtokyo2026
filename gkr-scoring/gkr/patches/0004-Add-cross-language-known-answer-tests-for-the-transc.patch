@@ -1,0 +1,74 @@
+From 3607cfc93391e3c996b76e35c8ba17f8b73b54fe Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 12:45:30 +0900
+Subject: [PATCH 04/12] Add cross-language known-answer tests for the
+ transcript and proofs
+
+---
+ rust/src/gkr/transcript.rs | 22 ++++++++++++++++++++++
+ rust/tests/verifier.rs     | 22 ++++++++++++++++++++++
+ 2 files changed, 44 insertions(+)
+
+diff --git a/rust/src/gkr/transcript.rs b/rust/src/gkr/transcript.rs
+index 8f4415e..d3f8bdc 100644
+--- a/rust/src/gkr/transcript.rs
++++ b/rust/src/gkr/transcript.rs
+@@ -158,3 +158,25 @@ mod tests {
+         assert_ne!(c.squeeze(), d.squeeze());
+     }
+ }
++
++#[cfg(test)]
++mod vectors {
++    use super::*;
++
++    fn hex(x: Fr) -> String {
++        format!("{:?}", x)
++    }
++
++    /// Known-answer vectors shared with python/test_security.py (and the circom transcript).
++    #[test]
++    fn known_answer_vectors() {
++        assert_eq!(
++            hex(mimc7(Fr::from(2), Fr::from(3))),
++            "0x169fb7b0a230e5fa8fba53a45d49e15bb638b970a65854cb3825eb4534d1348d"
++        );
++        let mut t = MimcTranscript::new(DOMAIN_PROOF);
++        t.absorb(&[Fr::from(1), Fr::from(2)]);
++        assert_eq!(hex(t.squeeze()), "0x202baedcc3fd6bd533f6fd9e5a7844027c53062cb07965a0461f244d0078eaab");
++        assert_eq!(hex(t.squeeze()), "0x177bbe3904bf1de13a201c6d473c033a36e4fa04b599ffe5bbbef72d9fb306d0");
++    }
++}
+diff --git a/rust/tests/verifier.rs b/rust/tests/verifier.rs
+index 04a71ca..3fb8fcc 100644
+--- a/rust/tests/verifier.rs
++++ b/rust/tests/verifier.rs
+@@ -208,3 +208,25 @@ fn unsupported_circuits_error_instead_of_panicking() {
+     let w = c.witness(&[fr(1)]);
+     assert!(matches!(prove::<Fr, T>(&circuit, &w), Err(GkrError::UnsupportedCircuit(_))));
+ }
++
++/// Same circuit and input as python/test_security.py::example_circuit. The python and rust
++/// implementations share the transcript, so digest and proof must be identical.
++#[test]
++fn python_example_matches_rust() {
++    let c = shared_operands();
++    let circuit = c.to_gkr::<Fr>();
++    let input = [fr(3), fr(2), fr(3), fr(1)];
++    let w = c.witness(&input);
++    assert_eq!(w.output_values, vec![fr(36), fr(6)]);
++    let digest = circuit.digest::<T>();
++    let proof = prove::<Fr, T>(&circuit, &w).unwrap();
++    assert_eq!(
++        format!("{:?}", digest),
++        "0x2c74658ef1ed5ab020ed2bc10f5cf1369e7028075b5ed3da8eae7f90d8b5f78d"
++    );
++    assert_eq!(
++        format!("{:?}", proof.q[0][2]),
++        "0x2b049a8664990e2c1f8b8bc7a3ae7f53377a412cd46bd76e41bed60b9fd8ccea"
++    );
++    assert_eq!(verify::<Fr, T>(&circuit, &input, &w.output_values, &proof), Ok(()));
++}
+-- 
+2.53.0
+

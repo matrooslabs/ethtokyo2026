@@ -1,0 +1,12 @@
+{
+  "bytesPerPoint": 64,
+  "curve": "BN254",
+  "file": "srs-g1-be.bin",
+  "firstExponent": 0,
+  "format": "G1_AFFINE_BE_XY_V1",
+  "pointCount": 260,
+  "sha256": "0x9429d8e688b4879bcab8f84a7f8574d682277bcb6021841cca060ff969e9c2d7",
+  "smax": 10,
+  "source": "INSECURE deterministic dev SRS; seed=20260925; NEVER deploy",
+  "srsId": "0xb6183bd82124def499176be93ad3e65f23f7fd30e1da62057a4ca07b252df6ff"
+}

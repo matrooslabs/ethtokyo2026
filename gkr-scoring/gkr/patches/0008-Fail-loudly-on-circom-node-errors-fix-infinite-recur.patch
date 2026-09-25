@@ -1,0 +1,135 @@
+From f7cb403e7bc15dc80ffb5521baaad4489ca7bece Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 13:06:31 +0900
+Subject: [PATCH 08/12] Fail loudly on circom/node errors; fix infinite
+ recursion in merge_nodes
+
+execute_circom ignored both exit statuses, so a failed compilation or a
+witness that violates an assertion (e.g. a rejected GKR proof) silently
+reused stale r1cs/witness files. Stale outputs are now removed first and
+failures abort. write_aggregated_input no longer lets user inputs and proof
+inputs overwrite each other. merge_nodes recursed forever on an empty linear
+combination (stack overflow on the first aggregated circuit).
+---
+ rust/src/convert.rs    |  5 ++++
+ rust/src/file_utils.rs | 54 ++++++++++++++++++++++++++----------------
+ 2 files changed, 38 insertions(+), 21 deletions(-)
+
+diff --git a/rust/src/convert.rs b/rust/src/convert.rs
+index fd1f9e9..3d9c19c 100644
+--- a/rust/src/convert.rs
++++ b/rust/src/convert.rs
+@@ -108,6 +108,11 @@ struct IntermediateLayer<T> {
+ fn merge_nodes(
+     nodes: Vec<IntermediateNode<FieldElement<32>>>,
+ ) -> IntermediateNode<FieldElement<32>> {
++    // Upstream recursed forever on an empty list (e.g. an R1CS constraint with an empty
++    // linear combination), crashing the prover with a stack overflow.
++    if nodes.is_empty() {
++        return zero_node();
++    }
+     if nodes.len() == 1 {
+         return nodes[0].clone();
+     }
+diff --git a/rust/src/file_utils.rs b/rust/src/file_utils.rs
+index 8af9aad..f79f24c 100644
+--- a/rust/src/file_utils.rs
++++ b/rust/src/file_utils.rs
+@@ -9,7 +9,6 @@ use std::env::current_dir;
+ use std::fs;
+ use std::process::Command;
+ 
+-use crate::aggregator::CircomInputProof;
+ use crate::convert::Output;
+ 
+ #[derive(Serialize, Deserialize, Debug)]
+@@ -46,17 +45,15 @@ pub fn write_output(path: String, output: Output<Fr>) {
+     fs::write(path, json_string).expect("Unable to write file");
+ }
+ 
+-pub fn write_aggregated_input(path: String, inputs: Vec<CircomInputProof>) -> String {
++pub fn write_aggregated_input(path: String, inputs: Vec<(String, Value)>) -> String {
+     let file = fs::File::open(path).unwrap();
+     let mut input_json: HashMap<String, Value> = from_reader(file).unwrap();
+-    for (i, input) in inputs.iter().enumerate() {
+-        let proof_string = serde_json::to_string(&input).unwrap();
+-        let proof_data: HashMap<String, Value> = from_str(&proof_string).unwrap();
+-
+-        for (k, v) in proof_data {
+-            let new_k = format!("{}{}", k, i);
+-            input_json.insert(new_k, v);
+-        }
++    for (k, v) in inputs {
++        // A user input with the same name must not silently replace proof data (or vice versa).
++        assert!(
++            input_json.insert(k.clone(), v).is_none(),
++            "input name {k} collides with a GKR verifier input"
++        );
+     }
+     let json_string = serde_json::to_string_pretty(&input_json).unwrap();
+ 
+@@ -74,14 +71,9 @@ pub fn get_name(path: &String) -> String {
+ }
+ 
+ pub fn execute_circom(path: String, input_path: &String) -> (String, String) {
+-    let _ = Command::new("circom")
+-        .arg(path.clone())
+-        .arg("--r1cs")
+-        .arg("--sym")
+-        .arg("--wasm")
+-        .output()
+-        .expect("circom command failed");
+-    print!("");
++    // Upstream ignored both exit statuses, so a failed compilation or a witness that
++    // violates an assertion (e.g. a rejected GKR proof) silently reused stale
++    // r1cs/witness files from an earlier run.
+     let path_str: Vec<&str> = path.as_str().split('/').collect();
+     let mut path_cloned = path_str.clone();
+     path_cloned.pop();
+@@ -92,6 +84,23 @@ pub fn execute_circom(path: String, input_path: &String) -> (String, String) {
+     let circom_name: Vec<&str> = path_str[path_str.len() - 1].split('.').collect();
+     let name = circom_name[0];
+ 
++    let witness_path = current_dir().unwrap().join("witness.wtns");
++    let _ = fs::remove_file(&witness_path);
++    let _ = fs::remove_file(format!("{}{}.r1cs", root_path, name));
++
++    let output = Command::new("circom")
++        .arg(path.clone())
++        .arg("--r1cs")
++        .arg("--sym")
++        .arg("--wasm")
++        .output()
++        .expect("failed to run circom");
++    assert!(
++        output.status.success(),
++        "circom failed:\n{}",
++        String::from_utf8_lossy(&output.stderr)
++    );
++
+     let witness_gen_name = format!("{}_js/", name);
+     let witness_gen_file = current_dir()
+         .unwrap()
+@@ -102,13 +111,16 @@ pub fn execute_circom(path: String, input_path: &String) -> (String, String) {
+         .join(witness_gen_name)
+         .join(format!("{}.wasm", name));
+ 
+-    let _ = Command::new("node")
++    let status = Command::new("node")
+         .arg(witness_gen_file.clone())
+         .arg(wasm)
+         .arg(input_path.clone())
+         .arg("witness.wtns")
+         .status()
+-        .expect("witness calculator generation failed");
+-    print!("");
++        .expect("failed to run node");
++    assert!(
++        status.success(),
++        "witness generation failed (constraint violated or bad input)"
++    );
+     (String::from(name), root_path)
+ }
+-- 
+2.53.0
+

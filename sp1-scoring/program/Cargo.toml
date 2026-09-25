@@ -1,0 +1,11 @@
+[package]
+name = "mania-scoring-program"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+mania-scoring-core = { path = "../core" }
+sp1-zkvm = "=6.8.0"

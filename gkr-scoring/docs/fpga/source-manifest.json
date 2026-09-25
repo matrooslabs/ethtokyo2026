@@ -1,0 +1,898 @@
+{
+  "snapshotDate": "2026-09-25",
+  "timezone": "Asia/Tokyo",
+  "rootHeadContextOnly": "6408b4e0e46a9f4ea1b8d263afccd1df799604e4",
+  "versionNote": "Both source directories were untracked at review start; root HEAD does not identify their contents. GKR README includes the new handoff navigation link.",
+  "scope": "First-party source, tests, scripts, specs, configuration, lockfiles, fixtures and patch history in both folders. SP1 is reference-only except existing engine path dependency on core. Lockfile inclusion is not an audit of all dependency implementations.",
+  "excluded": [
+    "build/dependency/cache directories: .git, __pycache__, artifacts, broadcast, cache, node_modules, out, target",
+    "secret .env files",
+    "new docs/fpga handoff files",
+    "new engine/examples/fpga_vectors.rs"
+  ],
+  "fileCount": 147,
+  "files": [
+    {
+      "path": "gkr-scoring/.gitignore",
+      "bytes": 96,
+      "lines": 7,
+      "sha256": "5acc014643721fb10ab9b2128d956bb44f7a90b0a4de0da3a9862e90efa5d35a"
+    },
+    {
+      "path": "gkr-scoring/Cargo.lock",
+      "bytes": 14442,
+      "lines": 574,
+      "sha256": "f047a8903b0821edce16b9a795887d3bd3ab8f31ab0412d7af8653d36cfd376a"
+    },
+    {
+      "path": "gkr-scoring/Cargo.toml",
+      "bytes": 248,
+      "lines": 12,
+      "sha256": "a132b23d26673cbd2426c9e396ff7196dab4916cd921f2eac95df6f50506d84f"
+    },
+    {
+      "path": "gkr-scoring/README.md",
+      "bytes": 17717,
+      "lines": 224,
+      "sha256": "4af58e59460ce6f5768ae4ae8e8ffb54a3168333baf0312be0e62a8833ce50e5"
+    },
+    {
+      "path": "gkr-scoring/SPEC.md",
+      "bytes": 22944,
+      "lines": 448,
+      "sha256": "cc7151bdf9bd73adf1402301061f28a78d2a849299abbf70817f8417287a620d"
+    },
+    {
+      "path": "gkr-scoring/contracts/foundry.toml",
+      "bytes": 280,
+      "lines": 15,
+      "sha256": "c85211348c62a9b8465c4f1797236dc2c796e659d9fad4d255584ffef45480cb"
+    },
+    {
+      "path": "gkr-scoring/contracts/src/GkrMath.sol",
+      "bytes": 5883,
+      "lines": 125,
+      "sha256": "e8a93f2c2948491c367e5895bd6efa51865664cd9028ecbdd8e26d991443f4e2"
+    },
+    {
+      "path": "gkr-scoring/contracts/src/GkrRelation.sol",
+      "bytes": 16513,
+      "lines": 365,
+      "sha256": "57f731505d0c3ecf99c8d4d5cfede350139c5068e1f1b475a85767989414d6cb"
+    },
+    {
+      "path": "gkr-scoring/contracts/src/GkrScoreVerifier.sol",
+      "bytes": 37383,
+      "lines": 916,
+      "sha256": "c4129c9287a1cdaa7d687a99256d3c3a691a7313b86d53a407f8d838bfb001db"
+    },
+    {
+      "path": "gkr-scoring/contracts/src/ManiaGkrRegistry.sol",
+      "bytes": 11207,
+      "lines": 289,
+      "sha256": "d58814bb5120048e8ee0c7d0a1bb36a8c69d6039b1750c16e0aafee75745b556"
+    },
+    {
+      "path": "gkr-scoring/contracts/test/GkrScore.t.sol",
+      "bytes": 20847,
+      "lines": 416,
+      "sha256": "2398d771a55cfb1d729ae6de04ce82c24a4ea7b3297bcf1254aedeb64d715ac0"
+    },
+    {
+      "path": "gkr-scoring/contracts/test/RelationGas.t.sol",
+      "bytes": 1411,
+      "lines": 40,
+      "sha256": "0736631c62453fea9b7c437cd66c0bbcc57f8fc7e7be5de08c4c397da4674bd4"
+    },
+    {
+      "path": "gkr-scoring/engine/Cargo.toml",
+      "bytes": 607,
+      "lines": 27,
+      "sha256": "0f1d07cfcc14afae38d5346478d15f4f121f39c0c7f44444be9f62e59bf37523"
+    },
+    {
+      "path": "gkr-scoring/engine/examples/gkr_scaling.rs",
+      "bytes": 1523,
+      "lines": 40,
+      "sha256": "55204eeba5462c43fb1317c56596c02411d368c153574d1a68ebcf3f4e73898c"
+    },
+    {
+      "path": "gkr-scoring/engine/src/bin/mania-gkr.rs",
+      "bytes": 6801,
+      "lines": 158,
+      "sha256": "7e022dad14dee7a05725d575460e91543e9ef6e36e3c388c5bdb21906e830595"
+    },
+    {
+      "path": "gkr-scoring/engine/src/field.rs",
+      "bytes": 4142,
+      "lines": 145,
+      "sha256": "47a2ffe0496b1e73da0f6941cd32dbcbcfa264fe90b20d73e8006532c50548b3"
+    },
+    {
+      "path": "gkr-scoring/engine/src/forge.rs",
+      "bytes": 8872,
+      "lines": 229,
+      "sha256": "6bb3c18e8e96696e96ca5b4c1ab707a191e73e61118be418284033148dfd3e96"
+    },
+    {
+      "path": "gkr-scoring/engine/src/lib.rs",
+      "bytes": 236,
+      "lines": 10,
+      "sha256": "ed3868c2845ec4902d43de74430085ef97d90c40e6a09dfe2a1bfdc612054a98"
+    },
+    {
+      "path": "gkr-scoring/engine/src/logup_gkr.rs",
+      "bytes": 8817,
+      "lines": 259,
+      "sha256": "98cf1ca617713963d26ab32e26cc3f0d1d7a032c758820b4334895cbda7d9f37"
+    },
+    {
+      "path": "gkr-scoring/engine/src/mle.rs",
+      "bytes": 4542,
+      "lines": 161,
+      "sha256": "789b5b80696f9675c99990b9e9ad225495c05611d027189b927c28cf1c0a8d2f"
+    },
+    {
+      "path": "gkr-scoring/engine/src/poly.rs",
+      "bytes": 2213,
+      "lines": 71,
+      "sha256": "af0d59216d8d289e1bb3121441c2849a3dc7762ec4fc2724b086371353c52c72"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/api.rs",
+      "bytes": 3150,
+      "lines": 102,
+      "sha256": "aa0f7b619f7f91ae8f9417496d9c64384d3469e90f274ab41603ae499e2c3e7e"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/encode.rs",
+      "bytes": 4302,
+      "lines": 145,
+      "sha256": "fa8d30f5f518fbc2f1cbd6be8c7051f8b7156f74b30b7ece7af04ea7b0b03bdf"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/layout.rs",
+      "bytes": 3816,
+      "lines": 127,
+      "sha256": "f221e93d1c3ba5689856f72eec08fdfd38d59f4e409e542f4c6a926454735dc5"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/mod.rs",
+      "bytes": 2998,
+      "lines": 115,
+      "sha256": "b85ded6688b62d5f2822b1d879f2c80ea9b5398bb34cd79b0b4b6d3c39159b8a"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/prover.rs",
+      "bytes": 11821,
+      "lines": 371,
+      "sha256": "f3cba338a58142e436659a66a916d10f1834cc952f7393f8d7ae1bdf937b141e"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/relation.rs",
+      "bytes": 15767,
+      "lines": 503,
+      "sha256": "f296cf73a78f08aa1a4241c549a24c231c3472a159e9e355e3ebb8f4b9afc660"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/session.rs",
+      "bytes": 4234,
+      "lines": 135,
+      "sha256": "305dc28b6dea37a9675ab89f334edf5e7152fa3de0c077ac78f32d0ab93f74ae"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/verifier.rs",
+      "bytes": 9318,
+      "lines": 272,
+      "sha256": "c63b65df6f77ca6d28f7ef93c02ea8f10d666c02224efcbbc98377f4f3b349ce"
+    },
+    {
+      "path": "gkr-scoring/engine/src/scoring/witness.rs",
+      "bytes": 16819,
+      "lines": 503,
+      "sha256": "a0f07e869384fbad1269b6888b7c99dd1deabbbfcd63367e7112aedc92c0bacd"
+    },
+    {
+      "path": "gkr-scoring/engine/src/testutil.rs",
+      "bytes": 6677,
+      "lines": 210,
+      "sha256": "c9fe3307b1380bd18a90655765b77ceeefc40e1dd72890de6cf9be781aeb5fa5"
+    },
+    {
+      "path": "gkr-scoring/engine/src/transcript.rs",
+      "bytes": 2389,
+      "lines": 89,
+      "sha256": "5ad3921d8d49daddd25501d9380b99af05595c141528fdb4b3569237bdcafff4"
+    },
+    {
+      "path": "gkr-scoring/engine/src/zeromorph.rs",
+      "bytes": 20828,
+      "lines": 593,
+      "sha256": "2928ec08a48062fd3a8c22b14fadd6b1411cbeabf066fec779c8337bad71cd1c"
+    },
+    {
+      "path": "gkr-scoring/engine/tests/end_to_end.rs",
+      "bytes": 9386,
+      "lines": 283,
+      "sha256": "e84fc0d65a2987c8a2b4e7be957b8a4c3d8b13aec5ec06de6f96590239acf3b7"
+    },
+    {
+      "path": "gkr-scoring/gkr/.gitignore",
+      "bytes": 60,
+      "lines": 7,
+      "sha256": "5249ff0722ef02b0f4d068d30c0a3b42d7aa83d80f6a9ddd4b4cc3953b25886b"
+    },
+    {
+      "path": "gkr-scoring/gkr/BASELINE.md",
+      "bytes": 3845,
+      "lines": 67,
+      "sha256": "1c0c851ec1c74fec6e3dbf0340e35ed2c5bc3d8a74390d211e12afbd86edf1a9"
+    },
+    {
+      "path": "gkr-scoring/gkr/README.md",
+      "bytes": 2944,
+      "lines": 86,
+      "sha256": "09c9e02bc232df0c9274749ebc1e918436f6815126a6cd1482b9ea4e9ea083ee"
+    },
+    {
+      "path": "gkr-scoring/gkr/SECURITY.md",
+      "bytes": 11280,
+      "lines": 58,
+      "sha256": "6ff5eccae77f06d61fc8ca52ef08cef8df96351e55e1ba70b718c23312da0400"
+    },
+    {
+      "path": "gkr-scoring/gkr/UPSTREAM.md",
+      "bytes": 2105,
+      "lines": 35,
+      "sha256": "f70bd5535fd52741b9bbffc34ea95e088ee8e60f2ef45008109a7100662e83a5"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/README.md",
+      "bytes": 286,
+      "lines": 2,
+      "sha256": "3a7c41f70f081e700dbeb803911a3cf227b6200bba343110d4bf843f1f37ca56"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/.gitignore",
+      "bytes": 14,
+      "lines": 1,
+      "sha256": "bfb16fc2dc3b7f24e20981aa586e31d66293c81eb7c2e5d0a9bbb252b13c6271"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/circom/poly/multivariate.circom",
+      "bytes": 1432,
+      "lines": 41,
+      "sha256": "626da936774c278a92fdfddac491e4df3156ae96155c4a9c8437199c61422106"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/circom/poly/univariate.circom",
+      "bytes": 318,
+      "lines": 15,
+      "sha256": "db30523b6eb0101c2373d2968604c72d938e12a805c44ff89faccae775a69fb8"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/circom/sumcheck/sumcheckVerify.circom",
+      "bytes": 1181,
+      "lines": 37,
+      "sha256": "d64668266e2377f3995aa04c9babdf02a9ebd0e63af7978cbca454e23423c7ff"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/circom/transcript.circom",
+      "bytes": 968,
+      "lines": 39,
+      "sha256": "02dd7f6dcdbe21d322787c2c85e09c39b5549abf61a3cf2688b30dcdb912b415"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/circom/verifier.circom",
+      "bytes": 674,
+      "lines": 13,
+      "sha256": "f127b4c29120e369f0ba090fdf70f450e90f303d3dcc18bf7038c11d29f5e767"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/package-lock.json",
+      "bytes": 808,
+      "lines": 28,
+      "sha256": "15d928c9bfd2f623101faf3c41aeebf26af1ed09083de760289b77dbc95064da"
+    },
+    {
+      "path": "gkr-scoring/gkr/gkr-verifier-circuits/circom/package.json",
+      "bytes": 311,
+      "lines": 17,
+      "sha256": "5c1d48a70cb73bd3fc91a19c9ca0ec0b0252b5fb8ce7c66c97fb03f516af0823"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0001-Build-on-stable-Rust-gate-aggregator-behind-a-featur.patch",
+      "bytes": 32013,
+      "lines": 833,
+      "sha256": "48b3085196ba8b839b222cf29554f4e2ca81a0d74cfab2c3fc2be04e96cc6d57"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0002-Fix-Fiat-Shamir-chained-transcript-bound-to-circuit-.patch",
+      "bytes": 28977,
+      "lines": 793,
+      "sha256": "b1c00082405518d53cee5fa5044f78dc7563b91fe1b2e3744f994ba173e8fcb8"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0003-Add-a-sound-Rust-verifier-a-layered-circuit-builder-.patch",
+      "bytes": 18823,
+      "lines": 514,
+      "sha256": "853c37496d5203a0779aa189a069fb67e8c7e0005c6f727a4e75c9fc7bc6fcd5"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0004-Add-cross-language-known-answer-tests-for-the-transc.patch",
+      "bytes": 2668,
+      "lines": 74,
+      "sha256": "3d8949a341e10d0b0773efadce3d3240e8d2d87513c5cbb60ed598cda9a2b637"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0005-Fix-python-verifier-share-the-rust-transcript.patch",
+      "bytes": 29294,
+      "lines": 746,
+      "sha256": "c681228656b495a89fd9bf7f4056e6ee5c43a3b16b62c150bc02c58f80f3d644"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0006-Pin-constant-input-positions-of-R1CS-derived-circuit.patch",
+      "bytes": 7768,
+      "lines": 185,
+      "sha256": "94516e2d74cab0857dd76885d3b6b2c3cf98280bc63c5a0bb517792f43182b90"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0007-Replace-the-unsound-circom-verifier-with-generated-c.patch",
+      "bytes": 55374,
+      "lines": 1388,
+      "sha256": "8b4d164e2468fb1ed07c0b5d788c5bebd2aca2e291fdabc7c284d7c3a307f6e7"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0008-Fail-loudly-on-circom-node-errors-fix-infinite-recur.patch",
+      "bytes": 5188,
+      "lines": 135,
+      "sha256": "86b4c53f0d617e71d3f8e701d6f773d9394f1c79635edae7f62ebdcfc72bf647"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0009-Add-gkr-baseline-timing-binary.patch",
+      "bytes": 4164,
+      "lines": 115,
+      "sha256": "1fd20331b8c943ca2d26b4e13835e0d26876095fbf7aa37b099548973da13f73"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0010-Mark-the-mock-Groth16-setup-as-dev-only-check-snarkj.patch",
+      "bytes": 7402,
+      "lines": 180,
+      "sha256": "29aedd39a12acdb86eac04ec4ad0bf858483126f85e2c4024c0d6f6cb5851cb8"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0011-Add-SECURITY.md-UPSTREAM.md-and-a-reproduction-of-th.patch",
+      "bytes": 22546,
+      "lines": 348,
+      "sha256": "ddeab17e7ea0e7aaaea9961647830c5f335563c6c191a1f2b8f56611a943d3ba"
+    },
+    {
+      "path": "gkr-scoring/gkr/patches/0012-Add-BASELINE.md-timing-of-the-fixed-upstream-prover.patch",
+      "bytes": 4428,
+      "lines": 86,
+      "sha256": "252071104c495a62624e0353c647b803565de3f5ad895b5998c4e3ad5efe8f6e"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/genjson.py",
+      "bytes": 814,
+      "lines": 18,
+      "sha256": "9c87b0c8b6ca5bab846d275f0372c3ea90cf66d16331991b694478754308fde3"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/gkr.py",
+      "bytes": 11228,
+      "lines": 305,
+      "sha256": "10612dc434f117cbb2c5eb589a6f9b42db15b0064d619c69f734672fad3efc67"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/legacy_upstream.py",
+      "bytes": 2236,
+      "lines": 55,
+      "sha256": "9ed979cc339fb47b535f783abb68c002efbfdfdfb4b915e7fffd91b64f885d94"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/poly.py",
+      "bytes": 11440,
+      "lines": 372,
+      "sha256": "1408a712f8b994f13553c80508c19ce4d495ee871395b0a53e80961073dc3dde"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/sumcheck.py",
+      "bytes": 3013,
+      "lines": 89,
+      "sha256": "9a05850e20ede458d8ceda25af59aff0951f0c7da4087b32af12773b773d46d0"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/test_gkr.py",
+      "bytes": 2538,
+      "lines": 115,
+      "sha256": "c05d52b6bc4c65928005ff5765bafdeb3c0ccdb77851008016c0c73a3fd2d435"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/test_security.py",
+      "bytes": 7414,
+      "lines": 181,
+      "sha256": "e0d08a10f722782677620def3beea2bd6e864514a779b04d0872bc2317aba6ac"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/transcript.py",
+      "bytes": 1855,
+      "lines": 69,
+      "sha256": "9d0c277ef15c2de975477e9ef15a9dad8006953b14728c576619a33641ac3729"
+    },
+    {
+      "path": "gkr-scoring/gkr/python/util.py",
+      "bytes": 237,
+      "lines": 10,
+      "sha256": "3a3af3dbae614ac30fa5e82a55e4b0f130f501286cf64d9e1997f0af8a345f28"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/forge.circom",
+      "bytes": 242,
+      "lines": 4,
+      "sha256": "7cd3239119d4fb38f1cf06656151336c0628932ad568576faca4dcb062ce661a"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/run.sh",
+      "bytes": 649,
+      "lines": 11,
+      "sha256": "0e193b96c7b6880639dd5ef9ca45a1961d375440232d6b49fae8d0ae932be9c3"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/upstream-circom/poly/multivariate.circom",
+      "bytes": 682,
+      "lines": 25,
+      "sha256": "20b38f2363a7f3b351afc7187e7f9cb18ef72eba7cb3097c65a955719a6675d4"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/upstream-circom/poly/univariate.circom",
+      "bytes": 318,
+      "lines": 15,
+      "sha256": "db30523b6eb0101c2373d2968604c72d938e12a805c44ff89faccae775a69fb8"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/upstream-circom/sumcheck/sumcheckVerify.circom",
+      "bytes": 1023,
+      "lines": 42,
+      "sha256": "8e3d6c4a9e8748f866e76ad09edf3adfcdbae8c2de473df9febaa0907dc8053a"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/upstream-circom/verifier.circom",
+      "bytes": 2085,
+      "lines": 72,
+      "sha256": "e69baf31ce801ca2d54f5996069319919fd45d5d6fa76c21177600d0fd4f3edc"
+    },
+    {
+      "path": "gkr-scoring/gkr/repro/upstream-zero-proof/zero-proof.json",
+      "bytes": 370,
+      "lines": 1,
+      "sha256": "9f105f28b698152c401eb572ee97289a20c4ff245d29915cf34306ec9294cda9"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/.gitignore",
+      "bytes": 87,
+      "lines": 8,
+      "sha256": "e87b25abfb74327e660e35b39948e03229acff4c9337db00c288f4c834155313"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/Cargo.lock",
+      "bytes": 40032,
+      "lines": 1559,
+      "sha256": "571b9e65e5aa51889af6459e011aca6e57e893f1726f6d905f6746652ff2045a"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/Cargo.toml",
+      "bytes": 1604,
+      "lines": 51,
+      "sha256": "d63e705ec3f129ef35f14f3f6396bafbda874f6f09a56c5d45e5a50be55a95eb"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/example/input1.json",
+      "bytes": 35,
+      "lines": 4,
+      "sha256": "82e606250d5d342c835cab18b723bda6f5e283cde05c8e63d5ada5b6de4b3d50"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/example/input2.json",
+      "bytes": 35,
+      "lines": 4,
+      "sha256": "b93c55ebcde26e4f378f6da6b54129c2e87ee4d2ab368270b58882d475f5a0ff"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/example/input3.json",
+      "bytes": 35,
+      "lines": 4,
+      "sha256": "df9ba04bddf0754094b823dfb0d420bd5a24c50f0ffc9d37e1722d6e88fa976d"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/aggregator.rs",
+      "bytes": 9367,
+      "lines": 217,
+      "sha256": "78f58ccefffacab3514b0cfdd9641c14a3231eac64164c0785dc8d57f488eb44"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/baseline.rs",
+      "bytes": 3102,
+      "lines": 80,
+      "sha256": "930a18e0519cadf1951395580c056f90557f4cf2291205819b0a2b4c4e7849b0"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/bin.rs",
+      "bytes": 2410,
+      "lines": 76,
+      "sha256": "8f443d04b7c133b496fd108e0cba909d8a302037bf88883137b2ff01673244ea"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/circom_codegen.rs",
+      "bytes": 11282,
+      "lines": 253,
+      "sha256": "edf6a312238947e9a6f91b77d992896eb69a0051283872822ef2ba5185e1d84f"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/convert.rs",
+      "bytes": 34384,
+      "lines": 898,
+      "sha256": "d21f1bc4b64190ac9b2eb3984e0db7104ac5471f441e24ee7ff826867cfa9106"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/file_utils.rs",
+      "bytes": 4169,
+      "lines": 126,
+      "sha256": "beab555d0ce9135dfb3e44708468c1c2e9f19c25e83f7b57e0022ff4527a5263"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr.rs",
+      "bytes": 7307,
+      "lines": 232,
+      "sha256": "5098cefbba039efb0e314407632e050a408a4860f2902e79adf5ae39f846074b"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/builder.rs",
+      "bytes": 4046,
+      "lines": 118,
+      "sha256": "c72a63c2077b1e72a31e42f443cbb1818a88ce87e2f860bd87087da1246ef01c"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/poly.rs",
+      "bytes": 15834,
+      "lines": 585,
+      "sha256": "665ccc0aa7c50a2164d97f18e6e66a07e03fe2eca2b4dde51bfd6eb3c90d2cb0"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/prover.rs",
+      "bytes": 4014,
+      "lines": 127,
+      "sha256": "af502d3c3bc4d45b84d2cc590ca6dae2fe5374d426db6da0319dc089c3a9d372"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/sumcheck.rs",
+      "bytes": 9089,
+      "lines": 216,
+      "sha256": "1333017331a69f3b95737b895372bf018565ff580823825138eee66c2ffc2f95"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/transcript.rs",
+      "bytes": 5784,
+      "lines": 182,
+      "sha256": "4a162700888c3d93a5e06d0d8c389155bf983262d414eda59f32928a74e41aea"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/gkr/verifier.rs",
+      "bytes": 3753,
+      "lines": 93,
+      "sha256": "9123809ce0f652e5585ee1cbf20e1a1809b6ee29fcb0902cb8d0db4c151fa99e"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/src/lib.rs",
+      "bytes": 179,
+      "lines": 8,
+      "sha256": "e34bb3ae5c3f3c19050d8d2edf68a6778b2bbd62d41d439ad94ca20f9187b041"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/t.circom",
+      "bytes": 338,
+      "lines": 16,
+      "sha256": "66f83f4a148882926fb2370d825f756d4d7bbc6ce2f6c5d9037faa0042c57544"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/tests/circom.rs",
+      "bytes": 6659,
+      "lines": 163,
+      "sha256": "69379de8ac512f1049bde435c781b2967c5aa8acf082ba043530078b6a31018b"
+    },
+    {
+      "path": "gkr-scoring/gkr/rust/tests/verifier.rs",
+      "bytes": 9298,
+      "lines": 253,
+      "sha256": "1bd39975ab5ecc8901e35225287a44f1664c8699d8b02bae3d1e7792cc6cd5cf"
+    },
+    {
+      "path": "sp1-scoring/.env.example",
+      "bytes": 678,
+      "lines": 19,
+      "sha256": "7f5ad16296d4b3fcc016533e519eeb5cbc9cd7bb5824acccc1027770c70dc4fd"
+    },
+    {
+      "path": "sp1-scoring/.gitignore",
+      "bytes": 122,
+      "lines": 10,
+      "sha256": "694c02c06063942873a0535f72d1945d7c98a2fb8ef5654c40ca28b116220495"
+    },
+    {
+      "path": "sp1-scoring/Cargo.lock",
+      "bytes": 26460,
+      "lines": 1054,
+      "sha256": "4f10b0e717f9989d6fb055928aeadeb4003e781fb20c167ad0078b0977b6131c"
+    },
+    {
+      "path": "sp1-scoring/Cargo.toml",
+      "bytes": 179,
+      "lines": 11,
+      "sha256": "9bac4d00d11bdcd1aa1a481d549bb672588bd188cdb6ed98aec335b9a973260d"
+    },
+    {
+      "path": "sp1-scoring/DEMO_READINESS.md",
+      "bytes": 6926,
+      "lines": 117,
+      "sha256": "9ffa961fe96d3bc9355dec869053321adcbc61a9c113497cf587066fe3d201b4"
+    },
+    {
+      "path": "sp1-scoring/README.md",
+      "bytes": 11277,
+      "lines": 204,
+      "sha256": "9db9dbdb83a8dcdb8fc4236532cd6241944ecdc2d930635b1ae7d095286fabd8"
+    },
+    {
+      "path": "sp1-scoring/SEPOLIA.md",
+      "bytes": 9855,
+      "lines": 187,
+      "sha256": "e789dca9973568d46c6bb23fb31cdeaf87e21708b0574d2e8c4b62d0a5be31fc"
+    },
+    {
+      "path": "sp1-scoring/SPEC.md",
+      "bytes": 8405,
+      "lines": 169,
+      "sha256": "603619dfc4a203ed9da1bed3643464c56c3ab84a6f40ae8c207d0670e787f492"
+    },
+    {
+      "path": "sp1-scoring/cli/Cargo.toml",
+      "bytes": 176,
+      "lines": 11,
+      "sha256": "e1c9942d65f311ee2ba615c49a398360c24e27c5f112c858fd3cdbc48fb2f6b7"
+    },
+    {
+      "path": "sp1-scoring/cli/src/main.rs",
+      "bytes": 956,
+      "lines": 27,
+      "sha256": "3d6be6e26303b040abf0190810734ada187f0331de4c40b36a116d2ccb8000e6"
+    },
+    {
+      "path": "sp1-scoring/contracts/foundry.toml",
+      "bytes": 312,
+      "lines": 16,
+      "sha256": "4560661ac5dfc50baa1f63ce7366d16c1a8574904e0cd22ec962b8dec5b30ae6"
+    },
+    {
+      "path": "sp1-scoring/contracts/script/Sepolia.s.sol",
+      "bytes": 7414,
+      "lines": 141,
+      "sha256": "88d88a2dc375e10d5763d4f73634741927a10324ed0dfa655b01868c4a09480d"
+    },
+    {
+      "path": "sp1-scoring/contracts/src/ManiaScoreVerifier.sol",
+      "bytes": 7077,
+      "lines": 175,
+      "sha256": "104ac0095df7cf8bac81a3c13a0d876e01b35b233542f9fa0eacd5b621514e47"
+    },
+    {
+      "path": "sp1-scoring/contracts/test/ManiaScoreVerifier.t.sol",
+      "bytes": 7997,
+      "lines": 183,
+      "sha256": "533f99f76e54811f908654d7c42bdf81adaa6760c0b4bee78a294407277ce656"
+    },
+    {
+      "path": "sp1-scoring/contracts/test/SepoliaScript.t.sol",
+      "bytes": 7448,
+      "lines": 173,
+      "sha256": "40b63771b0adc0c95bc8ac51da21a2c3eeefd95b3bd949f434cab80c89637815"
+    },
+    {
+      "path": "sp1-scoring/core/Cargo.toml",
+      "bytes": 206,
+      "lines": 13,
+      "sha256": "b5f3febbd20238699f195936872b1799563b56bbfccaa77dc8875279d3c9153c"
+    },
+    {
+      "path": "sp1-scoring/core/src/lib.rs",
+      "bytes": 10772,
+      "lines": 333,
+      "sha256": "9fdf0e967ba936e043ce3f3ebb05d6f3b8f87e6c5004ab55890ec0f2f5df67e1"
+    },
+    {
+      "path": "sp1-scoring/core/tests/scoring.rs",
+      "bytes": 11151,
+      "lines": 365,
+      "sha256": "d1d7c0d8f0fde02c725a6daa129ffd77a302683151e98297a784b4e3ff9c449e"
+    },
+    {
+      "path": "sp1-scoring/fixtures/demo.expected.json",
+      "bytes": 3120,
+      "lines": 191,
+      "sha256": "eb1df8a3885c85b7035f54ff8943c564bf8f7c9305ac1a64bbeba6bec3189127"
+    },
+    {
+      "path": "sp1-scoring/fixtures/demo.json",
+      "bytes": 4751,
+      "lines": 422,
+      "sha256": "45f44bb97f7590cb574b44eac6da5311306cef000c934cae00b6bbc3b3fae8b1"
+    },
+    {
+      "path": "sp1-scoring/fixtures/demo.osu",
+      "bytes": 331,
+      "lines": 22,
+      "sha256": "9bf98005ff6159d5cd11a138d1401ebfe6488f30e844ac26a4f14109b046d101"
+    },
+    {
+      "path": "sp1-scoring/fixtures/perfect.json",
+      "bytes": 4748,
+      "lines": 422,
+      "sha256": "931d218a0f909836f685adba1f3ab1f73a9c8df139afefc6dcb8eb52fdcaf210"
+    },
+    {
+      "path": "sp1-scoring/fixtures/trace-vectors.json",
+      "bytes": 2023,
+      "lines": 240,
+      "sha256": "8e033d0fb8aad7d10f8889e6a38d325e3ed1d70c0ed726aca142ee78dd4c21d6"
+    },
+    {
+      "path": "sp1-scoring/host/Cargo.lock",
+      "bytes": 133707,
+      "lines": 5547,
+      "sha256": "1ef490baafe2ad25e5e4d89529bf57da7d1a2bedce6ecd1d9339540a0572e612"
+    },
+    {
+      "path": "sp1-scoring/host/Cargo.toml",
+      "bytes": 299,
+      "lines": 17,
+      "sha256": "ac8dc0ce3efd9fe8803e74f38e6b1067628f0afb7b23a17be5f934b2d92868fa"
+    },
+    {
+      "path": "sp1-scoring/host/build.rs",
+      "bytes": 184,
+      "lines": 9,
+      "sha256": "5890e1fc7cb959dfad10af2c879bf4751cf65559d3e08999cdb6346fc29baab8"
+    },
+    {
+      "path": "sp1-scoring/host/src/main.rs",
+      "bytes": 5691,
+      "lines": 141,
+      "sha256": "665a422d6a6b7f6b1f7b6b96da7240eee8666846d87617e4cb72f7ebbcee148c"
+    },
+    {
+      "path": "sp1-scoring/program/Cargo.lock",
+      "bytes": 23255,
+      "lines": 931,
+      "sha256": "f9e53a53d745b171dd8a07502442e9c4ec5d14913592f2ad1b55923e4fbc93d7"
+    },
+    {
+      "path": "sp1-scoring/program/Cargo.toml",
+      "bytes": 183,
+      "lines": 11,
+      "sha256": "ff341be8429180b6b3e3c76f8c007b167d0619e9787c163478f9e4603b92179f"
+    },
+    {
+      "path": "sp1-scoring/program/src/main.rs",
+      "bytes": 271,
+      "lines": 8,
+      "sha256": "10185af618dddb0afd81e5a3a131bbcad59e7c35ae94114cc141a4a30e0e5020"
+    },
+    {
+      "path": "sp1-scoring/scripts/benchmark.py",
+      "bytes": 2073,
+      "lines": 44,
+      "sha256": "beee0c706e3b7971a10f7201f0a7bacac7b11bef3c3174549037e691575898f3"
+    },
+    {
+      "path": "sp1-scoring/scripts/build_sp1.sh",
+      "bytes": 572,
+      "lines": 13,
+      "sha256": "a42992af75d7adc21946065767ae0f08f90d1c701d8ef1612f966f6695019d46"
+    },
+    {
+      "path": "sp1-scoring/scripts/make_fixture.py",
+      "bytes": 6502,
+      "lines": 149,
+      "sha256": "3dcce15417c5fc57daf95d2c3725ea60f79e8f28bf2fe53359a60f1655026d31"
+    },
+    {
+      "path": "sp1-scoring/scripts/prove_http.py",
+      "bytes": 3622,
+      "lines": 80,
+      "sha256": "83a148300c9a63bcba964a5e50d6956471733d073f8dbe72ab18b516c60e4da8"
+    },
+    {
+      "path": "sp1-scoring/scripts/receipt_value.py",
+      "bytes": 2397,
+      "lines": 54,
+      "sha256": "83fc494486a4864e20b958d368abdd8e5e195590884cb6b6831c96058cd5208d"
+    },
+    {
+      "path": "sp1-scoring/scripts/sepolia.sh",
+      "bytes": 1335,
+      "lines": 36,
+      "sha256": "d521fb0172d3739d852955185fafde5cf4aa9a6a66a121136c546cfc6718ffba"
+    },
+    {
+      "path": "sp1-scoring/scripts/session_input.py",
+      "bytes": 2455,
+      "lines": 53,
+      "sha256": "2292f80a30e4922efea3f93ffb3df82aeb03069660b9865155ddd721409f3b8a"
+    },
+    {
+      "path": "sp1-scoring/scripts/smoke_http.py",
+      "bytes": 4087,
+      "lines": 92,
+      "sha256": "7ee5e2eea70f3a489f8498d7046442acadde66447b891be5faa3d64da8fc25af"
+    },
+    {
+      "path": "sp1-scoring/scripts/test_canonicalizer.py",
+      "bytes": 1600,
+      "lines": 42,
+      "sha256": "3d91d91dee6e1eae6294e963b9363df56752e74641309dac56464ea39ea03344"
+    },
+    {
+      "path": "sp1-scoring/scripts/test_sepolia_tools.py",
+      "bytes": 2796,
+      "lines": 58,
+      "sha256": "6f43c52ef8f5de36d3f7b1c7d1a7ae10102c8a9178fdb878e59bbb7ddbd3ca99"
+    },
+    {
+      "path": "sp1-scoring/scripts/unlock_demo_signer.py",
+      "bytes": 1792,
+      "lines": 46,
+      "sha256": "adaa36d3f4ab5c27fa8bcf49d52d4fee97653464f66e3819b557c4987c86424f"
+    },
+    {
+      "path": "sp1-scoring/server/Cargo.toml",
+      "bytes": 686,
+      "lines": 27,
+      "sha256": "a9b9197538a584d4e1e7aff793640b39a75bb6e9815cb7c33a544e3cceab87d2"
+    },
+    {
+      "path": "sp1-scoring/server/README.md",
+      "bytes": 11939,
+      "lines": 223,
+      "sha256": "9c04d200bce7b8edec7256ac821654858becd51a0228ac2d0da285f0680aeebd"
+    },
+    {
+      "path": "sp1-scoring/server/src/docker.rs",
+      "bytes": 4513,
+      "lines": 127,
+      "sha256": "b9f2404c7258e096624e6ef5e99942ff019b1563f5259a5525b20598d5505b1e"
+    },
+    {
+      "path": "sp1-scoring/server/src/lib.rs",
+      "bytes": 20826,
+      "lines": 655,
+      "sha256": "d298d661e07f5915a0dab898dd15f0601b7d14bce8e7ad7e291a780f4dfc14dd"
+    },
+    {
+      "path": "sp1-scoring/server/src/main.rs",
+      "bytes": 2292,
+      "lines": 69,
+      "sha256": "679c1ce6ba692fa137fab4a9ef96d2e93c0ccc854148a789284015486186717b"
+    },
+    {
+      "path": "sp1-scoring/server/src/process.rs",
+      "bytes": 3239,
+      "lines": 100,
+      "sha256": "d2d5177588b5db51458e774a3f05be55ccad454892591148d3dc4509ff8c553a"
+    },
+    {
+      "path": "sp1-scoring/server/src/tests.rs",
+      "bytes": 13125,
+      "lines": 396,
+      "sha256": "bc38b3eb92fe71c9c9cedf29945dd8893ea531b4e6d553cf2e7ebbd1fd79bc39"
+    }
+  ]
+}

@@ -1,0 +1,746 @@
+From 0767422fb116fe870f7d2dc945273e0bca5e5aaf Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 12:45:30 +0900
+Subject: [PATCH 05/12] Fix python verifier; share the rust transcript
+
+- verify(circuit, output, input, proof): initial claim is D~(z0) of the
+  caller's claimed output with z0 from the transcript (upstream took D and z0
+  from the proof and never compared D with anything)
+- sumcheck: exact round count (upstream v == 1 early accept), exact degree
+  bound, challenges recomputed from a chained transcript, and the final value
+  g_v(r_v) is bound to add~/mult~ of the verifier's circuit (upstream compared
+  against prover-supplied f[i] and used prover-supplied add/mult/k)
+- z_{i+1} = l(b*, c*, r*) recomputed, final claim checked against the caller's
+  input MLE (upstream used prover-supplied input_func and z)
+- transcript.py: circomlib-compatible MiMC7 transcript identical to rust
+  (upstream used ethsnarks mimc_hash, which is a different MiMC than circom's)
+- test_security.py: KATs shared with rust, identical proofs, tampering, and a
+  concrete forgery accepted by the verbatim upstream verifier (legacy_upstream.py)
+---
+ python/gkr.py             | 195 ++++++++++++++++++++++++++------------
+ python/legacy_upstream.py |  55 +++++++++++
+ python/sumcheck.py        |  81 ++++++++++------
+ python/test_gkr.py        |   5 +-
+ python/test_security.py   | 181 +++++++++++++++++++++++++++++++++++
+ python/transcript.py      |  69 ++++++++++++++
+ 6 files changed, 491 insertions(+), 95 deletions(-)
+ create mode 100644 python/legacy_upstream.py
+ create mode 100644 python/test_security.py
+ create mode 100644 python/transcript.py
+
+diff --git a/python/gkr.py b/python/gkr.py
+index 45503b7..85da98c 100644
+--- a/python/gkr.py
++++ b/python/gkr.py
+@@ -2,6 +2,7 @@ import math
+ import time
+ from poly import *
+ from sumcheck import *
++from transcript import Transcript, DOMAIN_PROOF, DOMAIN_CIRCUIT
+ 
+ class Node:
+   def __init__(self, binary_index: list[int], value, left=None, right=None):
+@@ -97,6 +98,10 @@ def ell(p1: list[field.FQ], p2: list[field.FQ], t: field.FQ):
+ 
+ 
+ class Proof:
++    """Only `sumcheck_proofs` and `q` are read by `verify`; every other field is a
++    prover-side debug hint that the verifier recomputes and never trusts (upstream's
++    verifier read D, z, r, add, mult, k and input_func from here)."""
++
+     def __init__(self, proofs, r, f, D, q, z, r_stars, d, w, adds, mults, k) -> None:
+       self.sumcheck_proofs : list[list[list[field.FQ]]] = proofs
+       self.sumcheck_r : list[list[field.FQ]] = r
+@@ -127,22 +132,96 @@ class Proof:
+         to_serialize['mult'] = list(map(lambda x: list(map(lambda y: list(map(lambda z: repr(z), y)), x)), self.mult))
+         return to_serialize
+ 
+-def prove(circuit: Circuit, D):
++
++def _bits(value, k):
++    return [field.FQ((value >> (k - 1 - j)) & 1) for j in range(k)]
++
++
++def _values(func, k):
++    return [func(_bits(i, k)) for i in range(1 << k)]
++
++
++def gates(circuit: Circuit, i):
++    """(add gates, mult gates) of layer i as (z, b, c) triples, MSB-first bit order."""
++    kz, kn = circuit.k_i(i), circuit.k_i(i + 1)
++    out = ([], [])
++    for z in range(1 << kz):
++        for b in range(1 << kn):
++            for c in range(1 << kn):
++                bits = _bits(z, kz) + _bits(b, kn) + _bits(c, kn)
++                for slot, pred in enumerate((circuit.add_i(i), circuit.mult_i(i))):
++                    v = pred(bits)
++                    if v == field.FQ.one():
++                        out[slot].append((z, b, c))
++                    elif v is not None and v != field.FQ.zero():
++                        raise ValueError("wiring predicates must be 0/1")
++    return out
++
++
++def circuit_digest(circuit: Circuit):
++    """Same digest as GKRCircuit::digest in rust/src/gkr.rs."""
++    t = Transcript(DOMAIN_CIRCUIT)
++    depth = circuit.depth() - 1
++    t.absorb([depth] + [circuit.k_i(i) for i in range(circuit.depth())])
++    for i in range(depth):
++        for gate_list in gates(circuit, i):
++            t.absorb([x for g in gate_list for x in g])
++    return t.squeeze()
++
++
++def start_transcript(circuit: Circuit, input_values, output_values):
++    t = Transcript(DOMAIN_PROOF)
++    t.absorb([circuit_digest(circuit)])
++    t.absorb(input_values)
++    t.absorb(output_values)
++    return t
++
++
++def mle(values, point):
++    """Multilinear extension (MSB-first variable order)."""
++    assert len(values) == 1 << len(point)
++    cur = [field.FQ(int(v)) for v in values]
++    for x in point:
++        half = len(cur) // 2
++        cur = [cur[i] + (cur[i + half] - cur[i]) * x for i in range(half)]
++    return cur[0]
++
++
++def eq_index(index, x):
++    n = len(x)
++    acc = field.FQ.one()
++    for j, xj in enumerate(x):
++        acc *= xj if (index >> (n - 1 - j)) & 1 else field.FQ.one() - xj
++    return acc
++
++
++def wiring_eval(gate_list, z, b, c):
++    acc = field.FQ.zero()
++    for gz, gb, gc in gate_list:
++        acc += eq_index(gz, z) * eq_index(gb, b) * eq_index(gc, c)
++    return acc
++
++
++def prove(circuit: Circuit, D=None):
++    """Fiat-Shamir GKR prover. `D` is accepted for backwards compatibility and ignored:
++    the output is the circuit's own layer-0 values (bound into the transcript)."""
+     start_time = time.time()
++    depth = circuit.depth()
++    output_values = _values(circuit.w_i(0), circuit.k_i(0))
++    input_values = _values(circuit.w_i(depth - 1), circuit.k_i(depth - 1))
++    transcript = start_transcript(circuit, input_values, output_values)
+ 
+-    D_poly = get_multi_ext(D, circuit.k_i(0))
+-    z = [[]] * circuit.depth()
+-    z[0] = [field.FQ.zero()] * circuit.k_i(0)
++    z = [[]] * depth
++    z[0] = transcript.squeeze_n(circuit.k_i(0))  # upstream: prover-chosen random point
+     sumcheck_proofs = []
+     q = []
+     f_res = []
+     sumcheck_r = []
+     r_stars = []
+ 
+-    for i in range(len(z[0])):
+-        z[0][i] = field.FQ.random() # This initial value is unsafe
+-
+-    for i in range(circuit.depth() - 1):
++    for i in range(depth - 1):
++        if circuit.k_i(i + 1) == 0:
++            raise ValueError("layers below the output need >= 2 gates")
+         add_i_ext = get_ext(circuit.add_i(i), circuit.k_i(i) + 2 * circuit.k_i(i + 1))
+         for j, r in enumerate(z[i]):
+             add_i_ext = add_i_ext.eval_i(r, j + 1)
+@@ -160,7 +239,7 @@ def prove(circuit: Circuit, D):
+ 
+         start_idx = circuit.k_i(i) + 1
+ 
+-        sumcheck_proof, r = prove_sumcheck(f, 2 * circuit.k_i(i + 1), start_idx)
++        sumcheck_proof, r = prove_sumcheck(f, 2 * circuit.k_i(i + 1), start_idx, transcript)
+         sumcheck_proofs.append(sumcheck_proof)
+         sumcheck_r.append(r)
+ 
+@@ -168,64 +247,58 @@ def prove(circuit: Circuit, D):
+         c_star = r[circuit.k_i(i + 1):(2 * circuit.k_i(i + 1))]
+ 
+         next_w = get_ext(circuit.w_i(i + 1), circuit.k_i(i + 1))
+-        q_i = reduce_multiple_polynomial(b_star, c_star, next_w)
+-
++        q_i = normalize(reduce_multiple_polynomial(b_star, c_star, next_w), circuit.k_i(i + 1) + 1)
++        transcript.absorb(q_i)
+         q.append(q_i)
++        f_res.append(eval_univariate(sumcheck_proof[-1], r[-1]))
+ 
+-        f_result = polynomial(f.terms, f.constant)
+-        f_result_value = field.FQ.zero()
+-        for j, x in enumerate(r):
+-            if j == len(r) - 1:
+-                f_result_value = f_result.eval_univariate(x)
+-            f_result = f_result.eval_i(x, j + start_idx)
+-        
+-        f_res.append(f_result_value)
+-
+-        r_star = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), sumcheck_proof[len(sumcheck_proof) - 1]))))
+-        next_r = ell(b_star, c_star, r_star)
+-        z[i + 1] = next_r # r_(i + 1)
++        r_star = transcript.squeeze()  # upstream: MiMC(last sumcheck message) only
++        z[i + 1] = ell(b_star, c_star, r_star)
+         r_stars.append(r_star)
+ 
+-    w_input = get_multi_ext(circuit.w_i(circuit.depth() - 1), circuit.k_i(circuit.depth() - 1))
+-    adds = []
+-    mults = []
+-    k = []
+-    for i in range(circuit.depth() - 1):
+-        adds.append(get_multi_ext(circuit.add_i(i), circuit.k_i(i) + 2 * circuit.k_i(i + 1)))
+-        mults.append(get_multi_ext(circuit.mult_i(i), circuit.k_i(i) + 2 * circuit.k_i(i + 1)))
+-        k.append(circuit.k_i(i))
+-    k.append(circuit.k_i(circuit.depth() - 1))
+-    proof = Proof(sumcheck_proofs, sumcheck_r, f_res, D_poly, q, z, r_stars, circuit.depth(), w_input, adds, mults, k)
++    k = [circuit.k_i(i) for i in range(depth)]
++    proof = Proof(sumcheck_proofs, sumcheck_r, f_res, None, q, z, r_stars, depth, None, None, None, k)
+     print("proving time :", time.time() - start_time)
+     return proof
+ 
+-def verify(proof: Proof):
+-    start = time.time()
+-    m = [field.FQ.zero()]*proof.d
+-    m[0] = eval_expansion(proof.D, proof.z[0])
+ 
+-    for i in range(proof.d - 1):
+-        valid = verify_sumcheck(m[i], proof.sumcheck_proofs[i], proof.sumcheck_r[i], 2 * proof.k[i + 1])
+-        if not valid:
+-            return False
+-        else:
+-            q_i = proof.q[i]
+-            q_zero = eval_univariate(q_i, field.FQ.zero())
+-            q_one = eval_univariate(q_i, field.FQ.one())
+-
+-            modified_f = eval_expansion(proof.add[i], proof.z[i] + proof.sumcheck_r[i]) * (q_zero + q_one) \
+-                        + eval_expansion(proof.mult[i], proof.z[i] + proof.sumcheck_r[i]) * (q_zero * q_one)
+-
+-            sumcheck_p = proof.sumcheck_proofs[i]
+-            sumcheck_p_hash = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), sumcheck_p[len(sumcheck_p) - 1]))))
+-
+-            if (proof.f[i] != modified_f) or (sumcheck_p_hash != proof.r[i]):
+-                print("verifying time :", time.time() - start)
+-                return False
+-            else:
+-                m[i + 1] = eval_univariate(q_i, proof.r[i])
+-    if m[proof.d - 1] != eval_expansion(proof.input_func, proof.z[proof.d - 1]):
+-        print("verifying time :", time.time() - start)
++def verify(circuit: Circuit, output_values, input_values, proof: Proof):
++    """Sound verifier: the circuit, claimed output and input come from the caller; every
++    challenge is recomputed; each layer's sumcheck end value is bound to the circuit's
++    own add~/mult~ wiring; the last claim is checked against the caller's input MLE."""
++    depth = circuit.depth() - 1
++    k = [circuit.k_i(i) for i in range(circuit.depth())]
++    if len(output_values) != 1 << k[0] or len(input_values) != 1 << k[depth]:
+         return False
+-    print("verifying time :", time.time() - start)
+-    return True
++    if len(proof.sumcheck_proofs) != depth or len(proof.q) != depth:
++        return False
++    try:
++        transcript = start_transcript(circuit, input_values, output_values)
++    except ValueError:
++        return False
++    z = transcript.squeeze_n(k[0])
++    claim = mle(output_values, z)
++    for i in range(depth):
++        if k[i + 1] == 0:
++            return False
++        res = verify_sumcheck(claim, proof.sumcheck_proofs[i], 2 * k[i + 1], transcript)
++        if res is None:
++            return False
++        claim, r = res
++        b_star, c_star = r[:k[i + 1]], r[k[i + 1]:]
++        q_i = proof.q[i]
++        if len(q_i) != k[i + 1] + 1:
++            return False
++        q_i = [field.FQ(int(c)) for c in q_i]
++        q_zero = eval_univariate(q_i, field.FQ.zero())
++        q_one = eval_univariate(q_i, field.FQ.one())
++        add_g, mult_g = gates(circuit, i)
++        expected = wiring_eval(add_g, z, b_star, c_star) * (q_zero + q_one) \
++            + wiring_eval(mult_g, z, b_star, c_star) * (q_zero * q_one)
++        if expected != claim:  # upstream compared against prover-supplied proof.f[i]
++            return False
++        transcript.absorb(q_i)
++        r_star = transcript.squeeze()
++        claim = eval_univariate(q_i, r_star)
++        z = ell(b_star, c_star, r_star)
++    return claim == mle(input_values, z)
+diff --git a/python/legacy_upstream.py b/python/legacy_upstream.py
+new file mode 100644
+index 0000000..4773940
+--- /dev/null
++++ b/python/legacy_upstream.py
+@@ -0,0 +1,55 @@
++"""VERBATIM copy of upstream's python verifier (commit 1693f3f), kept ONLY so that
++test_security.py can demonstrate that forged proofs were accepted. Do not use."""
++from ethsnarks import field, mimc
++from poly import eval_univariate, eval_expansion
++import time
++
++
++def verify_sumcheck(claim: field.FQ, proof: list[list[field.FQ]], r, v: int):
++    bn = len(proof)
++    if(v == 1 and (eval_univariate(proof[0], field.FQ.zero()) + eval_univariate(proof[0], field.FQ.one())) == claim):
++        return True
++    expected = claim
++    for i in range(bn):
++        q_zero = eval_univariate(proof[i], field.FQ.zero())
++        q_one = eval_univariate(proof[i], field.FQ.one())
++
++        if q_zero + q_one != expected:
++            return False
++        if field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), proof[i])))) != r[i]:
++            return False
++        expected = eval_univariate(proof[i], r[i])
++
++    return True
++
++
++def verify(proof):
++    start = time.time()
++    m = [field.FQ.zero()]*proof.d
++    m[0] = eval_expansion(proof.D, proof.z[0])
++
++    for i in range(proof.d - 1):
++        valid = verify_sumcheck(m[i], proof.sumcheck_proofs[i], proof.sumcheck_r[i], 2 * proof.k[i + 1])
++        if not valid:
++            return False
++        else:
++            q_i = proof.q[i]
++            q_zero = eval_univariate(q_i, field.FQ.zero())
++            q_one = eval_univariate(q_i, field.FQ.one())
++
++            modified_f = eval_expansion(proof.add[i], proof.z[i] + proof.sumcheck_r[i]) * (q_zero + q_one) \
++                        + eval_expansion(proof.mult[i], proof.z[i] + proof.sumcheck_r[i]) * (q_zero * q_one)
++
++            sumcheck_p = proof.sumcheck_proofs[i]
++            sumcheck_p_hash = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), sumcheck_p[len(sumcheck_p) - 1]))))
++
++            if (proof.f[i] != modified_f) or (sumcheck_p_hash != proof.r[i]):
++                print("verifying time :", time.time() - start)
++                return False
++            else:
++                m[i + 1] = eval_univariate(q_i, proof.r[i])
++    if m[proof.d - 1] != eval_expansion(proof.input_func, proof.z[proof.d - 1]):
++        print("verifying time :", time.time() - start)
++        return False
++    print("verifying time :", time.time() - start)
++    return True
+diff --git a/python/sumcheck.py b/python/sumcheck.py
+index ce46e2c..99de325 100644
+--- a/python/sumcheck.py
++++ b/python/sumcheck.py
+@@ -1,13 +1,34 @@
+ from poly import *
+ from util import *
+-from typing import Callable
+-from ethsnarks import mimc
+ 
+-def prove_sumcheck(g: polynomial, v: int, start: int):
++# The GKR sumcheck polynomial add*(W(b)+W(c)) + mult*W(b)*W(c) has degree <= 2 per variable.
++ROUND_COEFFS = 3
++
++
++def normalize(coeffs, length):
++    """Left-pad a highest-degree-first coefficient list to exactly `length` entries."""
++    coeffs = list(coeffs)
++    while coeffs and coeffs[0] == field.FQ.zero():
++        coeffs = coeffs[1:]
++    if len(coeffs) > length:
++        raise ValueError("polynomial exceeds degree bound")
++    return [field.FQ.zero()] * (length - len(coeffs)) + coeffs
++
++
++def prove_sumcheck(g: polynomial, v: int, start: int, transcript):
++    """Each round polynomial is absorbed into the running transcript before its challenge
++    is squeezed (upstream hashed only the current message)."""
+     proof = []
+     r = []
++
++    def send(coeffs):
++        coeffs = normalize(coeffs, ROUND_COEFFS)
++        transcript.absorb(coeffs)
++        proof.append(coeffs)
++        r.append(transcript.squeeze())
++
+     # first round
+-    # g1(X1)=∑(x2,⋯,xv)∈{0,1}^v g(X_1,x_2,⋯,x_v)    
++    # g1(X1)=∑(x2,⋯,xv)∈{0,1}^v g(X_1,x_2,⋯,x_v)
+     g_1 = polynomial([])
+     assignments = generate_binary(v - 1)
+     for assignment in assignments:
+@@ -16,10 +37,7 @@ def prove_sumcheck(g: polynomial, v: int, start: int):
+             idx = i + 1 + start
+             g_1_sub = g_1_sub.eval_i(x_i, idx)
+         g_1 += g_1_sub
+-    proof.append(g_1.get_all_coefficients())
+-
+-    r_1 = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), g_1.get_all_coefficients()))))
+-    r.append(r_1)
++    send(g_1.get_all_coefficients())
+ 
+     # 1 < j < v round
+     for j in range(1, v - 1):
+@@ -28,7 +46,7 @@ def prove_sumcheck(g: polynomial, v: int, start: int):
+         for i, r_i in enumerate(r):
+             idx = i + start
+             g_j = g_j.eval_i(r_i, idx)
+-        
++
+         res_g_j = polynomial([])
+         for assignment in assignments:
+             g_j_sub = polynomial(g_j.terms[:], g_j.constant)
+@@ -36,35 +54,36 @@ def prove_sumcheck(g: polynomial, v: int, start: int):
+                 idx = j + k + start + 1
+                 g_j_sub = g_j_sub.eval_i(x_i, idx)
+             res_g_j += g_j_sub
+-        proof.append(res_g_j.get_all_coefficients())
+-
+-        r_n = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), proof[len(proof) - 1]))))
+-        r.append(r_n)
++        send(res_g_j.get_all_coefficients())
+ 
+     g_v = polynomial(g.terms[:], g.constant)
+     for i, r_i in enumerate(r):
+         idx = i + start
+         g_v = g_v.eval_i(r_i, idx)
+-    proof.append(g_v.get_all_coefficients())
+-
+-    r_v = field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), proof[len(proof) - 1]))))
+-    r.append(r_v)
++    send(g_v.get_all_coefficients())
+ 
+     return proof, r
+ 
+-def verify_sumcheck(claim: field.FQ, proof: list[list[field.FQ]], r, v: int):
+-    bn = len(proof)
+-    if(v == 1 and (eval_univariate(proof[0], field.FQ.zero()) + eval_univariate(proof[0], field.FQ.one())) == claim):
+-        return True
+-    expected = claim
+-    for i in range(bn):
+-        q_zero = eval_univariate(proof[i], field.FQ.zero())
+-        q_one = eval_univariate(proof[i], field.FQ.one())
+ 
+-        if q_zero + q_one != expected:
+-            return False
+-        if field.FQ(mimc.mimc_hash(list(map(lambda x : int(x), proof[i])))) != r[i]:
+-            return False
+-        expected = eval_univariate(proof[i], r[i])
++def verify_sumcheck(claim: field.FQ, proof, v: int, transcript):
++    """Returns (final_claim, challenges) or None.
+ 
+-    return True
++    Fixed vs upstream: exactly v rounds (the `v == 1` shortcut accepted without any
++    challenge), exact degree bound, challenges recomputed from the transcript, and the
++    final evaluation g_v(r_v) is returned so the caller can bind it to the circuit.
++    """
++    if len(proof) != v:
++        return None
++    expected = claim
++    r = []
++    for g in proof:
++        if len(g) != ROUND_COEFFS:
++            return None
++        g = [field.FQ(int(c)) for c in g]
++        if eval_univariate(g, field.FQ.zero()) + eval_univariate(g, field.FQ.one()) != expected:
++            return None
++        transcript.absorb(g)
++        r_i = transcript.squeeze()
++        r.append(r_i)
++        expected = eval_univariate(g, r_i)
++    return expected, r
+diff --git a/python/test_gkr.py b/python/test_gkr.py
+index bcfa9fc..ef58e80 100644
+--- a/python/test_gkr.py
++++ b/python/test_gkr.py
+@@ -1,5 +1,4 @@
+ from gkr import *
+-from genjson import *
+ 
+ zero = field.FQ.zero()
+ one = field.FQ.one()
+@@ -111,6 +110,6 @@ def D_func(arr):
+   elif arr == [one]:
+     return field.FQ(6)
+ 
+-proof = prove(c, D_func)
++proof = prove(c)
+ # generate_json(proof)
+-print(verify(proof))
++print(verify(c, [field.FQ(36), field.FQ(6)], [field.FQ(3), field.FQ(2), field.FQ(3), field.FQ(1)], proof))
+diff --git a/python/test_security.py b/python/test_security.py
+new file mode 100644
+index 0000000..68570c6
+--- /dev/null
++++ b/python/test_security.py
+@@ -0,0 +1,181 @@
++"""Security regression tests for the fixed python GKR (run: python3 -m unittest -v).
++
++Requires `pip install ethsnarks` (field arithmetic; pysha3 for keccak).
++"""
++import copy
++import unittest
++
++from ethsnarks import field, mimc
++
++import legacy_upstream
++from gkr import Circuit, Proof, prove, verify, circuit_digest, mle
++from poly import get_multi_ext, eval_univariate
++from transcript import Transcript, DOMAIN_PROOF, mimc7
++
++zero, one = field.FQ.zero(), field.FQ.one()
++F = field.FQ
++
++
++def example_circuit():
++    """Upstream example (test_gkr.py): outputs (3*3 * 2*2, 2*3 * 1*1) = (36, 6)."""
++    c = Circuit(3)
++    for idx, v in enumerate([36, 6]):
++        c.add_node(0, idx, [idx], v)
++    for idx, v in enumerate([9, 4, 6, 1]):
++        c.add_node(1, idx, [idx >> 1, idx & 1], v)
++    for idx, v in enumerate([3, 2, 3, 1]):
++        c.add_node(2, idx, [idx >> 1, idx & 1], v)
++
++    def table(values, k):
++        def f(bits):
++            return F(values[int("".join(str(int(b)) for b in bits), 2)])
++        return f
++
++    def pred(gates, k_out, k_in):
++        def f(bits):
++            key = tuple(int(b) for b in bits)
++            return one if key in gates else zero
++        return f
++
++    def gate_bits(z, b, cc, kz, kn):
++        tobits = lambda v, k: tuple((v >> (k - 1 - j)) & 1 for j in range(k))
++        return tobits(z, kz) + tobits(b, kn) + tobits(cc, kn)
++
++    c.layers[0].add_func(table([36, 6], 1))
++    c.layers[1].add_func(table([9, 4, 6, 1], 2))
++    c.layers[2].add_func(table([3, 2, 3, 1], 2))
++    c.layers[0].mult = pred({gate_bits(0, 0, 1, 1, 2), gate_bits(1, 2, 3, 1, 2)}, 1, 2)
++    c.layers[0].add = lambda _: zero
++    c.layers[1].mult = pred({gate_bits(0, 0, 0, 2, 2), gate_bits(1, 1, 1, 2, 2),
++                             gate_bits(2, 1, 2, 2, 2), gate_bits(3, 3, 3, 2, 2)}, 2, 2)
++    c.layers[1].add = lambda _: zero
++    return c
++
++
++OUT = [F(36), F(6)]
++INP = [F(3), F(2), F(3), F(1)]
++
++
++def forge_for_legacy(circuit, claimed_output):
++    """Builds an upstream-format proof for an arbitrary (false) output that the upstream
++    python verifier accepts: D and z0 come from the proof, round polynomials only need
++    g(0)+g(1)=claim, the end of each sumcheck is compared with the prover-supplied f, and
++    the input polynomial comes from the proof."""
++    k = [1, 2, 2]
++    d = 3
++    D = get_multi_ext(lambda bits: claimed_output[int(bits[0])], 1)
++    z = [[F(5)], None, None]
++    adds, mults = [], []
++    for i in range(d - 1):
++        v = k[i] + 2 * k[i + 1]
++        adds.append(get_multi_ext(circuit.add_i(i), v))
++        mults.append(get_multi_ext(circuit.mult_i(i), v))
++    m = legacy_upstream.eval_expansion(D, z[0])
++    proofs, rs, f, q, r_stars = [], [], [], [], []
++    for i in range(d - 1):
++        rounds, r = [], []
++        expected = m
++        for _ in range(2 * k[i + 1]):
++            g = [expected * F(2).inv()]  # constant polynomial, g(0)+g(1)=expected
++            rounds.append(g)
++            r.append(F(mimc.mimc_hash([int(x) for x in g])))
++            expected = g[0]
++        q_i = [F(7), F(11)]
++        q0, q1 = eval_univariate(q_i, zero), eval_univariate(q_i, one)
++        point = z[i] + r
++        f.append(legacy_upstream.eval_expansion(adds[i], point) * (q0 + q1)
++                 + legacy_upstream.eval_expansion(mults[i], point) * (q0 * q1))
++        r_star = F(mimc.mimc_hash([int(x) for x in rounds[-1]]))
++        m = eval_univariate(q_i, r_star)
++        z[i + 1] = [F(1)] * k[i + 1]
++        proofs.append(rounds); rs.append(r); q.append(q_i); r_stars.append(r_star)
++    input_func = [[m] + [zero] * k[d - 1]]  # constant "input polynomial" = final claim
++    return Proof(proofs, rs, f, D, q, z, r_stars, d, input_func, adds, mults, k)
++
++
++class TranscriptVectors(unittest.TestCase):
++    def test_known_answers_match_rust(self):
++        # Same vectors as rust/src/gkr/transcript.rs::vectors::known_answer_vectors.
++        self.assertEqual(hex(mimc7(2, 3)), "0x169fb7b0a230e5fa8fba53a45d49e15bb638b970a65854cb3825eb4534d1348d")
++        t = Transcript(DOMAIN_PROOF)
++        t.absorb([1, 2])
++        self.assertEqual(hex(int(t.squeeze())), "0x202baedcc3fd6bd533f6fd9e5a7844027c53062cb07965a0461f244d0078eaab")
++        self.assertEqual(hex(int(t.squeeze())), "0x177bbe3904bf1de13a201c6d473c033a36e4fa04b599ffe5bbbef72d9fb306d0")
++
++    def test_circuit_digest_matches_rust(self):
++        # rust/tests/verifier.rs::python_example_matches_rust (shared_operands circuit).
++        self.assertEqual(hex(int(circuit_digest(example_circuit()))), RUST_EXAMPLE_DIGEST)
++
++
++RUST_EXAMPLE_DIGEST = "0x2c74658ef1ed5ab020ed2bc10f5cf1369e7028075b5ed3da8eae7f90d8b5f78d"
++RUST_EXAMPLE_Q0 = ["0x0",
++                  "0x132f6d19ef01ea819febd770aba0b973fd20a4ff430d3387a34ffa5569431ed8",
++                  "0x2b049a8664990e2c1f8b8bc7a3ae7f53377a412cd46bd76e41bed60b9fd8ccea"]
++
++
++class Fixed(unittest.TestCase):
++    def setUp(self):
++        self.c = example_circuit()
++        self.proof = prove(self.c)
++
++    def test_honest(self):
++        self.assertTrue(verify(self.c, OUT, INP, self.proof))
++
++    def test_proof_equals_rust_proof(self):
++        # The rust prover on the same circuit/input produces the same first q polynomial.
++        self.assertEqual([hex(int(x)) for x in self.proof.q[0]], RUST_EXAMPLE_Q0)
++
++    def test_wrong_output_any_gate(self):
++        for i in range(2):
++            out = list(OUT)
++            out[i] = out[i] + one
++            self.assertFalse(verify(self.c, out, INP, self.proof))
++
++    def test_wrong_input(self):
++        inp = list(INP)
++        inp[3] = inp[3] + one
++        self.assertFalse(verify(self.c, OUT, inp, self.proof))
++
++    def test_tampering(self):
++        for layer in range(2):
++            for rnd in range(len(self.proof.sumcheck_proofs[layer])):
++                for j in range(3):
++                    p = copy.deepcopy(self.proof)
++                    p.sumcheck_proofs[layer][rnd][j] += one
++                    self.assertFalse(verify(self.c, OUT, INP, p))
++            for j in range(len(self.proof.q[layer])):
++                p = copy.deepcopy(self.proof)
++                p.q[layer][j] += one
++                self.assertFalse(verify(self.c, OUT, INP, p))
++
++    def test_degree_and_round_count(self):
++        p = copy.deepcopy(self.proof)
++        p.sumcheck_proofs[0][0] = [zero] + p.sumcheck_proofs[0][0]
++        self.assertFalse(verify(self.c, OUT, INP, p))
++        p = copy.deepcopy(self.proof)
++        p.sumcheck_proofs[1] = p.sumcheck_proofs[1][:1]  # upstream v == 1 shortcut
++        self.assertFalse(verify(self.c, OUT, INP, p))
++        p = copy.deepcopy(self.proof)
++        p.q[0] = p.q[0] + [zero]
++        self.assertFalse(verify(self.c, OUT, INP, p))
++
++    def test_prover_hints_ignored(self):
++        p = copy.deepcopy(self.proof)
++        p.z = [[zero], [zero, zero], [zero, zero]]
++        p.r, p.sumcheck_r, p.f, p.k, p.d = [one], [], [], [9], 0
++        self.assertTrue(verify(self.c, OUT, INP, p))
++
++
++class LegacyExploit(unittest.TestCase):
++    def test_upstream_verifier_accepts_forgery_fixed_rejects(self):
++        c = example_circuit()
++        false_output = [F(1234), F(5678)]
++        forged = forge_for_legacy(c, false_output)
++        self.assertTrue(legacy_upstream.verify(forged), "upstream accepted the forgery")
++        self.assertFalse(verify(c, false_output, INP, forged))
++        # and the forgery is not accepted for the true statement either
++        self.assertFalse(verify(c, OUT, INP, forged))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/python/transcript.py b/python/transcript.py
+new file mode 100644
+index 0000000..6ba66d7
+--- /dev/null
++++ b/python/transcript.py
+@@ -0,0 +1,69 @@
++"""Fiat-Shamir transcript, identical to rust/src/gkr/transcript.rs (and circomlib MiMC7).
++
++Upstream python used ethsnarks.mimc.mimc_hash of the *current* message only, which is
++not even the same MiMC as circomlib's MiMC7. This module is the fixed, chained,
++circomlib-compatible transcript:
++
++  init:        s = MultiMiMC7([domain], k = 0)
++  absorb(xs):  s = MultiMiMC7([s, len(xs), xs...], k = 0)
++  squeeze():   s = MultiMiMC7([s], k = 1); return s
++"""
++from ethsnarks import field
++
++try:  # pysha3 (installed with ethsnarks)
++    from sha3 import keccak_256 as _keccak
++except ImportError:  # pragma: no cover
++    from Crypto.Hash import keccak as _k
++
++    def _keccak(data):
++        return _k.new(digest_bits=256, data=data)
++
++P = field.SNARK_SCALAR_FIELD
++ROUNDS = 91
++DOMAIN_PROOF = 0x676B722D66732D31  # "gkr-fs-1"
++DOMAIN_CIRCUIT = 0x676B722D63697263  # "gkr-circ"
++
++
++def _constants():
++    cts = [0]
++    h = _keccak(b"mimc").digest()
++    for _ in range(1, ROUNDS):
++        h = _keccak(h.lstrip(b"\x00")).digest()
++        cts.append(int.from_bytes(h, "big") % P)
++    return cts
++
++
++CONSTANTS = _constants()
++
++
++def mimc7(x, k):
++    x, k = int(x) % P, int(k) % P
++    h = 0
++    for i, c in enumerate(CONSTANTS):
++        t = (x + k) % P if i == 0 else (h + k + c) % P
++        h = pow(t, 7, P)
++    return (h + k) % P
++
++
++def multi_mimc7(xs, k):
++    r = int(k) % P
++    for x in xs:
++        x = int(x) % P
++        r = (r + x + mimc7(x, r)) % P
++    return r
++
++
++class Transcript:
++    def __init__(self, domain):
++        self.state = multi_mimc7([domain], 0)
++
++    def absorb(self, xs):
++        xs = [int(x) % P for x in xs]
++        self.state = multi_mimc7([self.state, len(xs)] + xs, 0)
++
++    def squeeze(self):
++        self.state = multi_mimc7([self.state], 1)
++        return field.FQ(self.state)
++
++    def squeeze_n(self, n):
++        return [self.squeeze() for _ in range(n)]
+-- 
+2.53.0
+

@@ -1,0 +1,348 @@
+From c89bea3f57a7459de51258c957d3d5fa614b5101 Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 13:08:47 +0900
+Subject: [PATCH 11/12] Add SECURITY.md, UPSTREAM.md and a reproduction of the
+ upstream circom forgery
+
+---
+ SECURITY.md                                   | 58 +++++++++++++++
+ UPSTREAM.md                                   | 35 +++++++++
+ repro/upstream-zero-proof/forge.circom        |  4 ++
+ repro/upstream-zero-proof/run.sh              | 11 +++
+ .../upstream-circom/poly/multivariate.circom  | 25 +++++++
+ .../upstream-circom/poly/univariate.circom    | 15 ++++
+ .../sumcheck/sumcheckVerify.circom            | 42 +++++++++++
+ .../upstream-circom/verifier.circom           | 72 +++++++++++++++++++
+ repro/upstream-zero-proof/zero-proof.json     |  1 +
+ 9 files changed, 263 insertions(+)
+ create mode 100644 SECURITY.md
+ create mode 100644 UPSTREAM.md
+ create mode 100644 repro/upstream-zero-proof/forge.circom
+ create mode 100755 repro/upstream-zero-proof/run.sh
+ create mode 100644 repro/upstream-zero-proof/upstream-circom/poly/multivariate.circom
+ create mode 100644 repro/upstream-zero-proof/upstream-circom/poly/univariate.circom
+ create mode 100644 repro/upstream-zero-proof/upstream-circom/sumcheck/sumcheckVerify.circom
+ create mode 100644 repro/upstream-zero-proof/upstream-circom/verifier.circom
+ create mode 100644 repro/upstream-zero-proof/zero-proof.json
+
+diff --git a/SECURITY.md b/SECURITY.md
+new file mode 100644
+index 0000000..b3e872e
+--- /dev/null
++++ b/SECURITY.md
+@@ -0,0 +1,58 @@
++# Security review and fixes (fork of swjng/gkr @ 1693f3f)
++
++Scope: `rust/` (prover, converter, aggregator CLI), `python/` (reference prover/verifier),
++`gkr-verifier-circuits/circom/` (the in-circuit verifier used for recursive aggregation).
++Upstream had **no Rust verifier**; the python and circom verifiers were the only acceptance
++logic. Before the fixes, both accepted forged proofs for false statements (reproduced, see
++"Evidence"). Fixes are split into reviewable commits in `patches/`.
++
++Severity: Critical = forged proof for a false statement is accepted; High = soundness
++depends on an unchecked assumption / partial forgery; Medium = integrity or availability
++problem in tooling; Low/Info = hardening, documentation.
++
++| ID | Component | Severity | Issue and concrete exploit | Fix | Covered by |
++|---|---|---|---|---|---|
++| GKR-01 | rust prover, python prover+verifier | Critical | **Unchained Fiat–Shamir.** Each sumcheck challenge was `MiMC(current round polynomial)` only, and `r*` was `MiMC(last round polynomial)`; nothing bound the circuit, the public input/output, the running claim, or earlier messages. A challenge is computable from its own message alone, so the prover can pick messages and the claimed output independently of the challenges (in `forge_for_legacy` every "proof" message is chosen after all hashes are known); proofs also transplant between circuits/inputs. | `gkr::transcript` (`Transcript` trait, `MimcTranscript`): domain separator, circuit digest (depth, all k_i, every add/mult gate, fixed inputs), input values, output values, then every round polynomial and every `q_i` are absorbed before the next challenge is squeezed. Same schedule in rust, python and circom (shared known-answer vectors). | rust `proof_bound_to_input_output_and_circuit`, `consistent_round_forgery_rejected`, `known_answer_vectors`; python `LegacyExploit`, `TranscriptVectors` |
++| GKR-02 | rust prover, converter, python | Critical | **Output point not random.** Rust fixed `z0 = 0`, so the protocol only checked `D~(0) = D[0]`, i.e. output gate 0. `convert.rs` also asserted only `d_values[0] == 0` although every output gate is an R1CS constraint `A*B-C`. A witness violating any constraint other than the first of a sub-circuit was proven "valid". Python picked `z0` itself (`# This initial value is unsafe`) and shipped it in the proof. | `z0` is squeezed from the transcript after the output is absorbed; the initial claim is `D~(z0)` of the verifier's claimed output; the converter requires all outputs to be zero. | rust `wrong_output_rejected_including_non_first_gates`; python `test_wrong_output_any_gate` |
++| GKR-03 | circom `VerifyGKR` | Critical | **Initial claim hard-coded to 0 and `D` never read.** Combined with GKR-04 the verifier did not depend on the claimed output at all. | Generated verifier computes `D~(z0)` in-circuit from the claimed output (constant; all-zero for R1CS-derived circuits). | `tests/circom.rs` (false output rejected) |
++| GKR-04 | circom `VerifyGKR`, `SumcheckVerify` | Critical | **Challenges and points were free prover inputs.** `sumcheckr`, `r` and `z` were `signal input`s with no hashing and no check `z[i+1] = l(b*, c*, r*)`. With GKR-03/05/07 an **all-zero proof verifies for every circuit** (`repro/upstream-zero-proof/run.sh`). | All challenges are recomputed in-circuit with circomlib `MultiMiMC7` (`transcript.circom`, `SumcheckRound`), `z` is derived, never input. | `tests/circom.rs`; repro script |
++| GKR-05 | circom, python verifier | Critical | **Sumcheck end value not bound to the circuit.** Circom never checked `add~(z,b*,c*)(q(0)+q(1)) + mult~(z,b*,c*) q(0)q(1)` against the last round; python compared it with prover-supplied `proof.f[i]` instead of `g_v(r_v)`. Forgery: constant round polynomials `g_j = claim/2` pass every round, then any `q` works (`forge_for_legacy`). | Final per-layer check against the verifier's own wiring and the recomputed last evaluation (rust `verifier.rs`, python `verify`, circom generated template via constrained `EqTable`s). | rust `tampered_messages_rejected`; python `LegacyExploit`, `test_tampering`; circom test |
++| GKR-06 | python verifier, circom `meta` | High | **Circuit description taken from the prover.** Python read `add`, `mult`, `k`, `d`, `D`, `z`, `input_func` from the proof; the circom `meta` (depth, k's, term counts) was computed from the proofs being verified (`get_meta(proofs)`). A prover could submit zero wiring or a different shape. | Verifiers take the circuit from the verifier side (`verify(circuit, input, output, proof)`); circom verifier is generated from the circuit with wiring as compile-time constants; proof hints are ignored. | rust/python `prover_hints_are_ignored`, `proof_bound_to_input_output_and_circuit` |
++| GKR-07 | circom `evalMultivariate`, `evalGateFunction` | Critical | **Unconstrained input-layer evaluation.** Both templates computed their result with `<--` (and exponents were prover signals), so `inputValue.result` could be set to anything. Python evaluated a prover-supplied `input_func`. | Replaced by constrained `MLEEval` / `EqTable` over dense values (`poly/multivariate.circom`); `optimizedGate.circom` removed; python/rust evaluate the caller's input. | circom test (wrong input rejected); rust/python wrong-input tests |
++| GKR-08 | circom, python, rust | High | **No degree bound.** Circom used `nTerms = meta[4]` = the maximum length over the submitted proofs; python accepted any length. A prover-chosen degree makes `g(0)+g(1)=claim` trivially satisfiable at any challenge (interpolation), destroying soundness. | Exactly 3 coefficients per round (degree ≤ 2) and exactly `k_{i+1}+1` for `q_i`, in all three verifiers; prover normalizes. | rust `degree_and_shape_bounds_enforced`; python `test_degree_and_round_count` |
++| GKR-09 | python `verify_sumcheck` | Medium | `if v == 1 and g(0)+g(1) == claim: return True` accepted without challenge or end check; round counts were not enforced (`bn = len(proof)`). | Exact round count, no shortcut. | python `test_degree_and_round_count` |
++| GKR-10 | converter + aggregation | High | **Constants are prover inputs.** `convert.rs` puts R1CS coefficients (and padding zeros) in the GKR input layer; in aggregation that layer is a private witness, so a prover could change coefficients and prove a *different* constraint system. | `GKRCircuit::fixed_inputs` (set by the converter, part of the digest) pinned by the rust verifier and by `inputValues[pos] === c` in the generated circom verifier. | rust `fixed_inputs_are_pinned_and_part_of_the_digest`; circom test (modified constant rejected) |
++| GKR-11 | aggregation design | High — **not fixed** | **Inner public inputs are unbound.** Earlier rounds' public signals are only written to `*_output.json` off-circuit, and the whole input layer is a private witness of the outer circuit. The final Groth16 proof therefore attests "there exist witnesses satisfying the earlier circuits", not that the recorded outputs are theirs. | Needs protocol design: expose the input-layer positions of the inner public variables as public signals of the outer circuit. Documented only. | — |
++| GKR-12 | `file_utils::execute_circom` | Medium | Exit codes of `circom` and witness generation were ignored; a failed compilation, or a witness generation that **fails because a GKR proof was rejected**, silently continued with stale `*.r1cs` / `witness.wtns` from an earlier run. | Stale outputs removed before running; any failure aborts. | manual (aggregator tests) |
++| GKR-13 | `write_aggregated_input` | Low | User input names and proof input names could overwrite each other (e.g. a user signal `q0`). | Collision aborts. | — |
++| GKR-14 | README / `mock-groth` | Critical if used beyond dev | The documented zkey uses one `"mock"` contribution and a fixed public beacon, so the toxic waste is known and the final Groth16 proof is forgeable. | Documented as DEV ONLY in README and the CLI prints a warning; snarkjs exit codes are now checked. Use a real phase-2 ceremony. | — |
++| GKR-15 | rust (availability) | Medium | Panics on malformed/edge input: `merge_nodes` recursed forever on an empty linear combination (stack overflow on the first aggregated circuit); prover underflowed (`v - 1`) on layers with one gate; exponents were read with `U256::as_usize` (panic > u64); MiMC conversion `from_repr(..).unwrap()`. | `merge_nodes` handles empty input; prover/verifier return `GkrError` for unsupported circuits and malformed proofs; exponent helper is bounded and only used on circuit-side data; MiMC runs natively on the field. Converter/CLI file-I/O `unwrap`s remain (trusted local tooling). | rust `malformed_proofs_do_not_panic`, `unsupported_circuits_error_instead_of_panicking`; aggregator test |
++| GKR-16 | python | Info | Python used `ethsnarks.mimc.mimc_hash`, which is **not** circomlib's MiMC7 (different result), so python-generated proofs could never have matched the circom verifier. | Shared circomlib-compatible transcript; python and rust produce byte-identical proofs (pinned vectors). | rust `python_example_matches_rust`; python `test_proof_equals_rust_proof` |
++| GKR-17 | licensing | Info | Upstream has no LICENSE. `mimc-rs` (GPL-3.0) was a normal dependency; circomlib is GPL-3.0. | `mimc-rs` is now a test-only cross-check; MiMC7 reimplemented. See `UPSTREAM.md`. | `mimc_matches_upstream_reference_implementation` |
++
++## Residual limitations
++
++- GKR-11 (unbound inner public inputs) is a design gap of the aggregation scheme, not fixed.
++- The in-circuit transcript is expensive: every absorbed field element costs one MiMC7
++  (~364 constraints). A sound verifier of the 12 GKR proofs of the `t.circom` example is a
++  ~420 MB r1cs; the upstream converter/prover (monomial representation, O(n²) node
++  deduplication) cannot convert and prove that second recursion round in reasonable time
++  (see `BASELINE.md`). The unsound upstream verifier was cheap precisely because it
++  verified nothing.
++- The converter is still a trusted local tool (file I/O unwraps, depth/width limits).
++- MiMC7 as a Fiat–Shamir hash is kept for circom compatibility; its security as a random
++  oracle is the same assumption upstream made.
++
++## Evidence (actual runs, Apple M3 Max, rust 1.94.1, circom 2.2.3, node 25)
++
++- `cd rust && cargo test --release`: lib 4 passed (2 ignored: need circom), `tests/verifier.rs` 11 passed, `tests/circom.rs` skipped without `GKR_CIRCOM`.
++- `cd rust && GKR_CIRCOM=/path/to/circom cargo test --release --test circom`: 1 passed —
++  for two circuits the generated verifier accepts the honest proof and rejects: every
++  tampered round/q, a g(0)+g(1)-preserving forgery, a different input witness, a modified
++  pinned constant (with an honest proof for it), and a false claimed output.
++- `cd rust && PATH=<circom,node> cargo test --release --lib test_single_proof -- --ignored`: 1 passed.
++- `cd python && pip install ethsnarks && python3 -m unittest test_security -v`: 10 passed,
++  including `LegacyExploit`: the verbatim upstream verifier (`legacy_upstream.py`) **accepts**
++  a proof of the false output (1234, 5678); the fixed verifier rejects it.
++- `repro/upstream-zero-proof/run.sh`: the verbatim upstream circom verifier accepts an
++  all-zero proof (witness generation succeeds).
+diff --git a/UPSTREAM.md b/UPSTREAM.md
+new file mode 100644
+index 0000000..6c73d7b
+--- /dev/null
++++ b/UPSTREAM.md
+@@ -0,0 +1,35 @@
++# Provenance
++
++- Upstream: https://github.com/swjng/gkr (history also references `github.com:jeong0982/gkr`)
++- Base commit: `1693f3fe5d5c23c430abde72732928484044829c` ("Merge branch 'main' of
++  github.com:jeong0982/gkr into main", 2024-05-20 21:42:04 +0900)
++- This directory is that tree plus the commits exported to `patches/`
++  (`git am patches/*.patch` on top of the base commit reproduces it).
++
++## License — needs a decision by the user
++
++**Upstream ships no LICENSE file**, so by default no reuse/redistribution rights are
++granted. Before publishing or redistributing this fork, obtain permission from the
++upstream authors or replace the code. Third-party pieces keep their own licenses:
++`mimc-rs` (GPL-3.0, now only a test-only cross-check), circomlib (GPL-3.0, used by the
++circom templates, installed via npm, not vendored), `zeropool-utils` r1cs/wtns readers.
++
++## What changed (see `SECURITY.md` for the why)
++
++1. Builds on stable Rust (halo2curves 0.2.1 → 0.10.0, ff 0.13, no `#![feature]`).
++   Aggregator/circom/CLI code is behind the default feature `aggregator`;
++   `default-features = false` gives the protocol only.
++2. Fiat–Shamir: `gkr::transcript` (chained MiMC7 transcript binding circuit digest,
++   public input/output and every message); `z0` from the transcript.
++3. New sound `gkr::verifier::verify` + `gkr::builder` (layered circuits without circom).
++4. Python verifier fixed, same transcript as rust (byte-identical proofs).
++5. Constant input positions pinned (`GKRCircuit::fixed_inputs`).
++6. Circom: generic unsound `VerifyGKR(meta)` replaced by per-circuit generated verifiers
++   (`rust/src/circom_codegen.rs`) built from constrained library templates.
++7. Tooling: `execute_circom` fails on errors, no stale artifacts; `merge_nodes`
++   recursion fix; mock Groth16 setup marked dev-only.
++8. `gkr-baseline` timing binary (`BASELINE.md`).
++
++Proof format change: round polynomials always have exactly 3 coefficients and `q_i`
++exactly `k_{i+1}+1` (highest degree first); fields `z`, `r`, `sumcheck_r`, `k`, `depth`,
++`d`, `input_func` remain in `Proof` only as untrusted prover hints.
+diff --git a/repro/upstream-zero-proof/forge.circom b/repro/upstream-zero-proof/forge.circom
+new file mode 100644
+index 0000000..91463d1
+--- /dev/null
++++ b/repro/upstream-zero-proof/forge.circom
+@@ -0,0 +1,4 @@
++pragma circom 2.0.4;
++include "./upstream-circom/verifier.circom";
++// meta: d=3, largest_k=2, k0=1, #D terms=1, round terms=3, q terms=3, #inputFunc terms=1, k_{d-1}=2, ks=[1,2,2]
++component main = VerifyGKR([3, 2, 1, 1, 3, 3, 1, 2, 1, 2, 2]);
+diff --git a/repro/upstream-zero-proof/run.sh b/repro/upstream-zero-proof/run.sh
+new file mode 100755
+index 0000000..d4f3a13
+--- /dev/null
++++ b/repro/upstream-zero-proof/run.sh
+@@ -0,0 +1,11 @@
++#!/usr/bin/env sh
++# Reproduces GKR-03/04/05/07: the UPSTREAM circom verifier (commit 1693f3f, copied verbatim
++# into ./upstream-circom) accepts an all-zero "proof" for a depth-3 circuit: every
++# challenge, point and input polynomial is a free prover input and the initial claim is 0.
++# Needs circom >= 2.0.4 and node. The upstream templates include no circomlib files.
++set -e
++cd "$(dirname "$0")"
++circom forge.circom --wasm -o . >/dev/null
++node forge_js/generate_witness.js forge_js/forge.wasm zero-proof.json forged.wtns
++echo "UPSTREAM verifier accepted the all-zero proof (witness generated, all === constraints hold)"
++rm -rf forge_js forged.wtns
+diff --git a/repro/upstream-zero-proof/upstream-circom/poly/multivariate.circom b/repro/upstream-zero-proof/upstream-circom/poly/multivariate.circom
+new file mode 100644
+index 0000000..fae9bbf
+--- /dev/null
++++ b/repro/upstream-zero-proof/upstream-circom/poly/multivariate.circom
+@@ -0,0 +1,25 @@
++pragma circom 2.0.4;
++
++template evalMultivariate(nTerms, v) {
++    signal input x[v];
++    signal input terms[nTerms][v + 1];
++
++    signal output result;
++    signal subres[nTerms];
++    signal termres[nTerms][v + 1];
++    for (var i = 0; i < nTerms; i++) {
++        for (var j = 0; j < v + 1; j++) {
++            if (j == 0) {
++                termres[i][0] <-- terms[i][0];
++            } else {
++                termres[i][j] <-- termres[i][j - 1] * (x[j - 1] ** terms[i][j]);
++            }
++        }
++        if (i == 0) {
++            subres[0] <-- termres[0][v];
++        } else {
++            subres[i] <-- subres[i - 1] + termres[i][v];
++        }
++    }
++    result <== subres[nTerms - 1];
++}
+diff --git a/repro/upstream-zero-proof/upstream-circom/poly/univariate.circom b/repro/upstream-zero-proof/upstream-circom/poly/univariate.circom
+new file mode 100644
+index 0000000..7c9d284
+--- /dev/null
++++ b/repro/upstream-zero-proof/upstream-circom/poly/univariate.circom
+@@ -0,0 +1,15 @@
++pragma circom 2.0.4;
++
++template evalUnivariate(n) {
++    signal input x;
++    signal input coeffs[n];
++
++    signal evaluated[n];
++    signal output result;
++
++    evaluated[0] <== coeffs[0];
++    for (var i = 1; i < n; i++) {
++        evaluated[i] <== evaluated[i - 1] * x + coeffs[i];
++    }
++    result <== evaluated[n - 1];
++}
+diff --git a/repro/upstream-zero-proof/upstream-circom/sumcheck/sumcheckVerify.circom b/repro/upstream-zero-proof/upstream-circom/sumcheck/sumcheckVerify.circom
+new file mode 100644
+index 0000000..76dc971
+--- /dev/null
++++ b/repro/upstream-zero-proof/upstream-circom/sumcheck/sumcheckVerify.circom
+@@ -0,0 +1,42 @@
++pragma circom 2.0.4;
++include "../poly/univariate.circom";
++
++template SumcheckVerify(v, nTerms) {
++    signal input proofs[v][nTerms];
++    signal input claim;
++    signal input r[v - 1];
++
++    signal output isValid;
++
++    signal expected[v];
++    expected[0] <== claim;
++
++    component qZero[v];
++    component qOne[v];
++    component next[v - 1];
++    for (var i = 0; i < v; i++) {
++        qZero[i] = evalUnivariate(nTerms);
++        qOne[i] = evalUnivariate(nTerms);
++
++        qZero[i].x <== 0;
++        qOne[i].x <== 1;
++
++        for (var j = 0; j < nTerms; j++) {
++            qZero[i].coeffs[j] <== proofs[i][j];
++            qOne[i].coeffs[j] <== proofs[i][j];
++        }
++
++        qZero[i].result + qOne[i].result === expected[i];
++
++        if (i != v - 1) {
++            next[i] = evalUnivariate(nTerms);
++            next[i].x <== r[i];
++            for (var j = 0; j < nTerms; j++) {
++                next[i].coeffs[j] <== proofs[i][j];
++            }
++            expected[i + 1] <== next[i].result;
++        }
++    }
++
++    isValid <== 1;
++}
+diff --git a/repro/upstream-zero-proof/upstream-circom/verifier.circom b/repro/upstream-zero-proof/upstream-circom/verifier.circom
+new file mode 100644
+index 0000000..d1a92e0
+--- /dev/null
++++ b/repro/upstream-zero-proof/upstream-circom/verifier.circom
+@@ -0,0 +1,72 @@
++pragma circom 2.0.4;
++
++include "./poly/univariate.circom";
++include "./poly/multivariate.circom";
++include "./sumcheck/sumcheckVerify.circom";
++
++
++template VerifyGKR(meta) {
++    // metadata of circuit
++    // 0 --> d
++    // 1 --> largest_k
++    // 2 --> k_i(0)
++    // 3 --> # of terms of D
++    // 4 --> largest # of terms among sumcheck proofs (highest degree)
++    // 5 --> largest # of terms among q
++    // 6 --> # of terms in w_d
++    // 7 --> k_i(d - 1)
++    // 8 ~ 8 + d - 1 : i --> k_i(i - 11)
++    var d = meta[0];
++    var largest_k = meta[1];
++
++    signal input sumcheckProof[d - 1][2 * largest_k][meta[4]];
++    signal input sumcheckr[d - 1][2 * largest_k];
++    signal input q[d - 1][meta[5]];
++    signal input D[meta[3]][meta[2] + 1];
++    signal input z[d][largest_k];
++    signal input r[d - 1];
++
++    signal input inputFunc[meta[6]][meta[7] + 1];
++
++    component m[d - 1];
++
++    component sumcheckVerifier[d - 1];
++    component qZero[d - 1];
++    component qOne[d - 1];
++
++    component inputValue = evalMultivariate(meta[6], meta[7]);
++
++    for (var i = 0; i < d - 1; i++) {
++        sumcheckVerifier[i] = SumcheckVerify(2 * meta[i + 9], meta[4]);
++        if (i == 0) {
++            sumcheckVerifier[i].claim <== 0;
++        } else {
++            sumcheckVerifier[i].claim <== m[i - 1].result;
++        }
++        
++        for (var j = 0; j < 2 * meta[i + 9] - 1; j++) {
++            sumcheckVerifier[i].r[j] <== sumcheckr[i][j];
++        }
++        for (var j = 0; j < 2 * meta[i + 9]; j++) {
++            for (var k = 0; k < meta[4]; k++) {
++                sumcheckVerifier[i].proofs[j][k] <== sumcheckProof[i][j][k];
++            }
++        }
++
++        m[i] = evalUnivariate(meta[5]);
++        for (var j = 0; j < meta[5]; j++) {
++            m[i].coeffs[j] <== q[i][j];
++        }
++        m[i].x <== r[i];
++    }
++
++    for (var i = 0; i < meta[6]; i++) {
++        for (var j = 0; j < meta[7] + 1; j++) {
++            inputValue.terms[i][j] <== inputFunc[i][j];
++        }
++    }
++    for (var j = 0; j < meta[7]; j++) {
++        inputValue.x[j] <== z[d - 1][j];
++    }
++    m[d - 2].result === inputValue.result;
++}
+diff --git a/repro/upstream-zero-proof/zero-proof.json b/repro/upstream-zero-proof/zero-proof.json
+new file mode 100644
+index 0000000..606bede
+--- /dev/null
++++ b/repro/upstream-zero-proof/zero-proof.json
+@@ -0,0 +1 @@
++{"sumcheckProof": [[["0", "0", "0"], ["0", "0", "0"], ["0", "0", "0"], ["0", "0", "0"]], [["0", "0", "0"], ["0", "0", "0"], ["0", "0", "0"], ["0", "0", "0"]]], "sumcheckr": [["0", "0", "0", "0"], ["0", "0", "0", "0"]], "q": [["0", "0", "0"], ["0", "0", "0"]], "D": [["0", "0"]], "z": [["0", "0"], ["0", "0"], ["0", "0"]], "r": ["0", "0"], "inputFunc": [["0", "0", "0"]]}
+\ No newline at end of file
+-- 
+2.53.0
+

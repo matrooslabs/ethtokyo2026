@@ -1,0 +1,115 @@
+From df06e79b2c11f53b3417bac59ba3c47f2a35fc09 Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 13:06:31 +0900
+Subject: [PATCH 09/12] Add gkr-baseline timing binary
+
+---
+ rust/Cargo.toml      |  4 +++
+ rust/src/baseline.rs | 80 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 84 insertions(+)
+ create mode 100644 rust/src/baseline.rs
+
+diff --git a/rust/Cargo.toml b/rust/Cargo.toml
+index 457a69c..5290d56 100644
+--- a/rust/Cargo.toml
++++ b/rust/Cargo.toml
+@@ -13,6 +13,10 @@ name = "gkr-aggregator"
+ path = "src/bin.rs"
+ required-features = ["aggregator"]
+ 
++[[bin]]
++name = "gkr-baseline"
++path = "src/baseline.rs"
++
+ [features]
+ default = ["aggregator"]
+ # circom/r1cs/witness conversion, recursive aggregation and CLI. Not needed for the core protocol.
+diff --git a/rust/src/baseline.rs b/rust/src/baseline.rs
+new file mode 100644
+index 0000000..acc5da7
+--- /dev/null
++++ b/rust/src/baseline.rs
+@@ -0,0 +1,80 @@
++//! Timing of the (fixed) upstream generic prover and the new verifier on layered circuits.
++//!   cargo run --release --no-default-features --bin gkr-baseline -- [max_log_size] [budget_secs]
++use ff::Field;
++use gkr::gkr::{
++    builder::{Gate, LayeredCircuit},
++    prover::prove,
++    transcript::MimcTranscript,
++    verifier::verify,
++};
++use halo2curves::bn256::Fr;
++use std::time::Instant;
++
++/// Binary reduction tree over 2^n inputs, alternating mult and add layers (depth n).
++fn tree(n: usize) -> LayeredCircuit {
++    let layers = (0..n)
++        .map(|level| {
++            (0..1usize << level)
++                .map(|g| if level % 2 == 0 { Gate::Mult(2 * g, 2 * g + 1) } else { Gate::Add(2 * g, 2 * g + 1) })
++                .collect()
++        })
++        .collect();
++    LayeredCircuit { layers, input_size: 1 << n }
++}
++
++/// Data-parallel: 4 layers of width 2^n, gate g reads (g, g ^ 1) of the next layer.
++fn parallel(n: usize) -> LayeredCircuit {
++    let width = 1usize << n;
++    let layers = (0..4)
++        .map(|l| {
++            (0..width)
++                .map(|g| if l % 2 == 0 { Gate::Mult(g, g ^ 1) } else { Gate::Add(g, g ^ 1) })
++                .collect()
++        })
++        .collect();
++    LayeredCircuit { layers, input_size: width }
++}
++
++fn run(name: &str, c: &LayeredCircuit) -> f64 {
++    let gates: usize = c.layers.iter().map(|l| l.len()).sum();
++    let input: Vec<Fr> = (0..c.input_size).map(|i| Fr::from(i as u64 + 2)).collect();
++    let t = Instant::now();
++    let circuit = c.to_gkr::<Fr>();
++    let witness = c.witness(&input);
++    let setup = t.elapsed().as_secs_f64();
++    let t = Instant::now();
++    let proof = prove::<Fr, MimcTranscript>(&circuit, &witness).expect("prove");
++    let prove_s = t.elapsed().as_secs_f64();
++    let t = Instant::now();
++    verify::<Fr, MimcTranscript>(&circuit, &input, &witness.output_values, &proof).expect("verify");
++    let verify_s = t.elapsed().as_secs_f64();
++    let elements: usize = proof.sumcheck_proofs.iter().flatten().map(|g| g.len()).sum::<usize>()
++        + proof.q.iter().map(|q| q.len()).sum::<usize>();
++    println!(
++        "| {name} | {} | {gates} | {} | {:.1} | {:.1} | {:.1} | {elements} |",
++        c.input_size,
++        c.layers.len(),
++        setup * 1e3,
++        prove_s * 1e3,
++        verify_s * 1e3,
++    );
++    setup + prove_s
++}
++
++fn main() {
++    let args: Vec<String> = std::env::args().collect();
++    let max: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(14);
++    let budget: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(300.0);
++    let _ = Fr::ONE;
++    println!("| circuit | inputs | gates | depth | witness+circuit ms | prove ms | verify ms | proof elements |");
++    println!("|---|---:|---:|---:|---:|---:|---:|---:|");
++    for (label, make) in [("tree", tree as fn(usize) -> LayeredCircuit), ("parallel-4", parallel)] {
++        for n in 4..=max {
++            let spent = run(&format!("{label} 2^{n}"), &make(n));
++            if spent > budget {
++                println!("| {label} 2^{n} | stopped: {:.0} s > budget {budget:.0} s |", spent);
++                break;
++            }
++        }
++    }
++}
+-- 
+2.53.0
+

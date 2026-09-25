@@ -1,0 +1,833 @@
+From a1b22765306a4990eebdab63abc335103bd677cf Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 12:35:51 +0900
+Subject: [PATCH 01/12] Build on stable Rust; gate aggregator behind a feature
+
+- halo2curves 0.2.1 (nightly asm features) -> 0.10.0, ff 0.12 -> 0.13
+- remove #![feature(let_chains)] (rewrite the two let-chains)
+- drop ethers-core (only used to read small exponents)
+- r1cs/wtns/circom/CLI code behind default-on feature "aggregator"
+- make the gkr module public
+---
+ rust/Cargo.toml          |  46 +++++++-------
+ rust/src/aggregator.rs   |   3 +-
+ rust/src/convert.rs      |  54 ++++++++--------
+ rust/src/file_utils.rs   |   2 +-
+ rust/src/gkr/poly.rs     | 134 ++++++++++++++++++++-------------------
+ rust/src/gkr/prover.rs   |   8 +--
+ rust/src/gkr/sumcheck.rs |  18 ++++--
+ rust/src/lib.rs          |   7 +-
+ 8 files changed, 141 insertions(+), 131 deletions(-)
+
+diff --git a/rust/Cargo.toml b/rust/Cargo.toml
+index da173f2..bdd2570 100644
+--- a/rust/Cargo.toml
++++ b/rust/Cargo.toml
+@@ -1,7 +1,8 @@
+ [package]
+ name = "gkr"
+-version = "0.1.0"
++version = "0.2.0"
+ edition = "2021"
++description = "GKR prover/verifier (security-fixed fork of swjng/gkr)"
+ 
+ [lib]
+ name = "gkr"
+@@ -10,34 +11,33 @@ path = "src/lib.rs"
+ [[bin]]
+ name = "gkr-aggregator"
+ path = "src/bin.rs"
++required-features = ["aggregator"]
+ 
+-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
++[features]
++default = ["aggregator"]
++# circom/r1cs/witness conversion, recursive aggregation and CLI. Not needed for the core protocol.
++aggregator = ["dep:r1cs-file", "dep:wtns-file", "dep:clap", "dep:serde", "dep:serde_json", "dep:colored", "dep:tera", "dep:num-bigint", "dep:num-traits"]
+ 
+ [dependencies]
+-r1cs-file = { git = "https://github.com/jeong0982/zeropool-utils" }
+-wtns-file = { git = "https://github.com/jeong0982/zeropool-utils" }
+-
+ # field element
+-halo2curves = { git = "https://github.com/privacy-scaling-explorations/halo2curves", tag = "0.2.1", package = "halo2curves" }
+-ff = "0.12.0"
+-ethers-core = "0.17"
+-num-bigint = "0.4.3"
+-num-traits = "0.2.15"
+-
+-# MiMC
++halo2curves = "0.10.0"
++ff = "0.13"
++# MiMC (used for Fiat-Shamir)
+ mimc-rs = { git = "https://github.com/jeong0982/mimc-rs" }
+-
+-# cli
+-clap = { version = "4.0", features = ["derive"] }
+-serde = { version = "1.0", features = ["derive"] }
+-serde_json = "1.0"
+-colored = "2.0.0"
+-
+-# file
+-tera = "1"
+-
++ff012 = { package = "ff", version = "0.12" }
++num-bigint = { version = "0.4.3", optional = true }
++num-traits = { version = "0.2.15", optional = true }
+ # concurrency
+ rayon = "1.6"
+-
+ # utility
+ itertools = "0.10"
++
++# aggregator-only
++r1cs-file = { git = "https://github.com/jeong0982/zeropool-utils", optional = true }
++wtns-file = { git = "https://github.com/jeong0982/zeropool-utils", optional = true }
++clap = { version = "4.0", features = ["derive"], optional = true }
++serde = { version = "1.0", features = ["derive"], optional = true }
++serde_json = { version = "1.0", optional = true }
++colored = { version = "2.0.0", optional = true }
++tera = { version = "1", optional = true }
++
+diff --git a/rust/src/aggregator.rs b/rust/src/aggregator.rs
+index 979ca53..b963653 100644
+--- a/rust/src/aggregator.rs
++++ b/rust/src/aggregator.rs
+@@ -6,6 +6,7 @@ use crate::{
+     gkr::{prover, GKRCircuit, Input, Proof},
+ };
+ use colored::Colorize;
++use ff::Field;
+ use halo2curves::bn256::Fr;
+ use r1cs_file::*;
+ use serde::{Deserialize, Serialize};
+@@ -86,7 +87,7 @@ fn stringify_fr_vector(v: &Vec<Fr>) -> Vec<String> {
+ }
+ 
+ fn zeros(l: usize) -> Vec<Fr> {
+-    vec![Fr::zero(); l]
++    vec![Fr::ZERO; l]
+ }
+ 
+ fn get_meta(proofs: &Vec<Proof<Fr>>) -> Vec<Meta> {
+diff --git a/rust/src/convert.rs b/rust/src/convert.rs
+index 60b069f..1f64dcd 100644
+--- a/rust/src/convert.rs
++++ b/rust/src/convert.rs
+@@ -3,7 +3,7 @@ use wtns_file::*;
+ 
+ use crate::gkr::{poly::*, GKRCircuit, Input, Layer};
+ use halo2curves::bn256::Fr;
+-use halo2curves::group::ff::PrimeField;
++use ff::{Field, PrimeField};
+ use rayon::prelude::*;
+ use std::{collections::HashMap, fmt::Debug, fs::File, io::Read, ops::Deref};
+ 
+@@ -91,7 +91,7 @@ impl<T> IntermediateNode<T> {
+ }
+ 
+ fn zero_node() -> IntermediateNode<FieldElement<32>> {
+-    let zero = FieldElement::from((Fr::zero()).to_repr());
++    let zero = FieldElement::from(<[u8; 32]>::from((Fr::ZERO).to_repr()));
+     IntermediateNode {
+         node_type: NodeType::Value(Expression::Value(zero)),
+         left: None,
+@@ -187,7 +187,7 @@ fn compile(
+     for one_circuit in nodes_sorted.iter() {
+         let mut layers = vec![];
+ 
+-        let zero = FieldElement::from((Fr::zero()).to_repr());
++        let zero = FieldElement::from(<[u8; 32]>::from((Fr::ZERO).to_repr()));
+ 
+         let height = one_circuit
+             .iter()
+@@ -361,8 +361,8 @@ fn convert_constraints_to_nodes(
+     r1cs: &R1csFile<32>,
+ ) -> Vec<Vec<IntermediateNode<FieldElement<32>>>> {
+     fn count_mult(v: &Vec<(FieldElement<32>, u32)>) -> (i32, i32) {
+-        let one = FieldElement(Fr::one().to_repr());
+-        let minus_one = FieldElement::from((Fr::zero() - Fr::one()).to_repr());
++        let one = FieldElement(<[u8; 32]>::from(Fr::ONE.to_repr()));
++        let minus_one = FieldElement::from(<[u8; 32]>::from((Fr::ZERO - Fr::ONE).to_repr()));
+         let mut a = 0;
+         let mut b = 0;
+         for (coeff, x_i) in v {
+@@ -392,9 +392,9 @@ fn convert_constraints_to_nodes(
+             v: &Vec<(FieldElement<32>, u32)>,
+             neg: &bool,
+         ) -> IntermediateNode<FieldElement<32>> {
+-            let minus_one = FieldElement::from((Fr::zero() - Fr::one()).to_repr());
++            let minus_one = FieldElement::from(<[u8; 32]>::from((Fr::ZERO - Fr::ONE).to_repr()));
+             let mut node_c = vec![];
+-            let one = FieldElement(Fr::one().to_repr());
++            let one = FieldElement(<[u8; 32]>::from(Fr::ONE.to_repr()));
+             for (idx, (coeff, x_i)) in v.iter().enumerate() {
+                 if idx == i {
+                     continue;
+@@ -418,9 +418,9 @@ fn convert_constraints_to_nodes(
+                         let node = IntermediateNode::new_from_variable(x_i.clone());
+                         node_c.push(node);
+                     } else {
+-                        let coeff_fr = Fr::from_repr(coeff.clone().0).unwrap();
++                        let coeff_fr = Fr::from_repr(coeff.clone().0.into()).unwrap();
+                         let new_coeff =
+-                            FieldElement((coeff_fr * (Fr::zero() - Fr::one())).to_repr());
++                            FieldElement(<[u8; 32]>::from((coeff_fr * (Fr::ZERO - Fr::ONE)).to_repr()));
+                         let left = IntermediateNode::new_from_value(new_coeff.clone());
+                         let right = IntermediateNode::new_from_variable(x_i.clone());
+                         let node = IntermediateNode::<FieldElement<32>> {
+@@ -437,8 +437,8 @@ fn convert_constraints_to_nodes(
+         }
+         if c.len() == 1 {
+             if neg.clone() {
+-                let coeff = Fr::from_repr(c[0].0.clone().0).unwrap();
+-                let new_coeff = FieldElement((coeff * (Fr::zero() - Fr::one())).to_repr());
++                let coeff = Fr::from_repr(c[0].0.clone().0.into()).unwrap();
++                let new_coeff = FieldElement(<[u8; 32]>::from((coeff * (Fr::ZERO - Fr::ONE)).to_repr()));
+                 symbol_table.insert(c[0].1.clone(), (a.clone(), idx, new_coeff));
+             } else {
+                 symbol_table.insert(c[0].1.clone(), (a.clone(), idx, c[0].0.clone()));
+@@ -461,8 +461,8 @@ fn convert_constraints_to_nodes(
+     let mut nodes = vec![];
+     let mut sym_tbl: HashMap<u32, (IntermediateNode<FieldElement<32>>, usize, FieldElement<32>)> =
+         HashMap::new();
+-    let one = FieldElement(Fr::one().to_repr());
+-    let minus_one = FieldElement::from((Fr::zero() - Fr::one()).to_repr());
++    let one = FieldElement(<[u8; 32]>::from(Fr::ONE.to_repr()));
++    let minus_one = FieldElement::from(<[u8; 32]>::from((Fr::ZERO - Fr::ONE).to_repr()));
+     for (i, constraint) in constraints.0.iter().enumerate() {
+         let mut neg = false;
+         let mut a = &constraint.0;
+@@ -485,10 +485,10 @@ fn convert_constraints_to_nodes(
+         }
+         for (coeff, x_i) in a {
+             let e = sym_tbl.get(x_i);
+-            if let Some(lookup_res) = e && lookup_res.0.depth() < DEPTH_LIMIT {
++            if let Some(lookup_res) = e.filter(|res| res.0.depth() < DEPTH_LIMIT) {
+                 let lookup_res_cloned = lookup_res.clone();
+-                let coeff_fr = Fr::from_repr(coeff.clone().0).unwrap();
+-                let new_coeff = FieldElement((coeff_fr * (Fr::zero() - Fr::one())).to_repr());
++                let coeff_fr = Fr::from_repr(coeff.clone().0.into()).unwrap();
++                let new_coeff = FieldElement(<[u8; 32]>::from((coeff_fr * (Fr::ZERO - Fr::ONE)).to_repr()));
+                 if coeff.clone() == lookup_res_cloned.2 {
+                     if neg {
+                         let minus_one_node = IntermediateNode::new_from_value(minus_one.clone());
+@@ -514,8 +514,8 @@ fn convert_constraints_to_nodes(
+                     let node = IntermediateNode::new_from_variable(x_i.clone());
+                     node_a.push(node);
+                 } else {
+-                    let coeff_fr = Fr::from_repr(coeff.clone().0).unwrap();
+-                    let new_coeff = FieldElement((coeff_fr * (Fr::zero() - Fr::one())).to_repr());
++                    let coeff_fr = Fr::from_repr(coeff.clone().0.into()).unwrap();
++                    let new_coeff = FieldElement(<[u8; 32]>::from((coeff_fr * (Fr::ZERO - Fr::ONE)).to_repr()));
+                     let left = IntermediateNode::new_from_value(new_coeff.clone());
+                     let right = IntermediateNode::new_from_variable(x_i.clone());
+                     let node = IntermediateNode::<FieldElement<32>> {
+@@ -543,7 +543,7 @@ fn convert_constraints_to_nodes(
+         }
+         for (coeff, x_i) in b {
+             let e = sym_tbl.get(x_i);
+-            if let Some(lookup_res) = e && lookup_res.0.depth() < DEPTH_LIMIT {
++            if let Some(lookup_res) = e.filter(|res| res.0.depth() < DEPTH_LIMIT) {
+                 let lookup_res_cloned = lookup_res.clone();
+                 if coeff.clone() == lookup_res_cloned.2 {
+                     node_b.push(lookup_res_cloned.0);
+@@ -595,9 +595,9 @@ fn convert_constraints_to_nodes(
+                         let node = IntermediateNode::new_from_variable(x_i.clone());
+                         node_c.push(node);
+                     } else {
+-                        let coeff_fr = Fr::from_repr(coeff.clone().0).unwrap();
++                        let coeff_fr = Fr::from_repr(coeff.clone().0.into()).unwrap();
+                         let new_coeff =
+-                            FieldElement((coeff_fr * (Fr::zero() - Fr::one())).to_repr());
++                            FieldElement(<[u8; 32]>::from((coeff_fr * (Fr::ZERO - Fr::ONE)).to_repr()));
+                         let left = IntermediateNode::new_from_value(new_coeff.clone());
+                         let right = IntermediateNode::new_from_variable(x_i.clone());
+                         let node = IntermediateNode::<FieldElement<32>> {
+@@ -657,7 +657,7 @@ fn make_output(witness: &Vec<wtns_file::FieldElement<32>>, sym: Vec<String>) ->
+     for i in 0..n_public {
+         public
+             .wire_map
+-            .insert(i + 1, Fr::from_repr(witness[i + 1].0).unwrap());
++            .insert(i + 1, Fr::from_repr(witness[i + 1].0.into()).unwrap());
+         public.name_map.insert(i + 1, sym[i].clone());
+     }
+ 
+@@ -679,9 +679,9 @@ pub fn convert_r1cs_wtns_gkr(
+         let mut res = vec![];
+         for c in b.chars() {
+             if c == '0' {
+-                res.push(Fr::zero());
++                res.push(Fr::ZERO);
+             } else {
+-                res.push(Fr::one());
++                res.push(Fr::ONE);
+             }
+         }
+         res
+@@ -797,12 +797,12 @@ fn calculate_input(
+         match node {
+             NodeType::Value(e) => match e {
+                 Expression::Value(v) => {
+-                    let v_fr = Fr::from_repr(v.0).unwrap();
++                    let v_fr = Fr::from_repr(v.0.into()).unwrap();
+                     input.push(v_fr);
+                 }
+                 Expression::Variable(var) => {
+                     let value = witness[var.clone() as usize];
+-                    input.push(Fr::from_repr(value.0).unwrap());
++                    input.push(Fr::from_repr(value.0.into()).unwrap());
+                 }
+             },
+             _ => panic!("Input value should be an expression"),
+@@ -835,7 +835,7 @@ fn calculate_input(
+     let d_values = w_values[0].clone();
+ 
+     // check constraint
+-    assert_eq!(Fr::zero(), d_values[0]);
++    assert_eq!(Fr::ZERO, d_values[0]);
+ 
+     let d = get_multi_ext(&d_values, get_k(d_values.len()));
+     w.push(d.clone());
+diff --git a/rust/src/file_utils.rs b/rust/src/file_utils.rs
+index 08d09d8..8af9aad 100644
+--- a/rust/src/file_utils.rs
++++ b/rust/src/file_utils.rs
+@@ -20,7 +20,7 @@ struct Data {
+ pub fn stringify_fr(f: &Fr) -> String {
+     let r = f.to_repr();
+     let mut s = String::from("");
+-    for &b in r.iter().rev() {
++    for &b in r.as_ref().iter().rev() {
+         s = format!("{}{:02x}", s, b);
+     }
+     let decimal = BigInt::from_str_radix(&s, 16).unwrap().to_str_radix(10);
+diff --git a/rust/src/gkr/poly.rs b/rust/src/gkr/poly.rs
+index 957787a..735272e 100644
+--- a/rust/src/gkr/poly.rs
++++ b/rust/src/gkr/poly.rs
+@@ -1,25 +1,30 @@
+-use ethers_core::types::U256;
+ use ff::PrimeField;
+ use std::{collections::HashMap, vec};
+ 
+-fn fe_to_u256<F>(f: F) -> U256
++/// Interprets a small field element (an exponent or a binary-form code stored in a
++/// monomial) as usize. Panics if the value does not fit, which can only happen for
++/// malformed circuit descriptions, never for verifier input.
++fn fe_to_usize<F>(f: F) -> usize
+ where
+-    F: PrimeField<Repr = [u8; 32]>,
++    F: PrimeField,
+ {
+-    U256::from_little_endian(f.to_repr().as_ref())
++    let repr = f.to_repr();
++    let bytes = repr.as_ref();
++    assert!(bytes[8..].iter().all(|b| *b == 0), "exponent does not fit in u64");
++    u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize
+ }
+ 
+ pub fn get_empty<S: PrimeField>(l: usize) -> Vec<Vec<S>> {
+-    vec![vec![S::zero(); l + 1]; 1]
++    vec![vec![S::ZERO; l + 1]; 1]
+ }
+ 
+ fn minus_one<S: PrimeField>() -> S {
+-    S::zero() - S::one()
++    S::ZERO - S::ONE
+ }
+ 
+ fn constant_one<S: PrimeField>(l: usize) -> Vec<S> {
+-    let mut vec = vec![S::zero(); l + 1];
+-    vec[0] = S::one();
++    let mut vec = vec![S::ZERO; l + 1];
++    vec[0] = S::ONE;
+     vec
+ }
+ 
+@@ -31,10 +36,10 @@ pub fn chi_w_for_binary<S: PrimeField>(w: &String) -> Vec<Vec<S>> {
+     for (i, w_i) in w.chars().enumerate() {
+         if w_i == '0' {
+             // 1 - x_i
+-            prod[i + 1] = S::one();
++            prod[i + 1] = S::ONE;
+         } else if w_i == '1' {
+             // x_i
+-            prod[i + 1] = S::one() + S::one();
++            prod[i + 1] = S::ONE + S::ONE;
+         }
+     }
+     vec![prod]
+@@ -48,9 +53,9 @@ pub fn partial_eval_binary_form<S: PrimeField>(f: &Vec<Vec<S>>, x: &Vec<S>) -> V
+         let mut new_const = term[0];
+         for i in 0..l {
+             let idx = i + 1;
+-            if term[idx] == S::one() {
+-                new_const *= S::one() - x[i];
+-            } else if term[idx] == S::one() + S::one() {
++            if term[idx] == S::ONE {
++                new_const *= S::ONE - x[i];
++            } else if term[idx] == S::ONE + S::ONE {
+                 new_const *= x[i];
+             }
+         }
+@@ -61,7 +66,7 @@ pub fn partial_eval_binary_form<S: PrimeField>(f: &Vec<Vec<S>>, x: &Vec<S>) -> V
+     new_f
+ }
+ 
+-pub fn partial_eval_i_binary_form<S: PrimeField<Repr = [u8; 32]>>(
++pub fn partial_eval_i_binary_form<S: PrimeField>(
+     f: &Vec<Vec<S>>,
+     x: &S,
+     i: usize,
+@@ -70,13 +75,13 @@ pub fn partial_eval_i_binary_form<S: PrimeField<Repr = [u8; 32]>>(
+     for t in f.iter() {
+         let mut new_t = t.clone();
+         let mut constant = t[0];
+-        if t[i] == S::one() {
+-            constant *= S::one() - x;
+-        } else if t[i] == S::one() + S::one() {
++        if t[i] == S::ONE {
++            constant *= S::ONE - x;
++        } else if t[i] == S::ONE + S::ONE {
+             constant *= x;
+         }
+         new_t[0] = constant;
+-        new_t[i] = S::zero();
++        new_t[i] = S::ZERO;
+         res_f.push(new_t);
+     }
+     res_f
+@@ -92,13 +97,13 @@ pub fn chi_w<S: PrimeField>(w: &String) -> Vec<Vec<S>> {
+             let mut subres = vec![];
+             let mut term = constant_one::<S>(l);
+             term[0] = minus_one();
+-            term[idx] = S::one();
++            term[idx] = S::ONE;
+             let one = constant_one::<S>(l);
+             subres.push(term);
+             subres.push(one);
+             prod_double.push(subres);
+         } else if w_i == '1' {
+-            prod_single[idx] = S::one();
++            prod_single[idx] = S::ONE;
+         }
+     }
+     let mut res = vec![prod_single];
+@@ -137,16 +142,16 @@ pub fn generate_binary<S: PrimeField>(l: usize) -> Vec<Vec<S>> {
+         } else {
+             let mut new_acc = vec![];
+             if acc.len() == 0 {
+-                let b_zero = vec![S::zero()];
+-                let b_one = vec![S::one()];
++                let b_zero = vec![S::ZERO];
++                let b_one = vec![S::ONE];
+                 new_acc.push(b_zero);
+                 new_acc.push(b_one);
+             } else {
+                 for b in acc {
+                     let mut b_zero = b.clone();
+                     let mut b_one = b.clone();
+-                    b_zero.push(S::zero());
+-                    b_one.push(S::one());
++                    b_zero.push(S::ZERO);
++                    b_one.push(S::ONE);
+                     new_acc.push(b_zero);
+                     new_acc.push(b_one);
+                 }
+@@ -157,7 +162,7 @@ pub fn generate_binary<S: PrimeField>(l: usize) -> Vec<Vec<S>> {
+     genbin(l, 0, vec![])
+ }
+ 
+-pub fn partial_eval_i<S: PrimeField<Repr = [u8; 32]>>(
++pub fn partial_eval_i<S: PrimeField>(
+     f: &Vec<Vec<S>>,
+     x: &S,
+     i: usize,
+@@ -165,20 +170,20 @@ pub fn partial_eval_i<S: PrimeField<Repr = [u8; 32]>>(
+     let mut res_f = vec![];
+     for t in f.iter() {
+         let mut new_t = t.clone();
+-        let exp = fe_to_u256(t[i]).as_usize();
+-        let mut x_pow = S::one();
++        let exp = fe_to_usize(t[i]);
++        let mut x_pow = S::ONE;
+         for _ in 0..exp {
+             x_pow *= x;
+         }
+         let constant = t[0] * x_pow;
+         new_t[0] = constant;
+-        new_t[i] = S::zero();
++        new_t[i] = S::ZERO;
+         res_f.push(new_t);
+     }
+     res_f
+ }
+ 
+-pub fn partial_eval_from<S: PrimeField<Repr = [u8; 32]>>(
++pub fn partial_eval_from<S: PrimeField>(
+     f: &Vec<Vec<S>>,
+     r: &Vec<S>,
+     idx: usize,
+@@ -192,14 +197,14 @@ pub fn partial_eval_from<S: PrimeField<Repr = [u8; 32]>>(
+         let mut new_t = t.clone();
+         let mut constant = t[0];
+         for i in 0..r.len() {
+-            if t[idx + i] == S::zero() {
++            if t[idx + i] == S::ZERO {
+                 continue;
+             }
+-            let x = fe_to_u256(t[idx + i]).as_usize();
++            let x = fe_to_usize(t[idx + i]);
+             for _ in 0..x {
+                 constant *= r[i];
+             }
+-            new_t[idx + i] = S::zero();
++            new_t[idx + i] = S::ZERO;
+         }
+         new_t[0] = constant;
+         res_f.push(new_t);
+@@ -207,7 +212,7 @@ pub fn partial_eval_from<S: PrimeField<Repr = [u8; 32]>>(
+     res_f
+ }
+ 
+-pub fn partial_eval_from_binary_form<S: PrimeField<Repr = [u8; 32]>>(
++pub fn partial_eval_from_binary_form<S: PrimeField>(
+     f: &Vec<Vec<S>>,
+     x: &Vec<S>,
+     idx: usize,
+@@ -217,12 +222,12 @@ pub fn partial_eval_from_binary_form<S: PrimeField<Repr = [u8; 32]>>(
+         let mut new_t = t.clone();
+         let mut constant = t[0];
+         for i in 0..x.len() {
+-            if t[idx + i] == S::one() {
+-                constant *= S::one() - x[i];
+-                new_t[idx + i] = S::zero();
+-            } else if t[idx + i] == S::one() + S::one() {
++            if t[idx + i] == S::ONE {
++                constant *= S::ONE - x[i];
++                new_t[idx + i] = S::ZERO;
++            } else if t[idx + i] == S::ONE + S::ONE {
+                 constant *= x[i];
+-                new_t[idx + i] = S::zero();
++                new_t[idx + i] = S::ZERO;
+             }
+         }
+ 
+@@ -232,7 +237,7 @@ pub fn partial_eval_from_binary_form<S: PrimeField<Repr = [u8; 32]>>(
+     res_f
+ }
+ 
+-pub fn partial_eval<S: PrimeField<Repr = [u8; 32]>>(f: &Vec<Vec<S>>, r: &Vec<S>) -> Vec<Vec<S>> {
++pub fn partial_eval<S: PrimeField>(f: &Vec<Vec<S>>, r: &Vec<S>) -> Vec<Vec<S>> {
+     assert!(f[0].len() > r.len());
+     if r.len() == 0 {
+         return f.clone();
+@@ -242,7 +247,7 @@ pub fn partial_eval<S: PrimeField<Repr = [u8; 32]>>(f: &Vec<Vec<S>>, r: &Vec<S>)
+         let mut new_t = vec![];
+         let mut constant = t[0];
+         for i in 0..r.len() {
+-            let x = fe_to_u256(t[i + 1]).as_usize();
++            let x = fe_to_usize(t[i + 1]);
+             if x == 0 {
+                 continue;
+             }
+@@ -257,7 +262,7 @@ pub fn partial_eval<S: PrimeField<Repr = [u8; 32]>>(f: &Vec<Vec<S>>, r: &Vec<S>)
+     res_f
+ }
+ 
+-pub fn eval_univariate<S: PrimeField<Repr = [u8; 32]>>(f: &Vec<S>, x: &S) -> S {
++pub fn eval_univariate<S: PrimeField>(f: &Vec<S>, x: &S) -> S {
+     let mut res = f[0];
+     for i in f.iter().skip(1) {
+         res *= x;
+@@ -270,7 +275,7 @@ pub fn modify_poly_from_k<S: PrimeField>(f: &Vec<Vec<S>>, k: usize) -> Vec<Vec<S
+     let mut res_f = vec![];
+     for t in f.iter() {
+         let mut new_t = vec![t[0]];
+-        let mut zeros = vec![S::zero(); k];
++        let mut zeros = vec![S::ZERO; k];
+         new_t.append(&mut zeros);
+         new_t.extend_from_slice(&t[1..]);
+ 
+@@ -284,7 +289,7 @@ pub fn extend_length<S: PrimeField>(f: &Vec<S>, l: usize) -> Vec<S> {
+         f.clone()
+     } else {
+         let mut new_f = f.clone();
+-        let mut zeros = vec![S::zero(); l - f.len()];
++        let mut zeros = vec![S::ZERO; l - f.len()];
+         new_f.append(&mut zeros);
+         new_f
+     }
+@@ -322,7 +327,7 @@ pub fn add_poly<S: PrimeField + std::hash::Hash>(
+         }
+     }
+     for (poly, constant) in map.iter() {
+-        if constant.clone() == S::zero() {
++        if constant.clone() == S::ZERO {
+             continue;
+         }
+         let mut new_poly = vec![constant.clone()];
+@@ -374,7 +379,7 @@ pub fn mult_poly<S: PrimeField + std::hash::Hash>(
+         }
+     }
+     for (poly, constant) in map.iter() {
+-        if constant.clone() == S::zero() {
++        if constant.clone() == S::ZERO {
+             continue;
+         }
+         let mut new_poly = vec![constant.clone()];
+@@ -385,31 +390,30 @@ pub fn mult_poly<S: PrimeField + std::hash::Hash>(
+     res
+ }
+ 
+-pub fn get_univariate_coeff<S: PrimeField<Repr = [u8; 32]>>(
++pub fn get_univariate_coeff<S: PrimeField>(
+     f: &Vec<Vec<S>>,
+     i: usize,
+     is_binary_form: bool,
+ ) -> Vec<S> {
+     if is_binary_form {
+-        let mut coeffs = vec![S::zero(); 2];
++        let mut coeffs = vec![S::ZERO; 2];
+         for t in f {
+             let constant = t[0];
+-            if t[i] == S::one() {
++            if t[i] == S::ONE {
+                 coeffs[0] += constant;
+                 coeffs[1] += minus_one::<S>() * constant;
+-            } else if t[i] == S::one() + S::one() {
++            } else if t[i] == S::ONE + S::ONE {
+                 coeffs[1] += constant;
+             }
+         }
+         coeffs.reverse();
+         coeffs
+     } else {
+-        let mut coeffs = vec![S::zero()];
++        let mut coeffs = vec![S::ZERO];
+         for t in f {
+-            let deg_u256 = fe_to_u256(t[i]);
+-            let deg = deg_u256.as_usize();
++            let deg = fe_to_usize(t[i]);
+             if coeffs.len() - 1 < deg {
+-                let mut acc = vec![S::zero(); deg - coeffs.len() + 1];
++                let mut acc = vec![S::ZERO; deg - coeffs.len() + 1];
+                 coeffs.append(&mut acc);
+             }
+             coeffs[deg] += t[0];
+@@ -419,7 +423,7 @@ pub fn get_univariate_coeff<S: PrimeField<Repr = [u8; 32]>>(
+     }
+ }
+ 
+-pub fn mult_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) -> Vec<S> {
++pub fn mult_univariate<S: PrimeField>(p: &Vec<S>, q: &Vec<S>) -> Vec<S> {
+     let h_deg_p = p.len() - 1;
+     let h_deg_q = q.len() - 1;
+     let mut p_rev = p.clone();
+@@ -428,7 +432,7 @@ pub fn mult_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) -
+     q_rev.reverse();
+ 
+     let h_deg = h_deg_p + h_deg_q;
+-    let mut res = vec![S::zero(); h_deg + 1];
++    let mut res = vec![S::ZERO; h_deg + 1];
+ 
+     for (i, p_i) in p_rev.iter().enumerate() {
+         for (j, q_i) in q_rev.iter().enumerate() {
+@@ -441,7 +445,7 @@ pub fn mult_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) -
+     res
+ }
+ 
+-pub fn add_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) -> Vec<S> {
++pub fn add_univariate<S: PrimeField>(p: &Vec<S>, q: &Vec<S>) -> Vec<S> {
+     if p.len() == 0 {
+         return q.clone();
+     } else if q.len() == 0 {
+@@ -452,7 +456,7 @@ pub fn add_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) ->
+     let mut q_rev = q.clone();
+     p_rev.reverse();
+     q_rev.reverse();
+-    let mut res = vec![S::zero(); h_deg];
++    let mut res = vec![S::ZERO; h_deg];
+     for i in 0..h_deg {
+         if i > p.len() - 1 {
+             res[i] = q_rev[i];
+@@ -466,13 +470,13 @@ pub fn add_univariate<S: PrimeField<Repr = [u8; 32]>>(p: &Vec<S>, q: &Vec<S>) ->
+     res
+ }
+ 
+-pub fn reduce_multiple_polynomial<S: PrimeField<Repr = [u8; 32]>>(
++pub fn reduce_multiple_polynomial<S: PrimeField>(
+     b: &Vec<S>,
+     c: &Vec<S>,
+     w: &Vec<Vec<S>>,
+ ) -> Vec<S> {
+     assert_eq!(b.len(), c.len());
+-    let mut res = vec![S::zero()];
++    let mut res = vec![S::ZERO];
+     let mut t = vec![];
+     let iterator = b.iter().zip(c.iter());
+     for (b_i, c_i) in iterator {
+@@ -481,14 +485,14 @@ pub fn reduce_multiple_polynomial<S: PrimeField<Repr = [u8; 32]>>(
+         t.push((new_const, gradient));
+     }
+     for terms in w {
+-        let mut new_poly = vec![S::one()];
++        let mut new_poly = vec![S::ONE];
+         for (i, d) in terms.iter().enumerate() {
+             if i == 0 {
+                 new_poly[0] = d.clone();
+                 continue;
+             }
+             let idx = i - 1;
+-            let deg = fe_to_u256(*d).as_usize();
++            let deg = fe_to_usize(*d);
+             for _ in 0..deg {
+                 let term = vec![t[idx].1, t[idx].0];
+                 new_poly = mult_univariate(&new_poly, &term);
+@@ -499,14 +503,14 @@ pub fn reduce_multiple_polynomial<S: PrimeField<Repr = [u8; 32]>>(
+     res
+ }
+ 
+-pub fn get_multi_ext<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(value: &Vec<S>, v: usize) -> Vec<Vec<S>> {
++pub fn get_multi_ext<S: PrimeField + std::hash::Hash>(value: &Vec<S>, v: usize) -> Vec<Vec<S>> {
+     let mut map: HashMap<Vec<S>, S> = HashMap::new();
+     let binary = generate_binary_string(v);
+     let mut polynomial: Vec<Vec<S>> = vec![];
+     for b in binary {
+         let idx = usize::from_str_radix(&b, 2).unwrap();
+         let val = value[idx];
+-        if val == S::zero() {
++        if val == S::ZERO {
+             continue;
+         }
+         let mut res = chi_w::<S>(&b);
+@@ -524,7 +528,7 @@ pub fn get_multi_ext<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(value: &V
+         }
+     }
+     for (poly, constant) in map.iter() {
+-        if constant.clone() == S::zero() {
++        if constant.clone() == S::ZERO {
+             continue;
+         }
+         let mut new_poly = vec![constant.clone()];
+@@ -535,7 +539,7 @@ pub fn get_multi_ext<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(value: &V
+     res
+ }
+ 
+-pub fn l_function<S: PrimeField<Repr = [u8; 32]>>(b: &Vec<S>, c: &Vec<S>, r: &S) -> Vec<S> {
++pub fn l_function<S: PrimeField>(b: &Vec<S>, c: &Vec<S>, r: &S) -> Vec<S> {
+     let mut res = vec![];
+     let mut t = vec![];
+     let iterator = b.iter().zip(c.iter());
+diff --git a/rust/src/gkr/prover.rs b/rust/src/gkr/prover.rs
+index 67a90b2..89d264b 100644
+--- a/rust/src/gkr/prover.rs
++++ b/rust/src/gkr/prover.rs
+@@ -3,7 +3,7 @@ use ff::PrimeField;
+ use mimc_rs::{Fr, Mimc7};
+ use std::vec;
+ 
+-pub fn prove<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
++pub fn prove<S: PrimeField + std::hash::Hash>(
+     circuit: &GKRCircuit<S>,
+     input: &Input<S>,
+ ) -> Proof<S> {
+@@ -15,7 +15,7 @@ pub fn prove<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
+     let mut r_stars = vec![];
+     let mut z_zero = vec![];
+     for _ in 0..circuit.layer[0].k {
+-        z_zero.push(S::zero());
++        z_zero.push(S::ZERO);
+     }
+     let mut z = vec![];
+     z.push(z_zero);
+@@ -43,10 +43,10 @@ pub fn prove<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
+         let mut w_i_ext_c = modify_poly_from_k(&input.w(i + 1), circuit.k(i + 1));
+ 
+         if w_i_ext_b.len() == 0 {
+-            w_i_ext_b = vec![vec![S::zero(); 2 * circuit.k(i + 1) + 1]];
++            w_i_ext_b = vec![vec![S::ZERO; 2 * circuit.k(i + 1) + 1]];
+         }
+         if w_i_ext_c.len() == 0 {
+-            w_i_ext_c = vec![vec![S::zero(); 2 * circuit.k(i + 1) + 1]];
++            w_i_ext_c = vec![vec![S::ZERO; 2 * circuit.k(i + 1) + 1]];
+         }
+ 
+         let (sumcheck_proof, r) = prove_sumcheck_opt(
+diff --git a/rust/src/gkr/sumcheck.rs b/rust/src/gkr/sumcheck.rs
+index 5418f60..ec50cfe 100644
+--- a/rust/src/gkr/sumcheck.rs
++++ b/rust/src/gkr/sumcheck.rs
+@@ -2,6 +2,7 @@ use std::vec;
+ 
+ use ff::PrimeField;
+ use itertools::Itertools;
++use ff012::PrimeField as _;
+ use mimc_rs::{Fr, FrRepr, Mimc7};
+ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+ 
+@@ -9,19 +10,22 @@ use super::poly::*;
+ 
+ pub fn convert_s_to_fr<S>(v: &S) -> mimc_rs::Fr
+ where
+-    S: PrimeField<Repr = [u8; 32]>,
++    S: PrimeField,
+ {
+-    let v_bytes = v.to_repr();
++    let mut v_bytes = [0u8; 32];
++    v_bytes.copy_from_slice(v.to_repr().as_ref());
+     let res = FrRepr(v_bytes);
+     mimc_rs::Fr::from_repr(res).unwrap()
+ }
+ 
+-pub fn convert_fr_to_s<S: PrimeField<Repr = [u8; 32]>>(v: mimc_rs::Fr) -> S {
++pub fn convert_fr_to_s<S: PrimeField>(v: mimc_rs::Fr) -> S {
+     let FrRepr(v_bytes) = v.to_repr();
+-    S::from_repr(v_bytes).unwrap()
++    let mut repr = S::Repr::default();
++    repr.as_mut().copy_from_slice(&v_bytes);
++    S::from_repr(repr).unwrap()
+ }
+ 
+-fn n_trailing_bits<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
++fn n_trailing_bits<S: PrimeField + std::hash::Hash>(
+     wire: &Vec<Vec<S>>,
+     n: usize,
+ ) -> Vec<Vec<S>> {
+@@ -33,7 +37,7 @@ fn n_trailing_bits<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
+ }
+ 
+ // only can be run for f: add_i(f1 + f2) + mult_i(f1 * f2)
+-pub fn prove_sumcheck_opt<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
++pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
+     add_wire: &Vec<Vec<S>>,
+     mult_wire: &Vec<Vec<S>>,
+     add_i: &Vec<Vec<S>>,
+@@ -155,7 +159,7 @@ pub fn prove_sumcheck_opt<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
+     (proof, r)
+ }
+ 
+-pub fn prove_sumcheck<S: PrimeField<Repr = [u8; 32]> + std::hash::Hash>(
++pub fn prove_sumcheck<S: PrimeField + std::hash::Hash>(
+     g: &Vec<Vec<S>>,
+     v: usize,
+ ) -> (Vec<Vec<S>>, Vec<S>) {
+diff --git a/rust/src/lib.rs b/rust/src/lib.rs
+index 325c278..67c2e5d 100644
+--- a/rust/src/lib.rs
++++ b/rust/src/lib.rs
+@@ -1,6 +1,7 @@
+-#![feature(let_chains)]
+-
++#[cfg(feature = "aggregator")]
+ pub mod aggregator;
++#[cfg(feature = "aggregator")]
+ mod convert;
++#[cfg(feature = "aggregator")]
+ mod file_utils;
+-mod gkr;
++pub mod gkr;
+-- 
+2.53.0
+

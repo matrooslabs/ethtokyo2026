@@ -1,0 +1,5 @@
+2026-09-25 Asia/Tokyo
+PASS cargo check --release --locked --example fpga_vectors
+PASS protocol SHA-256 constants
+PASS relative Markdown document links
+PASS 147 source-manifest SHA-256 entries

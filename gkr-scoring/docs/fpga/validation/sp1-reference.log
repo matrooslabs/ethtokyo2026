@@ -1,0 +1,66 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/mania_proof_server-c3b4e94b12ca6971)
+
+running 8 tests
+test tests::reject_bad_witness_unsupported_mode_and_large_body ... ok
+test tests::recovered_jobs_locks_and_guest_version_are_checked ... ok
+test tests::completed_groth16_artifacts_survive_restart ... ok
+test tests::authenticated_job_lifecycle_download_delete_and_retention ... ok
+test tests::bounded_queue_and_single_prover ... ok
+test tests::failed_or_mismatched_output_is_never_downloadable ... ok
+test tests::process_timeout_and_shutdown_are_enforced ... ok
+test docker::tests::wrapper_labels_runs_and_cleanup_targets_only_that_label ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running unittests src/main.rs (target/debug/deps/mania_proof_server-ba9c0aaaf1e3355d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/mania_scoring_cli-a1415ef3d1777ed1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/mania_scoring_core-5d83e721e0dc7171)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scoring.rs (target/debug/deps/scoring-5be91092cf06bb6b)
+
+running 15 tests
+test silence_scores_all_misses_and_denominator_includes_unplayed_notes ... ok
+test notelock_consumes_earliest_pending_note_only ... ok
+test entire_session_context_and_footer_are_digest_bound ... ok
+test extra_edges_cannot_exceed_one_million_and_a_great_lowers_score ... ok
+test hold_head_tail_and_no_recovery_after_early_release ... ok
+test tampering_deletion_insertion_reordering_and_truncation_rejected ... ok
+test stale_head_expires_before_matching_next_note ... ok
+test cross_language_golden_vector ... ok
+test perfect_fixture_is_one_million ... ok
+test malformed_streams_rejected_even_with_matching_commitment ... ok
+test python_hash_chain_vectors_cover_empty_full_and_partial_chunks ... ok
+test invalid_chart_and_ruleset_rejected ... ok
+test inclusive_windows_and_one_microsecond_outside_on_both_sides ... ok
+test exact_duration_boundary_is_complete_and_limits_are_enforced ... ok
+test perfect_taps_holds_and_mixed_charts_reach_exactly_one_million ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+   Doc-tests mania_proof_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests mania_scoring_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

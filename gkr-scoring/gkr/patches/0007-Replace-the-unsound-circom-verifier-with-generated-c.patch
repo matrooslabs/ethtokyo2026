@@ -1,0 +1,1388 @@
+From 1839762a6e224cc91a37aa5d5f6a8a00ae7f2edc Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 13:06:31 +0900
+Subject: [PATCH 07/12] Replace the unsound circom verifier with generated
+ circuit-specific verifiers
+
+Upstream VerifyGKR(meta): initial claim hard-coded to 0 and D unused;
+sumcheck challenges, r*, and all points z were free prover inputs; no final
+layer check against add~/mult~ wiring; round-polynomial length = max over
+proofs (no degree bound); input evaluation via unconstrained '<--'
+(evalMultivariate/evalGateFunction). An all-zero 'proof' verified for any
+circuit.
+
+Now circom_codegen::gkr_verifier_template emits a template per GKR circuit
+with the wiring, fixed inputs, digest and claimed output as constants; it
+recomputes every challenge with the circomlib MultiMiMC7 transcript
+(identical to rust/python), enforces 3 coefficients per round and k+1 for q,
+checks each layer against add~/mult~ via constrained eq tables, and checks the
+constrained input MLE. The aggregator passes (circuit, input, proof)
+artifacts between rounds and uses the generated templates.
+---
+ .../circom/circom/poly/multivariate.circom    |  52 +-
+ .../circom/circom/poly/optimizedGate.circom   |  28 -
+ .../circom/sumcheck/sumcheckVerify.circom     |  69 ++-
+ .../circom/circom/transcript.circom           |  39 ++
+ .../circom/circom/verifier.circom             |  75 +--
+ rust/.gitignore                               |   6 +
+ rust/src/aggregator.rs                        | 524 +++++-------------
+ rust/src/circom_codegen.rs                    | 253 +++++++++
+ rust/src/lib.rs                               |   1 +
+ rust/tests/circom.rs                          | 163 ++++++
+ 10 files changed, 674 insertions(+), 536 deletions(-)
+ delete mode 100644 gkr-verifier-circuits/circom/circom/poly/optimizedGate.circom
+ create mode 100644 gkr-verifier-circuits/circom/circom/transcript.circom
+ create mode 100644 rust/src/circom_codegen.rs
+ create mode 100644 rust/tests/circom.rs
+
+diff --git a/gkr-verifier-circuits/circom/circom/poly/multivariate.circom b/gkr-verifier-circuits/circom/circom/poly/multivariate.circom
+index fae9bbf..e411658 100644
+--- a/gkr-verifier-circuits/circom/circom/poly/multivariate.circom
++++ b/gkr-verifier-circuits/circom/circom/poly/multivariate.circom
+@@ -1,25 +1,41 @@
+ pragma circom 2.0.4;
+ 
+-template evalMultivariate(nTerms, v) {
+-    signal input x[v];
+-    signal input terms[nTerms][v + 1];
++// Upstream's evalMultivariate (and evalGateFunction in optimizedGate.circom) computed the
++// result with unconstrained `<--` assignments, so the prover could set the input-layer
++// evaluation to anything. They are replaced by the fully constrained templates below,
++// which work on dense evaluation vectors (MSB-first variable order, as in the prover).
+ 
+-    signal output result;
+-    signal subres[nTerms];
+-    signal termres[nTerms][v + 1];
+-    for (var i = 0; i < nTerms; i++) {
+-        for (var j = 0; j < v + 1; j++) {
+-            if (j == 0) {
+-                termres[i][0] <-- terms[i][0];
+-            } else {
+-                termres[i][j] <-- termres[i][j - 1] * (x[j - 1] ** terms[i][j]);
+-            }
++// eq[idx] = prod_j (bit_j(idx) ? x[j] : 1 - x[j]), bit_0 = most significant bit.
++template EqTable(k) {
++    signal input x[k];
++    signal output eq[1 << k];
++    signal level[k + 1][1 << k];
++    level[0][0] <== 1;
++    for (var j = 0; j < k; j++) {
++        for (var i = 0; i < (1 << j); i++) {
++            level[j + 1][2 * i + 1] <== level[j][i] * x[j];
++            level[j + 1][2 * i] <== level[j][i] - level[j + 1][2 * i + 1];
+         }
+-        if (i == 0) {
+-            subres[0] <-- termres[0][v];
+-        } else {
+-            subres[i] <-- subres[i - 1] + termres[i][v];
++    }
++    for (var i = 0; i < (1 << k); i++) {
++        eq[i] <== level[k][i];
++    }
++}
++
++// Multilinear extension of `values` at `x` (MSB-first), by folding.
++template MLEEval(k) {
++    signal input values[1 << k];
++    signal input x[k];
++    signal output result;
++    signal fold[k + 1][1 << k];
++    for (var i = 0; i < (1 << k); i++) {
++        fold[0][i] <== values[i];
++    }
++    for (var j = 0; j < k; j++) {
++        var half = (1 << (k - j)) >> 1;
++        for (var i = 0; i < half; i++) {
++            fold[j + 1][i] <== fold[j][i] + (fold[j][i + half] - fold[j][i]) * x[j];
+         }
+     }
+-    result <== subres[nTerms - 1];
++    result <== fold[k][0];
+ }
+diff --git a/gkr-verifier-circuits/circom/circom/poly/optimizedGate.circom b/gkr-verifier-circuits/circom/circom/poly/optimizedGate.circom
+deleted file mode 100644
+index 87b9fd8..0000000
+--- a/gkr-verifier-circuits/circom/circom/poly/optimizedGate.circom
++++ /dev/null
+@@ -1,28 +0,0 @@
+-pragma circom 2.0.4;
+-
+-template evalGateFunction(nTerms, v) {
+-    signal input x[v];
+-    signal input terms[nTerms][v + 1];
+-
+-    signal output result;
+-    signal subres[nTerms];
+-    signal termres[nTerms][v + 1];
+-    for (var i = 0; i < nTerms; i++) {
+-        for (var j = 0; j < v + 1; j++) {
+-            if (j == 0) {
+-                termres[i][0] <-- terms[i][0];
+-            } else {
+-                termres[i][j] <-- termres[i][j - 1] 
+-                * (((1 / 2) * terms[i][j] * (terms[i][j] - 1) * x[j - 1]) 
+-                + ((1 / 2) * (terms[i][j] - 1) * (terms[i][j] - 2))
+-                + ((x[j - 1] - 1) * terms[i][j] * (terms[i][j] - 2)));
+-            }
+-        }
+-        if (i == 0) {
+-            subres[0] <-- termres[0][v];
+-        } else {
+-            subres[i] <-- subres[i - 1] + termres[i][v];
+-        }
+-    }
+-    result <== subres[nTerms - 1];
+-}
+diff --git a/gkr-verifier-circuits/circom/circom/sumcheck/sumcheckVerify.circom b/gkr-verifier-circuits/circom/circom/sumcheck/sumcheckVerify.circom
+index 76dc971..72456a3 100644
+--- a/gkr-verifier-circuits/circom/circom/sumcheck/sumcheckVerify.circom
++++ b/gkr-verifier-circuits/circom/circom/sumcheck/sumcheckVerify.circom
+@@ -1,42 +1,37 @@
+ pragma circom 2.0.4;
+ include "../poly/univariate.circom";
+-
+-template SumcheckVerify(v, nTerms) {
+-    signal input proofs[v][nTerms];
++include "../transcript.circom";
++
++// One round of the GKR sumcheck. Upstream took the round challenges as free prover
++// inputs, did not bound the degree (nTerms = max over all proofs) and never used the
++// final evaluation. Here: exactly 3 coefficients (degree <= 2, highest first),
++// g(0) + g(1) === claim, the round polynomial is absorbed into the running transcript
++// and the challenge r is squeezed from it; next = g(r).
++template SumcheckRound() {
+     signal input claim;
+-    signal input r[v - 1];
+-
+-    signal output isValid;
+-
+-    signal expected[v];
+-    expected[0] <== claim;
+-
+-    component qZero[v];
+-    component qOne[v];
+-    component next[v - 1];
+-    for (var i = 0; i < v; i++) {
+-        qZero[i] = evalUnivariate(nTerms);
+-        qOne[i] = evalUnivariate(nTerms);
+-
+-        qZero[i].x <== 0;
+-        qOne[i].x <== 1;
+-
+-        for (var j = 0; j < nTerms; j++) {
+-            qZero[i].coeffs[j] <== proofs[i][j];
+-            qOne[i].coeffs[j] <== proofs[i][j];
+-        }
+-
+-        qZero[i].result + qOne[i].result === expected[i];
+-
+-        if (i != v - 1) {
+-            next[i] = evalUnivariate(nTerms);
+-            next[i].x <== r[i];
+-            for (var j = 0; j < nTerms; j++) {
+-                next[i].coeffs[j] <== proofs[i][j];
+-            }
+-            expected[i + 1] <== next[i].result;
+-        }
++    signal input g[3];
++    signal input stateIn;
++    signal output next;
++    signal output r;
++    signal output stateOut;
++
++    // g(0) = g[2], g(1) = g[0] + g[1] + g[2]
++    2 * g[2] + g[1] + g[0] === claim;
++
++    component absorb = TranscriptAbsorb(3);
++    absorb.state <== stateIn;
++    for (var i = 0; i < 3; i++) {
++        absorb.xs[i] <== g[i];
+     }
+-
+-    isValid <== 1;
++    component squeeze = TranscriptSqueeze();
++    squeeze.state <== absorb.out;
++    r <== squeeze.out;
++    stateOut <== squeeze.out;
++
++    component eval = evalUnivariate(3);
++    for (var i = 0; i < 3; i++) {
++        eval.coeffs[i] <== g[i];
++    }
++    eval.x <== r;
++    next <== eval.result;
+ }
+diff --git a/gkr-verifier-circuits/circom/circom/transcript.circom b/gkr-verifier-circuits/circom/circom/transcript.circom
+new file mode 100644
+index 0000000..edc42f1
+--- /dev/null
++++ b/gkr-verifier-circuits/circom/circom/transcript.circom
+@@ -0,0 +1,39 @@
++pragma circom 2.0.4;
++
++include "../node_modules/circomlib/circuits/mimc.circom";
++
++// Fiat-Shamir transcript, identical to rust/src/gkr/transcript.rs and python/transcript.py:
++//   init:        s = MultiMiMC7([domain], k = 0)
++//   absorb(xs):  s = MultiMiMC7([s, len(xs), xs...], k = 0)
++//   squeeze():   s = MultiMiMC7([s], k = 1); challenge = s
++
++template TranscriptInit(domain) {
++    signal output out;
++    component h = MultiMiMC7(1, 91);
++    h.in[0] <== domain;
++    h.k <== 0;
++    out <== h.out;
++}
++
++template TranscriptAbsorb(n) {
++    signal input state;
++    signal input xs[n];
++    signal output out;
++    component h = MultiMiMC7(n + 2, 91);
++    h.in[0] <== state;
++    h.in[1] <== n;
++    for (var i = 0; i < n; i++) {
++        h.in[i + 2] <== xs[i];
++    }
++    h.k <== 0;
++    out <== h.out;
++}
++
++template TranscriptSqueeze() {
++    signal input state;
++    signal output out;
++    component h = MultiMiMC7(1, 91);
++    h.in[0] <== state;
++    h.k <== 1;
++    out <== h.out;
++}
+diff --git a/gkr-verifier-circuits/circom/circom/verifier.circom b/gkr-verifier-circuits/circom/circom/verifier.circom
+index d1a92e0..18e266c 100644
+--- a/gkr-verifier-circuits/circom/circom/verifier.circom
++++ b/gkr-verifier-circuits/circom/circom/verifier.circom
+@@ -1,72 +1,13 @@
+ pragma circom 2.0.4;
+ 
++// Building blocks of the fixed GKR verifier. The per-circuit verifier template itself is
++// generated by rust/src/circom_codegen.rs (`gkr_verifier_template`), because the circuit
++// wiring must be compile-time constants of the verifier: upstream's generic
++// VerifyGKR(meta) took challenges, points, the output polynomial and the input
++// polynomial as free prover inputs, hard-coded the initial claim to 0 at a
++// prover-chosen point, and never checked a layer's sumcheck against the circuit wiring.
++
+ include "./poly/univariate.circom";
+ include "./poly/multivariate.circom";
+ include "./sumcheck/sumcheckVerify.circom";
+-
+-
+-template VerifyGKR(meta) {
+-    // metadata of circuit
+-    // 0 --> d
+-    // 1 --> largest_k
+-    // 2 --> k_i(0)
+-    // 3 --> # of terms of D
+-    // 4 --> largest # of terms among sumcheck proofs (highest degree)
+-    // 5 --> largest # of terms among q
+-    // 6 --> # of terms in w_d
+-    // 7 --> k_i(d - 1)
+-    // 8 ~ 8 + d - 1 : i --> k_i(i - 11)
+-    var d = meta[0];
+-    var largest_k = meta[1];
+-
+-    signal input sumcheckProof[d - 1][2 * largest_k][meta[4]];
+-    signal input sumcheckr[d - 1][2 * largest_k];
+-    signal input q[d - 1][meta[5]];
+-    signal input D[meta[3]][meta[2] + 1];
+-    signal input z[d][largest_k];
+-    signal input r[d - 1];
+-
+-    signal input inputFunc[meta[6]][meta[7] + 1];
+-
+-    component m[d - 1];
+-
+-    component sumcheckVerifier[d - 1];
+-    component qZero[d - 1];
+-    component qOne[d - 1];
+-
+-    component inputValue = evalMultivariate(meta[6], meta[7]);
+-
+-    for (var i = 0; i < d - 1; i++) {
+-        sumcheckVerifier[i] = SumcheckVerify(2 * meta[i + 9], meta[4]);
+-        if (i == 0) {
+-            sumcheckVerifier[i].claim <== 0;
+-        } else {
+-            sumcheckVerifier[i].claim <== m[i - 1].result;
+-        }
+-        
+-        for (var j = 0; j < 2 * meta[i + 9] - 1; j++) {
+-            sumcheckVerifier[i].r[j] <== sumcheckr[i][j];
+-        }
+-        for (var j = 0; j < 2 * meta[i + 9]; j++) {
+-            for (var k = 0; k < meta[4]; k++) {
+-                sumcheckVerifier[i].proofs[j][k] <== sumcheckProof[i][j][k];
+-            }
+-        }
+-
+-        m[i] = evalUnivariate(meta[5]);
+-        for (var j = 0; j < meta[5]; j++) {
+-            m[i].coeffs[j] <== q[i][j];
+-        }
+-        m[i].x <== r[i];
+-    }
+-
+-    for (var i = 0; i < meta[6]; i++) {
+-        for (var j = 0; j < meta[7] + 1; j++) {
+-            inputValue.terms[i][j] <== inputFunc[i][j];
+-        }
+-    }
+-    for (var j = 0; j < meta[7]; j++) {
+-        inputValue.x[j] <== z[d - 1][j];
+-    }
+-    m[d - 2].result === inputValue.result;
+-}
++include "./transcript.circom";
+diff --git a/rust/.gitignore b/rust/.gitignore
+index 96ef6c0..71cf8a4 100644
+--- a/rust/.gitignore
++++ b/rust/.gitignore
+@@ -1,2 +1,8 @@
+ /target
+ Cargo.lock
++
++# circom / aggregator outputs
++*_js/
++*.sym
++*.wtns
++aggregated.circom
+diff --git a/rust/src/aggregator.rs b/rust/src/aggregator.rs
+index 21fb6fa..5aba994 100644
+--- a/rust/src/aggregator.rs
++++ b/rust/src/aggregator.rs
+@@ -1,438 +1,190 @@
+-use std::{env::current_dir, fs::File, io::Read, path::PathBuf, process::Command, time::Instant};
++use std::{env::current_dir, fs::File, time::Instant};
+ 
+ use crate::{
+-    convert::{convert_r1cs_wtns_gkr, Output},
+-    file_utils::{execute_circom, get_name, stringify_fr, write_aggregated_input, write_output},
+-    gkr::{prover, transcript::MimcTranscript, GKRCircuit, Input, Proof},
++    circom_codegen::{gkr_verifier_inputs, gkr_verifier_template},
++    convert::convert_r1cs_wtns_gkr,
++    file_utils::{execute_circom, get_name, write_aggregated_input, write_output},
++    gkr::{prover, transcript::MimcTranscript, verifier, GKRCircuit, Input, Proof},
+ };
+ use colored::Colorize;
+-use ff::Field;
+ use halo2curves::bn256::Fr;
+ use r1cs_file::*;
+-use serde::{Deserialize, Serialize};
+-use tera::{Context, Tera};
++use serde_json::Value;
+ use wtns_file::*;
+ 
+ use rayon::prelude::*;
+ 
+-/// Circom-GKR
+-struct Meta(Vec<usize>);
+-
+-#[derive(Serialize, Deserialize, Debug, Clone)]
+-#[allow(non_snake_case)]
+-pub struct CircomInputProof {
+-    pub sumcheckProof: Vec<Vec<Vec<String>>>,
+-    pub sumcheckr: Vec<Vec<String>>,
+-    pub q: Vec<Vec<String>>,
+-    pub D: Vec<Vec<String>>,
+-    pub z: Vec<Vec<String>>,
+-    pub r: Vec<String>,
+-    pub inputFunc: Vec<Vec<String>>,
+-}
+-
+-impl CircomInputProof {
+-    pub fn empty() -> Self {
+-        let zero = String::from("0");
+-        let sp = vec![vec![vec![zero.clone()]]];
+-        let q = vec![vec![zero.clone()]];
+-        let sr = vec![vec![zero.clone()]];
+-        let f = vec![zero.clone()];
+-        CircomInputProof {
+-            sumcheckProof: sp.clone(),
+-            sumcheckr: sr,
+-            q: q.clone(),
+-            D: q.clone(),
+-            z: q.clone(),
+-            r: f.clone(),
+-            inputFunc: q.clone(),
+-        }
+-    }
+-
+-    fn new_from_proof(proof: Proof<Fr>) -> Self {
+-        let sp: Vec<Vec<Vec<String>>> = proof
+-            .sumcheck_proofs
+-            .iter()
+-            .map(|p| p.iter().map(|f| stringify_fr_vector(f)).collect())
+-            .collect();
+-
+-        let sr: Vec<Vec<String>> = proof
+-            .sumcheck_r
+-            .iter()
+-            .map(|p| stringify_fr_vector(p))
+-            .collect();
+-        let q: Vec<Vec<String>> = proof.q.iter().map(|p| stringify_fr_vector(p)).collect();
+-        let d: Vec<Vec<String>> = proof.d.iter().map(|p| stringify_fr_vector(p)).collect();
+-        let z: Vec<Vec<String>> = proof.z.iter().map(|p| stringify_fr_vector(p)).collect();
+-        let r: Vec<String> = stringify_fr_vector(&proof.r);
+-        let input_func: Vec<Vec<String>> = proof
+-            .input_func
+-            .iter()
+-            .map(|p| stringify_fr_vector(p))
+-            .collect();
+-
+-        CircomInputProof {
+-            sumcheckProof: sp,
+-            sumcheckr: sr,
+-            q,
+-            D: d,
+-            z,
+-            r,
+-            inputFunc: input_func,
+-        }
+-    }
+-}
+-
+-fn stringify_fr_vector(v: &Vec<Fr>) -> Vec<String> {
+-    v.iter().map(|f| stringify_fr(f)).collect()
++/// A GKR proof together with the (verifier-side) circuit it is about and the input-layer
++/// witness the aggregated circom circuit needs. Upstream passed only proofs and a `meta`
++/// shape vector between rounds and let the circom verifier take everything else from
++/// the prover.
++pub struct GkrArtifact {
++    pub circuit: GKRCircuit<Fr>,
++    pub input_values: Vec<Fr>,
++    pub output_values: Vec<Fr>,
++    pub proof: Proof<Fr>,
+ }
+ 
+-fn zeros(l: usize) -> Vec<Fr> {
+-    vec![Fr::ZERO; l]
+-}
+-
+-fn get_meta(proofs: &Vec<Proof<Fr>>) -> Vec<Meta> {
+-    let mut meta_infos = vec![];
+-    for proof in proofs {
+-        let mut meta = vec![];
+-        // meta[0] = depth
+-        meta.push(proof.depth);
+-
+-        // meta[1] = largest k
+-        let largest_k = proof
+-            .k
+-            .iter()
+-            .max()
+-            .cloned()
+-            .expect("Empty proof : k is None");
+-        meta.push(largest_k);
+-
+-        // meta[2] = k_i(0)
+-        meta.push(proof.k[0]);
+-
+-        // meta[3] = # of terms of D
+-        let n_terms_d = proof.d.len();
+-        meta.push(n_terms_d);
+-
+-        // meta[4] = largest # of terms among sumcheck proofs (highest degree)
+-        let largest_deg = proof
+-            .sumcheck_proofs
+-            .iter()
+-            .map(|p| p.iter().map(|terms| terms.len()).max().unwrap())
+-            .max()
+-            .unwrap();
+-        meta.push(largest_deg);
+-
+-        // meta[5] = largest # of terms among q
+-        let largest_terms_q = proof.q.iter().map(|p| p.len()).max().unwrap();
+-        meta.push(largest_terms_q);
+-
+-        // meta[6] = # of terms in w_d
+-        let n_terms_input_func = proof.input_func.len();
+-        meta.push(n_terms_input_func);
+-
+-        // meta[7] = k_i(d - 1)
+-        let k_input = proof.k[proof.depth - 1];
+-        meta.push(k_input);
+-
+-        meta.append(&mut proof.k.clone());
+-
+-        meta_infos.push(Meta(meta));
+-    }
+-    meta_infos
+-}
+-
+-fn modify_proof_for_circom(proof: &Vec<Proof<Fr>>, meta_value: &Vec<Meta>) -> Vec<Proof<Fr>> {
+-    let mut proofs = vec![];
+-    for (pr, m) in proof.iter().zip(meta_value.iter()) {
+-        let meta = m.0.clone();
+-        let mut sumcheck_proofs = vec![];
+-        for p in pr.sumcheck_proofs.iter() {
+-            let mut new_p = vec![];
+-            for terms in p.iter() {
+-                let mut new_terms = terms.clone();
+-                if terms.len() < meta[4] {
+-                    let mut z = zeros(meta[4] - terms.len());
+-                    z.append(&mut new_terms);
+-                    new_p.push(z);
+-                } else {
+-                    new_p.push(new_terms);
+-                }
+-            }
+-            if p.len() < 2 * meta[1] {
+-                for _ in 0..(2 * meta[1] - p.len()) {
+-                    let new_terms = zeros(meta[4]);
+-                    new_p.push(new_terms);
+-                }
+-            }
+-            sumcheck_proofs.push(new_p);
+-        }
+-
+-        let mut sumcheck_r = vec![];
+-        for p in pr.sumcheck_r.iter() {
+-            let mut new_p = p.clone();
+-            if p.len() < 2 * meta[1] {
+-                new_p.extend(zeros(2 * meta[1] - p.len()));
+-            }
+-            sumcheck_r.push(new_p);
+-        }
+-
+-        let mut q = vec![];
+-        for p in pr.q.iter() {
+-            let mut new_p = p.clone();
+-            if p.len() < meta[5] {
+-                let mut z = zeros(meta[5] - p.len());
+-                z.append(&mut new_p);
+-                q.push(z);
+-            } else {
+-                q.push(new_p);
+-            }
+-        }
+-
+-        let mut z = vec![];
+-        for p in pr.z.iter() {
+-            let mut new_p = p.clone();
+-            if p.len() < meta[1] {
+-                new_p.extend(zeros(meta[1] - p.len()));
++/// Converts a compiled circom circuit + witness to GKR circuits and proves them. Each proof
++/// is checked with the sound verifier before being handed to the next round.
++fn prove_r1cs(r1cs: R1csFile<32>, wtns: WtnsFile<32>, sym: String, output_path: String) -> Vec<GkrArtifact> {
++    let (circuits, inputs, output) = convert_r1cs_wtns_gkr(r1cs, wtns, sym);
++    println!("Proving starts..");
++    let now = Instant::now();
++    let pairs: Vec<(GKRCircuit<Fr>, Input<Fr>)> = circuits.into_iter().zip(inputs).collect();
++    let artifacts: Vec<GkrArtifact> = pairs
++        .into_par_iter()
++        .map(|(circuit, input)| {
++            let proof =
++                prover::prove::<Fr, MimcTranscript>(&circuit, &input).expect("GKR proving failed");
++            verifier::verify::<Fr, MimcTranscript>(
++                &circuit,
++                &input.input_values,
++                &input.output_values,
++                &proof,
++            )
++            .expect("freshly generated GKR proof does not verify");
++            GkrArtifact {
++                circuit,
++                input_values: input.input_values,
++                output_values: input.output_values,
++                proof,
+             }
+-            z.push(new_p);
+-        }
+-
+-        let new_p = Proof {
+-            sumcheck_proofs,
+-            sumcheck_r,
+-            q,
+-            z,
+-            d: pr.d.clone(),
+-            r: pr.r.clone(),
+-            depth: pr.depth,
+-            input_func: pr.input_func.clone(),
+-            k: pr.k.clone(),
+-        };
+-        proofs.push(new_p);
+-    }
+-    proofs
++        })
++        .collect();
++    println!("{}\n", format!("Proving {}", report_elapsed(now)).blue().bold());
++    write_output(output_path, output);
++    artifacts
+ }
+ 
+-fn modify_circom_file(path: String, meta_value: &Vec<Meta>) -> String {
+-    let mut added = Tera::default();
+-    let total = format!("{}", meta_value.len());
+-
+-    let verifiers = "
+-    component verifier[{{total}}];
+-    ";
+-    let source = "
+-    var d{{num}} = {{ meta_0 }};
+-    var largest_k{{num}} = {{ meta_1 }};
+-    signal input sumcheckProof{{num}}[d{{num}} - 1][2 * largest_k{{num}}][{{ meta_4 }}];
+-    signal input sumcheckr{{num}}[d{{num}} - 1][2 * largest_k{{num}}];
+-    signal input q{{num}}[d{{num}} - 1][{{meta_5}}];
+-    signal input D{{num}}[{{meta_3}}][{{meta_2}} + 1];
+-    signal input z{{num}}[d{{num}}][largest_k{{num}}];
+-    signal input r{{num}}[d{{num}} - 1];
+-    signal input inputFunc{{num}}[{{meta_6}}][{{meta_7}} + 1];
+-    verifier[{{num}}] = VerifyGKR({{ meta }});
+-    var a{{num}} = {{ meta_0 }} - 1;
+-    for (var i = 0; i < a{{num}}; i++) {
+-        for (var j = 0; j < 2 * {{ meta_1 }}; j++) {
+-            for (var k = 0; k < {{ meta_4 }}; k++) {
+-                verifier[{{num}}].sumcheckProof[i][j][k] <== sumcheckProof{{num}}[i][j][k];
+-            }
+-        }
+-    }
+-    for (var i = 0; i < a{{num}}; i++) {
+-        for (var j = 0; j < 2 * {{ meta_1 }}; j++) {
+-            verifier[{{num}}].sumcheckr[i][j] <== sumcheckr{{num}}[i][j];
+-        }
+-    }
+-    for (var i = 0; i < a{{num}}; i++) {
+-        for (var j = 0; j < {{ meta_5 }}; j++) {
+-            verifier[{{num}}].q[i][j] <== q{{num}}[i][j];
+-        }
+-    }
+-    for (var i = 0; i < {{ meta_3 }}; i++) {
+-        for (var j = 0; j < {{ meta_2 }} + 1; j++) {
+-            verifier[{{num}}].D[i][j] <== D{{num}}[i][j];
+-        }
+-    }
+-    for (var i = 0; i < a{{num}} + 1; i++) {
+-        for (var j = 0; j < {{ meta_1 }}; j++) {
+-            verifier[{{num}}].z[i][j] <== z{{num}}[i][j];
++/// Named signal inputs of the aggregated circuit for the previous round's proofs.
++fn verifier_inputs(artifacts: &[GkrArtifact]) -> Vec<(String, Value)> {
++    let mut out = vec![];
++    for (num, a) in artifacts.iter().enumerate() {
++        let v = gkr_verifier_inputs(&a.circuit, &a.input_values, &a.proof)
++            .expect("verifier inputs");
++        let parse = |s: &String| serde_json::from_str::<Value>(s).expect("json");
++        out.push((format!("gkrInput{num}"), parse(&v.input_values)));
++        for (i, r) in v.rounds.iter().enumerate() {
++            out.push((format!("gkrRounds{num}_{i}"), parse(r)));
+         }
+-    }
+-    for (var i = 0; i < a{{num}}; i++) {
+-        verifier[{{num}}].r[i] <== r{{num}}[i];
+-    }
+-    for (var i = 0; i < {{ meta_6 }}; i++) {
+-        for (var j = 0; j < {{ meta_7 }} + 1; j++) {
+-            verifier[{{num}}].inputFunc[i][j] <== inputFunc{{num}}[i][j];
++        for (i, q) in v.q.iter().enumerate() {
++            out.push((format!("gkrQ{num}_{i}"), parse(q)));
+         }
+     }
+-    ";
+-    added.add_raw_template("verifier", source).unwrap();
+-    added.add_raw_template("component", verifiers).unwrap();
+-    let mut decl_ctxt = Context::new();
+-    decl_ctxt.insert("total", &total);
+-
+-    let mut v = added.render("component", &decl_ctxt).unwrap();
+-    for (i, m) in meta_value.iter().enumerate() {
+-        let mut ctxt = Context::new();
+-        let meta = format!("{:?}", m.0);
+-        ctxt.insert("meta", &meta);
+-        let num = format!("{}", i);
+-        ctxt.insert("num", &num);
+-        for (i, value) in m.0.iter().enumerate() {
+-            let value_string = value.to_string();
+-            let name = format!("{}_{}", "meta", i.to_string().as_str());
++    out
++}
+ 
+-            ctxt.insert(name, &value_string);
++/// Inserts one generated, circuit-specific verifier per previous proof into the user's
++/// circuit. Output values of R1CS-derived GKR circuits are all zero (every output gate is a
++/// constraint A*B - C), so the verifiers are generated for the all-zero output.
++fn modify_circom_file(path: String, artifacts: &[GkrArtifact]) -> String {
++    let mut templates = String::new();
++    let mut instances = String::new();
++    for (num, a) in artifacts.iter().enumerate() {
++        assert!(a.output_values.iter().all(|v| bool::from(ff::Field::is_zero(v))));
++        let name = format!("GkrVerifier{num}");
++        templates.push_str(&gkr_verifier_template(&a.circuit, &[], &name).expect("verifier template"));
++        templates.push('\n');
++        let kd = a.circuit.k(a.circuit.depth());
++        instances.push_str(&format!("    signal input gkrInput{num}[{}];\n", 1 << kd));
++        instances.push_str(&format!("    component gkrVerifier{num} = {name}();\n"));
++        instances.push_str(&format!(
++            "    for (var i = 0; i < {}; i++) {{ gkrVerifier{num}.inputValues[i] <== gkrInput{num}[i]; }}\n",
++            1 << kd
++        ));
++        for i in 0..a.circuit.depth() {
++            let k = a.circuit.k(i + 1);
++            instances.push_str(&format!("    signal input gkrRounds{num}_{i}[{}][3];\n", 2 * k));
++            instances.push_str(&format!("    signal input gkrQ{num}_{i}[{}];\n", k + 1));
++            instances.push_str(&format!(
++                "    for (var j = 0; j < {}; j++) {{ for (var t = 0; t < 3; t++) {{ gkrVerifier{num}.rounds{i}[j][t] <== gkrRounds{num}_{i}[j][t]; }} }}\n",
++                2 * k
++            ));
++            instances.push_str(&format!(
++                "    for (var t = 0; t < {}; t++) {{ gkrVerifier{num}.q{i}[t] <== gkrQ{num}_{i}[t]; }}\n",
++                k + 1
++            ));
+         }
+-        let s = added.render("verifier", &ctxt).unwrap();
+-        v = format!("{}\n{}", v, s);
+     }
+ 
++    let content = std::fs::read_to_string(&path).expect("original circuit");
+     let mut new_circuit = String::new();
+-    let mut f = File::open(path).expect("original circuit");
+-    let mut f_content = String::new();
+-    f.read_to_string(&mut f_content).unwrap();
+-
+-    let mut is_added = false;
+-    for line in f_content.lines() {
+-        if line.eq("pragma circom 2.0.0;") {
+-            let import =
+-                String::from("include \"../gkr-verifier-circuits/circom/circom/verifier.circom\";");
+-            new_circuit = format!("{}\n{}\n", line, import);
+-        } else if line.eq("}") && !is_added {
+-            new_circuit = format!("{}\n{}\n}}", new_circuit, v);
+-            is_added = true;
++    let (mut included, mut defined, mut added) = (false, false, false);
++    for line in content.lines() {
++        if line.trim_start().starts_with("pragma circom") && !included {
++            new_circuit.push_str(line);
++            new_circuit.push_str(
++                "\ninclude \"../gkr-verifier-circuits/circom/circom/verifier.circom\";\n",
++            );
++            included = true;
++        } else if line.trim_start().starts_with("template") && !defined {
++            // generated templates go after the user's includes
++            new_circuit.push_str(&templates);
++            new_circuit.push_str(line);
++            new_circuit.push('\n');
++            defined = true;
++        } else if line == "}" && !added {
++            new_circuit.push_str(&instances);
++            new_circuit.push_str("}\n");
++            added = true;
+         } else {
+-            new_circuit = format!("{}{}\n", new_circuit, line);
++            new_circuit.push_str(line);
++            new_circuit.push('\n');
+         }
+     }
++    assert!(included && defined && added, "could not find the pragma line and the end of the first template");
+ 
+     let file_path = current_dir().unwrap().join("aggregated.circom");
+     std::fs::write(&file_path, new_circuit).expect("Write new circuit failed");
+     file_path.into_os_string().into_string().unwrap()
+ }
+ 
+-pub fn prove_recursively_circom(
+-    circuit_path: String,
+-    previous_proofs: Vec<Proof<Fr>>,
+-    input_path: String,
+-) -> Vec<Proof<Fr>> {
+-    let meta = get_meta(&previous_proofs);
+-    let modified_proof = modify_proof_for_circom(&previous_proofs, &meta);
+-    let mut p_vec = vec![];
+-    for proof in modified_proof {
+-        p_vec.push(CircomInputProof::new_from_proof(proof));
+-    }
+-
+-    let input_name = get_name(&input_path);
+-    let aggregated_input_path = write_aggregated_input(input_path, p_vec);
+-    let aggregated_circuit_path = modify_circom_file(circuit_path.clone(), &meta);
+-    println!("{} generated", aggregated_circuit_path);
+-    let circom_result = execute_circom(aggregated_circuit_path.clone(), &aggregated_input_path);
+-
+-    let name = circom_result.0;
+-    let r1cs_name = format!("{}.r1cs", name.clone());
+-    let sym_name = format!("{}.sym", name.clone());
+-
+-    let root_path = circom_result.1;
+-    let sym = format!("{}{}", root_path.clone(), sym_name);
+-    let r1cs_path = format!("{}{}", root_path.clone(), r1cs_name);
++fn compile_and_prove(circuit_path: String, input_path: &String, input_name: String) -> Vec<GkrArtifact> {
++    let (name, root_path) = execute_circom(circuit_path, input_path);
++    let r1cs_path = format!("{}{}.r1cs", root_path, name);
+     let r1cs = R1csFile::<32>::read(File::open(r1cs_path).unwrap()).unwrap();
+-
++    let sym = format!("{}{}.sym", root_path, name);
+     let wtns_path = current_dir().unwrap().join("witness.wtns");
+     println!("Writing new witness..");
+     let wtns = WtnsFile::<32>::read(File::open(wtns_path).unwrap()).unwrap();
++    let output_path = format!("{}{}_output.json", root_path, input_name);
++    prove_r1cs(r1cs, wtns, sym, output_path)
++}
+ 
+-    let result = convert_r1cs_wtns_gkr(r1cs, wtns, sym);
+-    println!("Proving starts..");
+-    let now = Instant::now();
+-    let circuit_input_pairs: Vec<(&GKRCircuit<Fr>, &Input<Fr>)> =
+-        result.0.iter().zip(result.1.iter()).collect();
+-    let proofs: Vec<Proof<Fr>> = circuit_input_pairs
+-        .par_iter()
+-        .map(|(circuit, input)| {
+-            prover::prove::<Fr, MimcTranscript>(circuit, input).expect("GKR proving failed")
+-        })
+-        .collect();
+-
+-    let time = report_elapsed(now);
+-    println!("{}\n", format!("Proving {}", time).blue().bold());
+-    let output_name = format!("{}_output.json", &input_name);
+-    let output_path = format!("{}{}", root_path.clone(), output_name);
+-    write_output(output_path, result.2);
+-    proofs
++pub fn prove_recursively_circom(
++    circuit_path: String,
++    previous: Vec<GkrArtifact>,
++    input_path: String,
++) -> Vec<GkrArtifact> {
++    let aggregated_input_path = write_aggregated_input(input_path.clone(), verifier_inputs(&previous));
++    let aggregated_circuit_path = modify_circom_file(circuit_path, &previous);
++    println!("{} generated", aggregated_circuit_path);
++    compile_and_prove(aggregated_circuit_path, &aggregated_input_path, get_name(&input_path))
+ }
+ 
+ fn report_elapsed(now: Instant) -> String {
+-    format!(
+-        "{}",
+-        format!("took {:?} seconds", now.elapsed().as_secs_f32())
+-    )
++    format!("took {:?} seconds", now.elapsed().as_secs_f32())
+ }
+ 
+-pub fn prove_groth(circuit_path: String, previous_proofs: Vec<Proof<Fr>>, input_path: String) {
+-    let meta = get_meta(&previous_proofs);
+-    let modified_proof = modify_proof_for_circom(&previous_proofs, &meta);
+-    let mut p_vec = vec![];
+-    for proof in modified_proof {
+-        p_vec.push(CircomInputProof::new_from_proof(proof));
+-    }
+-    let aggregated_input_path = write_aggregated_input(input_path, p_vec);
+-    let aggregated_circuit_path = modify_circom_file(circuit_path, &meta);
+-    let circom_result = execute_circom(aggregated_circuit_path.clone(), &aggregated_input_path);
+-    println!("{}", format!("Proving by groth16 can be done").bold());
++pub fn prove_groth(circuit_path: String, previous: Vec<GkrArtifact>, input_path: String) {
++    let aggregated_input_path = write_aggregated_input(input_path, verifier_inputs(&previous));
++    let aggregated_circuit_path = modify_circom_file(circuit_path, &previous);
++    execute_circom(aggregated_circuit_path, &aggregated_input_path);
++    println!("{}", "Proving by groth16 can be done".bold());
+ }
+ 
+ pub fn prove_all(circuit_path: String, input_paths: Vec<String>) {
+-    // circom circuit --r1cs --sym --c
+-    // https://docs.circom.io/getting-started/computing-the-witness/#the-witness-file
+-    let mut proofs = None;
++    let mut artifacts: Option<Vec<GkrArtifact>> = None;
+     for (i, input) in input_paths.iter().enumerate() {
+         if i == 0 {
+-            let circom_result = execute_circom(circuit_path.clone(), input);
+-            let name = circom_result.0;
+-            let root_path = circom_result.1;
+-
+-            let input_name = get_name(input);
+-
+-            let r1cs_name = format!("{}.r1cs", name.clone());
+-            let r1cs_path = format!("{}{}", root_path.clone(), r1cs_name);
+-            let r1cs = R1csFile::<32>::read(File::open(r1cs_path).unwrap()).unwrap();
+-            let sym_name = format!("{}.sym", name.clone());
+-
+-            let wtns_path = current_dir().unwrap().join("witness.wtns");
+-            println!("Writing new witness..");
+-            let wtns = WtnsFile::<32>::read(File::open(wtns_path).unwrap()).unwrap();
+-
+-            let sym = format!("{}{}", root_path.clone(), sym_name);
+-
+-            let result = convert_r1cs_wtns_gkr(r1cs, wtns, sym);
+-            println!("Proving starts..");
+-            let now = Instant::now();
+-            let circuit_input_pairs: Vec<(&GKRCircuit<Fr>, &Input<Fr>)> =
+-                result.0.iter().zip(result.1.iter()).collect();
+-            let new_proofs: Vec<Proof<Fr>> = circuit_input_pairs
+-                .par_iter()
+-                .map(|(circuit, input)| {
+-            prover::prove::<Fr, MimcTranscript>(circuit, input).expect("GKR proving failed")
+-        })
+-                .collect();
+-
+-            let time = report_elapsed(now);
+-            println!("{}\n", format!("Proving {}", time).blue().bold());
+-            proofs = Some(new_proofs);
+-            let output_name = format!("{}_output.json", &input_name);
+-            let output_path = format!("{}{}", root_path.clone(), output_name);
+-
+-            write_output(output_path, result.2);
++            artifacts = Some(compile_and_prove(circuit_path.clone(), input, get_name(input)));
+         } else if i == input_paths.len() - 1 {
+-            prove_groth(circuit_path.clone(), proofs.clone().unwrap(), input.clone());
++            prove_groth(circuit_path.clone(), artifacts.take().unwrap(), input.clone());
+         } else {
+-            proofs = Some(prove_recursively_circom(
++            artifacts = Some(prove_recursively_circom(
+                 circuit_path.clone(),
+-                proofs.clone().unwrap(),
++                artifacts.take().unwrap(),
+                 input.clone(),
+             ));
+         }
+@@ -441,7 +193,7 @@ pub fn prove_all(circuit_path: String, input_paths: Vec<String>) {
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::{modify_circom_file, prove_all};
++    use super::prove_all;
+ 
+     #[test]
+     #[ignore = "requires circom, node and circomlib (run from ./rust)"]
+diff --git a/rust/src/circom_codegen.rs b/rust/src/circom_codegen.rs
+new file mode 100644
+index 0000000..8710387
+--- /dev/null
++++ b/rust/src/circom_codegen.rs
+@@ -0,0 +1,253 @@
++//! Generates a circom verifier specialized to one GKR circuit.
++//!
++//! Upstream used a single generic `VerifyGKR(meta)` template whose challenges, points,
++//! output polynomial, input polynomial and final-layer values were all free prover
++//! inputs. The generated template instead:
++//! - pins fixed (constant) input positions and the claimed output as constants,
++//! - recomputes every challenge with the MiMC transcript (same schedule as
++//!   `gkr::prover::prove` / `gkr::verifier::verify`), including z0,
++//! - enforces exactly 3 coefficients per round and k+1 for q (degree bounds),
++//! - checks every layer's sumcheck end value against add~/mult~ of the compile-time
++//!   wiring, and
++//! - evaluates the input MLE with constrained arithmetic.
++//!
++//! Library templates come from `gkr-verifier-circuits/circom/circom/verifier.circom`.
++use crate::gkr::{
++    transcript::{MimcTranscript, DOMAIN_PROOF},
++    GKRCircuit, GkrError, Proof,
++};
++use ff::{Field, PrimeField};
++use halo2curves::bn256::Fr;
++use std::fmt::Write;
++
++/// Decimal string of a field element.
++pub fn fr_to_decimal(x: &Fr) -> String {
++    let repr = x.to_repr();
++    // little-endian bytes -> big-endian u32 limbs
++    let mut limbs: Vec<u32> = repr
++        .as_ref()
++        .chunks(4)
++        .rev()
++        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
++        .collect();
++    let mut digits = vec![];
++    while limbs.iter().any(|l| *l != 0) {
++        let mut rem = 0u64;
++        for limb in limbs.iter_mut() {
++            let cur = (rem << 32) | *limb as u64;
++            *limb = (cur / 10) as u32;
++            rem = cur % 10;
++        }
++        digits.push(b'0' + rem as u8);
++    }
++    if digits.is_empty() {
++        return "0".into();
++    }
++    digits.reverse();
++    String::from_utf8(digits).unwrap()
++}
++
++/// Circom source of `template <name>()` verifying `circuit` with claimed `output`
++/// (length <= 2^{k_0}; missing entries are zero, which is what R1CS-derived circuits use).
++///
++/// Inputs of the template: `inputValues[2^{k_d}]`, `rounds<i>[2 k_{i+1}][3]`,
++/// `q<i>[k_{i+1} + 1]` for every layer i.
++pub fn gkr_verifier_template(
++    circuit: &GKRCircuit<Fr>,
++    output: &[Fr],
++    name: &str,
++) -> Result<String, GkrError> {
++    circuit.validate()?;
++    let depth = circuit.depth();
++    let k0 = circuit.k(0);
++    let kd = circuit.k(depth);
++    if output.len() > 1 << k0 {
++        return Err(GkrError::BadPublicIo("output longer than output layer"));
++    }
++    let mut out_vals = output.to_vec();
++    out_vals.resize(1 << k0, Fr::ZERO);
++    let digest = circuit.digest::<MimcTranscript>();
++
++    let mut s = String::new();
++    let w = &mut s;
++    writeln!(w, "template {name}() {{").unwrap();
++    writeln!(w, "    signal input inputValues[{}];", 1 << kd).unwrap();
++    for i in 0..depth {
++        let k = circuit.k(i + 1);
++        writeln!(w, "    signal input rounds{i}[{}][3];", 2 * k).unwrap();
++        writeln!(w, "    signal input q{i}[{}];", k + 1).unwrap();
++    }
++    writeln!(w, "\n    // constant input positions (R1CS coefficients etc.) are part of the circuit").unwrap();
++    for (pos, v) in &circuit.fixed_inputs {
++        writeln!(w, "    inputValues[{pos}] === {};", fr_to_decimal(v)).unwrap();
++    }
++
++    writeln!(w, "\n    // statement: circuit digest, input, output").unwrap();
++    writeln!(w, "    component tInit = TranscriptInit({});", DOMAIN_PROOF).unwrap();
++    writeln!(w, "    component tDigest = TranscriptAbsorb(1);").unwrap();
++    writeln!(w, "    tDigest.state <== tInit.out;").unwrap();
++    writeln!(w, "    tDigest.xs[0] <== {};", fr_to_decimal(&digest)).unwrap();
++    writeln!(w, "    component tInput = TranscriptAbsorb({});", 1 << kd).unwrap();
++    writeln!(w, "    tInput.state <== tDigest.out;").unwrap();
++    writeln!(w, "    for (var i = 0; i < {}; i++) {{ tInput.xs[i] <== inputValues[i]; }}", 1 << kd).unwrap();
++    writeln!(w, "    component tOutput = TranscriptAbsorb({});", 1 << k0).unwrap();
++    writeln!(w, "    tOutput.state <== tInput.out;").unwrap();
++    for (j, v) in out_vals.iter().enumerate() {
++        writeln!(w, "    tOutput.xs[{j}] <== {};", fr_to_decimal(v)).unwrap();
++    }
++    let mut state = "tOutput.out".to_string();
++
++    // z0 and initial claim D~(z0)
++    if k0 > 0 {
++        writeln!(w, "    signal z0[{k0}];").unwrap();
++        writeln!(w, "    component z0Squeeze[{k0}];").unwrap();
++        for j in 0..k0 {
++            writeln!(w, "    z0Squeeze[{j}] = TranscriptSqueeze();").unwrap();
++            writeln!(w, "    z0Squeeze[{j}].state <== {state};").unwrap();
++            writeln!(w, "    z0[{j}] <== z0Squeeze[{j}].out;").unwrap();
++            state = format!("z0Squeeze[{j}].out");
++        }
++        writeln!(w, "    component outputEval = MLEEval({k0});").unwrap();
++        for (j, v) in out_vals.iter().enumerate() {
++            writeln!(w, "    outputEval.values[{j}] <== {};", fr_to_decimal(v)).unwrap();
++        }
++        writeln!(w, "    for (var j = 0; j < {k0}; j++) {{ outputEval.x[j] <== z0[j]; }}").unwrap();
++    }
++    let mut claim = if k0 > 0 {
++        "outputEval.result".to_string()
++    } else {
++        fr_to_decimal(&out_vals[0])
++    };
++
++    for i in 0..depth {
++        let kz = circuit.k(i);
++        let k = circuit.k(i + 1);
++        let v = 2 * k;
++        writeln!(w, "\n    // ---- layer {i}: sumcheck over {v} variables").unwrap();
++        writeln!(w, "    component sc{i}[{v}];").unwrap();
++        for j in 0..v {
++            writeln!(w, "    sc{i}[{j}] = SumcheckRound();").unwrap();
++            writeln!(w, "    sc{i}[{j}].claim <== {claim};").unwrap();
++            writeln!(w, "    sc{i}[{j}].stateIn <== {state};").unwrap();
++            writeln!(w, "    for (var t = 0; t < 3; t++) {{ sc{i}[{j}].g[t] <== rounds{i}[{j}][t]; }}").unwrap();
++            claim = format!("sc{i}[{j}].next");
++            state = format!("sc{i}[{j}].stateOut");
++        }
++        // eq tables for z (previous point), b* and c*
++        if kz > 0 {
++            writeln!(w, "    component eqZ{i} = EqTable({kz});").unwrap();
++            writeln!(w, "    for (var j = 0; j < {kz}; j++) {{ eqZ{i}.x[j] <== z{i}[j]; }}").unwrap();
++        }
++        writeln!(w, "    component eqB{i} = EqTable({k});").unwrap();
++        writeln!(w, "    component eqC{i} = EqTable({k});").unwrap();
++        writeln!(w, "    for (var j = 0; j < {k}; j++) {{ eqB{i}.x[j] <== sc{i}[j].r; eqC{i}.x[j] <== sc{i}[{k} + j].r; }}").unwrap();
++        let (add, mult) = circuit.gates(i);
++        for (label, gates) in [("add", &add), ("mult", &mult)] {
++            if gates.is_empty() {
++                writeln!(w, "    signal {label}Eval{i};").unwrap();
++                writeln!(w, "    {label}Eval{i} <== 0;").unwrap();
++                continue;
++            }
++            writeln!(w, "    signal {label}T{i}[{}];", gates.len()).unwrap();
++            writeln!(w, "    signal {label}U{i}[{}];", gates.len()).unwrap();
++            let mut sum = String::new();
++            for (g, (gz, gb, gc)) in gates.iter().enumerate() {
++                let ez = if kz > 0 { format!("eqZ{i}.eq[{gz}]") } else { "1".into() };
++                writeln!(w, "    {label}T{i}[{g}] <== {ez} * eqB{i}.eq[{gb}];").unwrap();
++                writeln!(w, "    {label}U{i}[{g}] <== {label}T{i}[{g}] * eqC{i}.eq[{gc}];").unwrap();
++                if g > 0 {
++                    sum.push_str(" + ");
++                }
++                write!(sum, "{label}U{i}[{g}]").unwrap();
++            }
++            writeln!(w, "    signal {label}Eval{i};").unwrap();
++            writeln!(w, "    {label}Eval{i} <== {sum};").unwrap();
++        }
++        // q_i(0) = q[k], q_i(1) = sum(q)
++        let q_one: Vec<String> = (0..=k).map(|t| format!("q{i}[{t}]")).collect();
++        let q_one = q_one.join(" + ");
++        writeln!(w, "    signal qProd{i};").unwrap();
++        writeln!(w, "    qProd{i} <== q{i}[{k}] * ({q_one});").unwrap();
++        writeln!(w, "    signal addSide{i};").unwrap();
++        writeln!(w, "    addSide{i} <== addEval{i} * (q{i}[{k}] + {q_one});").unwrap();
++        writeln!(w, "    signal multSide{i};").unwrap();
++        writeln!(w, "    multSide{i} <== multEval{i} * qProd{i};").unwrap();
++        writeln!(w, "    addSide{i} + multSide{i} === {claim};").unwrap();
++        writeln!(w, "    component tq{i} = TranscriptAbsorb({});", k + 1).unwrap();
++        writeln!(w, "    tq{i}.state <== {state};").unwrap();
++        writeln!(w, "    for (var t = 0; t < {}; t++) {{ tq{i}.xs[t] <== q{i}[t]; }}", k + 1).unwrap();
++        writeln!(w, "    component rStar{i} = TranscriptSqueeze();").unwrap();
++        writeln!(w, "    rStar{i}.state <== tq{i}.out;").unwrap();
++        writeln!(w, "    component qEval{i} = evalUnivariate({});", k + 1).unwrap();
++        writeln!(w, "    for (var t = 0; t < {}; t++) {{ qEval{i}.coeffs[t] <== q{i}[t]; }}", k + 1).unwrap();
++        writeln!(w, "    qEval{i}.x <== rStar{i}.out;").unwrap();
++        let n = i + 1;
++        writeln!(w, "    signal z{n}[{k}];").unwrap();
++        writeln!(w, "    for (var j = 0; j < {k}; j++) {{ z{n}[j] <== sc{i}[j].r + rStar{i}.out * (sc{i}[{k} + j].r - sc{i}[j].r); }}").unwrap();
++        claim = format!("qEval{i}.result");
++        state = format!("rStar{i}.out");
++    }
++    writeln!(w, "\n    // input layer").unwrap();
++    writeln!(w, "    component inputEval = MLEEval({kd});").unwrap();
++    writeln!(w, "    for (var i = 0; i < {}; i++) {{ inputEval.values[i] <== inputValues[i]; }}", 1 << kd).unwrap();
++    writeln!(w, "    for (var j = 0; j < {kd}; j++) {{ inputEval.x[j] <== z{depth}[j]; }}").unwrap();
++    writeln!(w, "    inputEval.result === {claim};").unwrap();
++    writeln!(w, "}}").unwrap();
++    Ok(s)
++}
++
++/// Named template inputs (JSON array literals of decimal strings) for a proof, with every
++/// name prefixed by `prefix` and suffixed by `suffix` (e.g. "gkrRounds" + "3" + "_0").
++pub struct VerifierInputs {
++    pub input_values: String,
++    pub rounds: Vec<String>,
++    pub q: Vec<String>,
++}
++
++fn json_array(xs: &[Fr]) -> String {
++    let items: Vec<String> = xs.iter().map(|x| format!("\"{}\"", fr_to_decimal(x))).collect();
++    format!("[{}]", items.join(","))
++}
++
++pub fn gkr_verifier_inputs(
++    circuit: &GKRCircuit<Fr>,
++    input_values: &[Fr],
++    proof: &Proof<Fr>,
++) -> Result<VerifierInputs, GkrError> {
++    let kd = circuit.k(circuit.depth());
++    if input_values.len() > 1 << kd {
++        return Err(GkrError::BadPublicIo("input longer than input layer"));
++    }
++    let mut padded = input_values.to_vec();
++    padded.resize(1 << kd, Fr::ZERO);
++    let rounds = proof
++        .sumcheck_proofs
++        .iter()
++        .map(|layer| {
++            let items: Vec<String> = layer.iter().map(|g| json_array(g)).collect();
++            format!("[{}]", items.join(","))
++        })
++        .collect();
++    Ok(VerifierInputs {
++        input_values: json_array(&padded),
++        rounds,
++        q: proof.q.iter().map(|q| json_array(q)).collect(),
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::fr_to_decimal;
++    use ff::Field;
++    use halo2curves::bn256::Fr;
++
++    #[test]
++    fn decimal() {
++        assert_eq!(fr_to_decimal(&Fr::ZERO), "0");
++        assert_eq!(fr_to_decimal(&Fr::from(1234567890123u64)), "1234567890123");
++        assert_eq!(
++            fr_to_decimal(&(-Fr::ONE)),
++            "21888242871839275222246405745257275088548364400416034343698204186575808495616"
++        );
++    }
++}
+diff --git a/rust/src/lib.rs b/rust/src/lib.rs
+index 67c2e5d..4e3ba6c 100644
+--- a/rust/src/lib.rs
++++ b/rust/src/lib.rs
+@@ -1,5 +1,6 @@
+ #[cfg(feature = "aggregator")]
+ pub mod aggregator;
++pub mod circom_codegen;
+ #[cfg(feature = "aggregator")]
+ mod convert;
+ #[cfg(feature = "aggregator")]
+diff --git a/rust/tests/circom.rs b/rust/tests/circom.rs
+new file mode 100644
+index 0000000..381360a
+--- /dev/null
++++ b/rust/tests/circom.rs
+@@ -0,0 +1,163 @@
++//! Compiles generated circom verifiers and runs witness generation for honest and forged
++//! proofs. Needs circom, node and circomlib (npm install in gkr-verifier-circuits/circom):
++//!   GKR_CIRCOM=/path/to/circom cargo test --release --test circom -- --nocapture
++//! Without GKR_CIRCOM the test is skipped (and says so).
++use ff::Field;
++use gkr::{
++    circom_codegen::{gkr_verifier_inputs, gkr_verifier_template},
++    gkr::{
++        builder::{Gate, LayeredCircuit},
++        prover::prove,
++        transcript::MimcTranscript,
++        GKRCircuit, Proof,
++    },
++};
++use halo2curves::bn256::Fr;
++use std::{path::PathBuf, process::Command};
++
++fn lib_path() -> PathBuf {
++    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++        .join("../gkr-verifier-circuits/circom/circom/verifier.circom")
++        .canonicalize()
++        .expect("verifier.circom")
++}
++
++struct Case {
++    circuit: GKRCircuit<Fr>,
++    input: Vec<Fr>,
++    output: Vec<Fr>,
++    proof: Proof<Fr>,
++}
++
++fn case(c: &LayeredCircuit, fixed: &[usize]) -> Case {
++    let input: Vec<Fr> = (0..c.input_size).map(|i| Fr::from(5 + 3 * i as u64)).collect();
++    let circuit = c
++        .to_gkr::<Fr>()
++        .with_fixed_inputs(fixed.iter().map(|p| (*p, input[*p])).collect());
++    let witness = c.witness(&input);
++    let proof = prove::<Fr, MimcTranscript>(&circuit, &witness).unwrap();
++    Case { circuit, input, output: witness.output_values, proof }
++}
++
++fn inputs_json(c: &Case, input: &[Fr], proof: &Proof<Fr>) -> String {
++    let v = gkr_verifier_inputs(&c.circuit, input, proof).unwrap();
++    let mut fields = vec![format!("\"inputValues\": {}", v.input_values)];
++    for (i, r) in v.rounds.iter().enumerate() {
++        fields.push(format!("\"rounds{i}\": {r}"));
++    }
++    for (i, q) in v.q.iter().enumerate() {
++        fields.push(format!("\"q{i}\": {q}"));
++    }
++    format!("{{{}}}", fields.join(",\n"))
++}
++
++/// Compiles `template` and returns a closure that runs witness generation on a JSON input.
++fn compile(circom: &str, dir: &PathBuf, name: &str, template: &str) -> impl Fn(&str) -> bool {
++    std::fs::create_dir_all(dir).unwrap();
++    let src = format!(
++        "pragma circom 2.0.4;\ninclude \"{}\";\n{}\ncomponent main = {name}();\n",
++        lib_path().display(),
++        template
++    );
++    let file = dir.join(format!("{name}.circom"));
++    std::fs::write(&file, src).unwrap();
++    let out = Command::new(circom)
++        .arg(&file)
++        .args(["--r1cs", "--wasm", "-o"])
++        .arg(dir)
++        .output()
++        .unwrap();
++    assert!(out.status.success(), "circom failed: {}", String::from_utf8_lossy(&out.stderr));
++    let js = dir.join(format!("{name}_js"));
++    let dir = dir.clone();
++    let name = name.to_string();
++    move |json: &str| {
++        let input = dir.join("input.json");
++        std::fs::write(&input, json).unwrap();
++        Command::new("node")
++            .arg(js.join("generate_witness.js"))
++            .arg(js.join(format!("{name}.wasm")))
++            .arg(&input)
++            .arg(dir.join("witness.wtns"))
++            .output()
++            .unwrap()
++            .status
++            .success()
++    }
++}
++
++#[test]
++fn generated_circom_verifier_accepts_honest_and_rejects_forged() {
++    let Ok(circom) = std::env::var("GKR_CIRCOM") else {
++        eprintln!("SKIPPED: set GKR_CIRCOM to a circom binary to run this test");
++        return;
++    };
++    let tmp = std::env::temp_dir().join(format!("gkr-circom-test-{}", std::process::id()));
++    let circuits = [
++        (
++            "Mixed",
++            LayeredCircuit {
++                layers: vec![
++                    vec![Gate::Add(0, 1), Gate::Mult(1, 2), Gate::Add(2, 2)],
++                    vec![Gate::Mult(0, 3), Gate::Add(1, 2), Gate::Mult(4, 5), Gate::Add(6, 7), Gate::Mult(0, 7)],
++                ],
++                input_size: 8,
++            },
++            vec![1usize, 6],
++        ),
++        (
++            "SingleOutput",
++            LayeredCircuit {
++                layers: vec![vec![Gate::Mult(0, 1)], vec![Gate::Add(0, 1), Gate::Mult(2, 3)]],
++                input_size: 4,
++            },
++            vec![],
++        ),
++    ];
++    for (name, lc, fixed) in circuits {
++        let c = case(&lc, &fixed);
++        let template = gkr_verifier_template(&c.circuit, &c.output, name).unwrap();
++        let run = compile(&circom, &tmp.join(name), name, &template);
++        assert!(run(&inputs_json(&c, &c.input, &c.proof)), "{name}: honest proof rejected");
++
++        // every coefficient of every message
++        for layer in 0..c.proof.sumcheck_proofs.len() {
++            for round in 0..c.proof.sumcheck_proofs[layer].len() {
++                let mut p = c.proof.clone();
++                p.sumcheck_proofs[layer][round][0] += Fr::ONE;
++                assert!(!run(&inputs_json(&c, &c.input, &p)), "{name}: forged round accepted");
++            }
++            let mut p = c.proof.clone();
++            p.q[layer][0] += Fr::ONE;
++            assert!(!run(&inputs_json(&c, &c.input, &p)), "{name}: forged q accepted");
++        }
++        // round polynomial changed while keeping g(0) + g(1)
++        let mut p = c.proof.clone();
++        p.sumcheck_proofs[0][0][1] += Fr::from(2);
++        p.sumcheck_proofs[0][0][2] -= Fr::ONE;
++        assert!(!run(&inputs_json(&c, &c.input, &p)), "{name}: consistent forgery accepted");
++        // a different input (witness) with the same proof
++        let mut input = c.input.clone();
++        input[3] += Fr::ONE;
++        assert!(!run(&inputs_json(&c, &input, &c.proof)), "{name}: wrong input accepted");
++        // a fixed (constant) input position changed together with an honest proof for it
++        if let Some(pos) = fixed.first() {
++            let mut input = c.input.clone();
++            input[*pos] += Fr::ONE;
++            let w = lc.witness(&input);
++            let other = lc.to_gkr::<Fr>().with_fixed_inputs(c.circuit.fixed_inputs.clone());
++            let p = prove::<Fr, MimcTranscript>(&other, &w).unwrap();
++            assert!(!run(&inputs_json(&c, &input, &p)), "{name}: modified constant accepted");
++        }
++        // a verifier compiled for a false output rejects the honest proof
++        let mut false_out = c.output.clone();
++        let last = false_out.len() - 1;
++        false_out[last] += Fr::ONE;
++        let forged_name = format!("{name}FalseOutput");
++        let template = gkr_verifier_template(&c.circuit, &false_out, &forged_name).unwrap();
++        let run_false = compile(&circom, &tmp.join(&forged_name), &forged_name, &template);
++        assert!(!run_false(&inputs_json(&c, &c.input, &c.proof)), "{name}: false output accepted");
++        eprintln!("{name}: honest accepted, all forgeries rejected");
++    }
++    let _ = std::fs::remove_dir_all(&tmp);
++}
+-- 
+2.53.0
+

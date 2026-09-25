@@ -1,0 +1,19 @@
+target/
+**/target/
+artifacts/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+__pycache__/
+
+# Rust entry points are source, despite the parent repository's [Bb]in/ rule.
+!/engine/src/bin/
+!/engine/src/bin/*.rs
+
+# Published validation evidence linked from the handoff and benchmark reports.
+!/docs/fpga/validation/*.log
+!/docs/benchmarks/sepolia-fpga-e2e-20260925/*.log
+
+.env
+.env.*
+!.env.example

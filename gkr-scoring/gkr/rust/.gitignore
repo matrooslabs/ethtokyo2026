@@ -1,0 +1,8 @@
+/target
+Cargo.lock
+
+# circom / aggregator outputs
+*_js/
+*.sym
+*.wtns
+aggregated.circom

@@ -1,0 +1,51 @@
+    Finished `release` profile [optimized] target(s) in 0.08s
+     Running unittests src/lib.rs (target/release/deps/mania_gkr-74e09b64a32fa718)
+
+running 17 tests
+test transcript::tests::keccak_matches_evm_empty_hash ... ok
+test zeromorph::tests::loads_public_ptau_when_available ... ok
+test transcript::tests::transcript_is_order_sensitive ... ok
+test field::tests::batch_inversion ... ok
+test poly::tests::interpolation_recovers_cubic ... ok
+test field::tests::be_roundtrip_and_canonical ... ok
+test mle::tests::eq_table_matches_definition ... ok
+test mle::tests::fold_equals_eval ... ok
+test zeromorph::tests::quotient_identity ... ok
+test mle::tests::public_mles ... ok
+test logup_gkr::tests::nonzero_sum_and_tampering_rejected ... ok
+test scoring::relation::tests::table_polynomials_have_degree_at_most_four ... ok
+test zeromorph::tests::save_load_roundtrip ... ok
+test zeromorph::tests::shorter_vector_is_zero_padded_commitment ... ok
+test logup_gkr::tests::honest_proofs_verify_and_bind_leaves ... ok
+test zeromorph::tests::dev_srs_is_consistent ... ok
+test zeromorph::tests::open_verify_and_reject ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/bin/mania-gkr.rs (target/release/deps/mania_gkr-b8345a03f8aa76f6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/end_to_end.rs (target/release/deps/end_to_end-3cdaf8efb9ced8ed)
+
+running 9 tests
+test invalid_traces_cannot_be_proven ... ok
+test mode_b_binds_device_commitment ... ok
+test tampering_is_rejected ... ok
+test proof_encoding_roundtrip ... ok
+test sp1_fixtures_both_modes ... ok
+test malicious_witnesses_are_rejected ... ok
+test benchmark_shapes_small ... ok
+test differential_random_corpus ... ok
+test honest_witnesses_satisfy_relation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.67s
+
+   Doc-tests mania_gkr
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,15 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+ffi = true
+fs_permissions = [{ access = "read", path = "../artifacts" }]
+gas_limit = "18446744073709551615"
+
+[lint]
+lint_on_build = false

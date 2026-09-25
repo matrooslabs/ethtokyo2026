@@ -1,0 +1,793 @@
+From 231afc66c3a742a8dcb73d8b948d7fd6b7dd9cdd Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 12:41:42 +0900
+Subject: [PATCH 02/12] Fix Fiat-Shamir: chained transcript bound to circuit,
+ public I/O and all messages
+
+Upstream derived each sumcheck challenge as MiMC(current round polynomial) and
+r* as MiMC(last round polynomial) only, and fixed the output point z0 = 0 (only
+output gate 0 was ever checked). Challenges were therefore independent of the
+circuit, the public input/output, the claim and all earlier messages.
+
+- new gkr::transcript: Transcript trait + MimcTranscript (circomlib
+  MultiMiMC7-compatible sponge-like chain; in-crate MiMC7, mimc-rs (GPL) only
+  as a test-only cross-check)
+- statement absorbed first: circuit digest (depth, k list, every add/mult
+  gate), input values, output values; z0 squeezed from the transcript
+- every round polynomial normalized to 3 coefficients and absorbed before its
+  challenge; q_i normalized to k+1 coefficients and absorbed before r*
+- prove() returns Result instead of panicking on unsupported circuits
+- convert: require every output gate (R1CS constraint) to be zero, not only
+  gate 0; Input carries output/input values
+---
+ rust/Cargo.toml            |  10 ++-
+ rust/src/aggregator.rs     |  12 ++-
+ rust/src/convert.rs        |  16 +++-
+ rust/src/gkr.rs            |  93 +++++++++++++++++++++
+ rust/src/gkr/poly.rs       |   1 +
+ rust/src/gkr/prover.rs     | 121 +++++++++++++++++-----------
+ rust/src/gkr/sumcheck.rs   | 108 ++++++++++++-------------
+ rust/src/gkr/transcript.rs | 160 +++++++++++++++++++++++++++++++++++++
+ 8 files changed, 412 insertions(+), 109 deletions(-)
+ create mode 100644 rust/src/gkr/transcript.rs
+
+diff --git a/rust/Cargo.toml b/rust/Cargo.toml
+index bdd2570..457a69c 100644
+--- a/rust/Cargo.toml
++++ b/rust/Cargo.toml
+@@ -22,9 +22,8 @@ aggregator = ["dep:r1cs-file", "dep:wtns-file", "dep:clap", "dep:serde", "dep:se
+ # field element
+ halo2curves = "0.10.0"
+ ff = "0.13"
+-# MiMC (used for Fiat-Shamir)
+-mimc-rs = { git = "https://github.com/jeong0982/mimc-rs" }
+-ff012 = { package = "ff", version = "0.12" }
++# MiMC7 round constants are derived with keccak256 (as in circomlib)
++sha3 = "0.10"
+ num-bigint = { version = "0.4.3", optional = true }
+ num-traits = { version = "0.2.15", optional = true }
+ # concurrency
+@@ -41,3 +40,8 @@ serde_json = { version = "1.0", optional = true }
+ colored = { version = "2.0.0", optional = true }
+ tera = { version = "1", optional = true }
+ 
++
++[dev-dependencies]
++# Cross-check of the in-crate MiMC7 against the implementation upstream used (GPL-3.0, test-only).
++mimc-rs = { git = "https://github.com/jeong0982/mimc-rs" }
++ff012 = { package = "ff", version = "0.12" }
+diff --git a/rust/src/aggregator.rs b/rust/src/aggregator.rs
+index b963653..21fb6fa 100644
+--- a/rust/src/aggregator.rs
++++ b/rust/src/aggregator.rs
+@@ -3,7 +3,7 @@ use std::{env::current_dir, fs::File, io::Read, path::PathBuf, process::Command,
+ use crate::{
+     convert::{convert_r1cs_wtns_gkr, Output},
+     file_utils::{execute_circom, get_name, stringify_fr, write_aggregated_input, write_output},
+-    gkr::{prover, GKRCircuit, Input, Proof},
++    gkr::{prover, transcript::MimcTranscript, GKRCircuit, Input, Proof},
+ };
+ use colored::Colorize;
+ use ff::Field;
+@@ -352,7 +352,9 @@ pub fn prove_recursively_circom(
+         result.0.iter().zip(result.1.iter()).collect();
+     let proofs: Vec<Proof<Fr>> = circuit_input_pairs
+         .par_iter()
+-        .map(|(circuit, input)| prover::prove(circuit, input))
++        .map(|(circuit, input)| {
++            prover::prove::<Fr, MimcTranscript>(circuit, input).expect("GKR proving failed")
++        })
+         .collect();
+ 
+     let time = report_elapsed(now);
+@@ -413,7 +415,9 @@ pub fn prove_all(circuit_path: String, input_paths: Vec<String>) {
+                 result.0.iter().zip(result.1.iter()).collect();
+             let new_proofs: Vec<Proof<Fr>> = circuit_input_pairs
+                 .par_iter()
+-                .map(|(circuit, input)| prover::prove(circuit, input))
++                .map(|(circuit, input)| {
++            prover::prove::<Fr, MimcTranscript>(circuit, input).expect("GKR proving failed")
++        })
+                 .collect();
+ 
+             let time = report_elapsed(now);
+@@ -440,6 +444,7 @@ mod tests {
+     use super::{modify_circom_file, prove_all};
+ 
+     #[test]
++    #[ignore = "requires circom, node and circomlib (run from ./rust)"]
+     fn test_proving() {
+         let circuit_path = String::from("./t.circom");
+         let mut input_paths = vec![];
+@@ -450,6 +455,7 @@ mod tests {
+     }
+ 
+     #[test]
++    #[ignore = "requires circom, node and circomlib (run from ./rust)"]
+     fn test_single_proof() {
+         let circuit_path = String::from("./t.circom");
+         let mut input_paths = vec![];
+diff --git a/rust/src/convert.rs b/rust/src/convert.rs
+index 1f64dcd..354a3d0 100644
+--- a/rust/src/convert.rs
++++ b/rust/src/convert.rs
+@@ -834,8 +834,12 @@ fn calculate_input(
+     // d = w[0]
+     let d_values = w_values[0].clone();
+ 
+-    // check constraint
+-    assert_eq!(Fr::ZERO, d_values[0]);
++    // Every output gate is an R1CS constraint A*B - C and must be zero (upstream only
++    // checked gate 0).
++    assert!(
++        d_values.iter().all(|v| *v == Fr::ZERO),
++        "witness does not satisfy every R1CS constraint"
++    );
+ 
+     let d = get_multi_ext(&d_values, get_k(d_values.len()));
+     w.push(d.clone());
+@@ -845,7 +849,13 @@ fn calculate_input(
+         }
+         w.push(get_multi_ext(layer_value, get_k(layer_value.len())));
+     }
+-    Input { w, d }
++    let input_values = w_values[w_values.len() - 1].clone();
++    Input {
++        w,
++        d,
++        output_values: d_values,
++        input_values,
++    }
+ }
+ 
+ fn parse_sym(sym: String, num_public: u32) -> Vec<String> {
+diff --git a/rust/src/gkr.rs b/rust/src/gkr.rs
+index 5b7bfa9..26646fd 100644
+--- a/rust/src/gkr.rs
++++ b/rust/src/gkr.rs
+@@ -1,9 +1,39 @@
+ pub mod poly;
+ pub mod prover;
+ pub mod sumcheck;
++pub mod transcript;
+ 
+ use ff::PrimeField;
++use std::fmt;
++
++use transcript::{Transcript, DOMAIN_CIRCUIT};
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum GkrError {
++    /// The circuit shape is not supported (empty circuit, a layer with a single gate, ...).
++    UnsupportedCircuit(&'static str),
++    /// The proof does not have the shape required by the verifier-side circuit.
++    MalformedProof(&'static str),
++    /// A sumcheck or layer consistency check failed.
++    Rejected(&'static str),
++    /// Public input/output does not fit the circuit.
++    BadPublicIo(&'static str),
++}
++
++impl fmt::Display for GkrError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(f, "{:?}", self)
++    }
++}
+ 
++impl std::error::Error for GkrError {}
++
++/// GKR proof.
++///
++/// Only `sumcheck_proofs` (exactly 2*k_{i+1} round polynomials per layer, each exactly
++/// 3 coefficients, highest degree first) and `q` (exactly k_{i+1}+1 coefficients) are
++/// read by the verifier. All other fields are prover-side debug hints kept for the
++/// upstream circom input format; verifiers recompute them and never trust them.
+ #[derive(Clone, Debug)]
+ pub struct Proof<S: PrimeField> {
+     pub sumcheck_proofs: Vec<Vec<Vec<S>>>,
+@@ -24,6 +54,10 @@ pub struct Input<S: PrimeField> {
+     pub w: Vec<Vec<Vec<S>>>,
+     // d is output of circuit
+     pub d: Vec<Vec<S>>,
++    /// Values of the output layer (public output D), length 2^{k_0}.
++    pub output_values: Vec<S>,
++    /// Values of the input layer, length 2^{k_depth}.
++    pub input_values: Vec<S>,
+ }
+ 
+ impl<S: PrimeField> Input<S> {
+@@ -104,6 +138,65 @@ impl<S: PrimeField> GKRCircuit<S> {
+         adds
+     }
+ 
++    /// Decodes the gate triples (z, b, c) of layer i from the binary wiring lists.
++    /// Returns (add gates, mult gates).
++    pub fn gates(&self, i: usize) -> (Vec<(usize, usize, usize)>, Vec<(usize, usize, usize)>) {
++        let (kz, kn) = (self.k(i), self.k(i + 1));
++        let decode = |bits: &Vec<S>| -> (usize, usize, usize) {
++            let mut idx = [0usize; 3];
++            for (pos, bit) in bits.iter().enumerate() {
++                let slot = if pos < kz { 0 } else if pos < kz + kn { 1 } else { 2 };
++                idx[slot] = (idx[slot] << 1) | usize::from(*bit == S::ONE);
++            }
++            (idx[0], idx[1], idx[2])
++        };
++        (
++            self.layer[i].wire.0.iter().map(decode).collect(),
++            self.layer[i].wire.1.iter().map(decode).collect(),
++        )
++    }
++
++    /// Checks the verifier-side circuit description is well-formed and supported.
++    pub fn validate(&self) -> Result<(), GkrError> {
++        if self.layer.is_empty() {
++            return Err(GkrError::UnsupportedCircuit("circuit has no layers"));
++        }
++        for i in 0..self.depth() {
++            if self.k(i + 1) == 0 {
++                return Err(GkrError::UnsupportedCircuit("layers below the output need >= 2 gates"));
++            }
++            if self.k(i) > 40 || self.k(i + 1) > 40 {
++                return Err(GkrError::UnsupportedCircuit("layer too large"));
++            }
++            let width = self.k(i) + 2 * self.k(i + 1);
++            for bits in self.layer[i].wire.0.iter().chain(self.layer[i].wire.1.iter()) {
++                if bits.len() != width || bits.iter().any(|b| *b != S::ZERO && *b != S::ONE) {
++                    return Err(GkrError::UnsupportedCircuit("malformed wiring"));
++                }
++            }
++        }
++        Ok(())
++    }
++
++    /// Transcript-bound digest of the circuit: depth, all k_i and every add/mult gate.
++    pub fn digest<T: Transcript<S>>(&self) -> S {
++        let mut t = T::new(DOMAIN_CIRCUIT);
++        let mut shape = vec![S::from(self.depth() as u64)];
++        shape.extend(self.get_k_list().iter().map(|k| S::from(*k as u64)));
++        t.absorb(&shape);
++        for i in 0..self.depth() {
++            let (add, mult) = self.gates(i);
++            for gates in [add, mult] {
++                let mut flat = Vec::with_capacity(3 * gates.len());
++                for (z, b, c) in gates {
++                    flat.extend([S::from(z as u64), S::from(b as u64), S::from(c as u64)]);
++                }
++                t.absorb(&flat);
++            }
++        }
++        t.squeeze()
++    }
++
+     pub fn get_mult_list(&self) -> Vec<Vec<Vec<S>>> {
+         let mut mults = vec![];
+         for i in 0..self.depth() {
+diff --git a/rust/src/gkr/poly.rs b/rust/src/gkr/poly.rs
+index 735272e..d134a4f 100644
+--- a/rust/src/gkr/poly.rs
++++ b/rust/src/gkr/poly.rs
+@@ -553,3 +553,4 @@ pub fn l_function<S: PrimeField>(b: &Vec<S>, c: &Vec<S>, r: &S) -> Vec<S> {
+     }
+     res
+ }
++
+diff --git a/rust/src/gkr/prover.rs b/rust/src/gkr/prover.rs
+index 89d264b..25ca2bc 100644
+--- a/rust/src/gkr/prover.rs
++++ b/rust/src/gkr/prover.rs
+@@ -1,51 +1,86 @@
+-use super::{poly::*, sumcheck::*, GKRCircuit, Input, Proof};
++use super::{
++    poly::*,
++    sumcheck::*,
++    transcript::{Transcript, DOMAIN_PROOF},
++    GKRCircuit, GkrError, Input, Proof,
++};
+ use ff::PrimeField;
+-use mimc_rs::{Fr, Mimc7};
+ use std::vec;
+ 
+-pub fn prove<S: PrimeField + std::hash::Hash>(
++/// Absorbs the statement (circuit digest, public input, public output) into a fresh
++/// transcript. Prover and verifier call this identically.
++pub fn start_transcript<S: PrimeField, T: Transcript<S>>(
++    circuit: &GKRCircuit<S>,
++    input_values: &[S],
++    output_values: &[S],
++) -> Result<T, GkrError> {
++    let input = pad_to(input_values, circuit.k(circuit.depth()), "input longer than input layer")?;
++    let output = pad_to(output_values, circuit.k(0), "output longer than output layer")?;
++    let mut transcript = T::new(DOMAIN_PROOF);
++    transcript.absorb(&[circuit.digest::<T>()]);
++    transcript.absorb(&input);
++    transcript.absorb(&output);
++    Ok(transcript)
++}
++
++pub(crate) fn pad_to<S: PrimeField>(
++    values: &[S],
++    k: usize,
++    err: &'static str,
++) -> Result<Vec<S>, GkrError> {
++    let size = 1usize << k;
++    if values.len() > size {
++        return Err(GkrError::BadPublicIo(err));
++    }
++    let mut out = values.to_vec();
++    out.resize(size, S::ZERO);
++    Ok(out)
++}
++
++/// Fiat–Shamir GKR prover (upstream algorithm, fixed transcript).
++///
++/// Schedule: statement (see `start_transcript`) -> z0 (k_0 squeezes) -> for every layer:
++/// 2*k_{i+1} round polynomials each absorbed before its challenge -> q_i absorbed -> r*_i.
++pub fn prove<S: PrimeField + std::hash::Hash, T: Transcript<S>>(
+     circuit: &GKRCircuit<S>,
+     input: &Input<S>,
+-) -> Proof<S> {
+-    let mimc = Mimc7::new(91);
++) -> Result<Proof<S>, GkrError> {
++    circuit.validate()?;
++    if input.w.len() != circuit.depth() + 1 {
++        return Err(GkrError::BadPublicIo("witness has the wrong number of layers"));
++    }
++    let mut transcript: T = start_transcript(circuit, &input.input_values, &input.output_values)?;
+ 
+     let mut sumcheck_proofs = vec![];
+     let mut sumcheck_r = vec![];
+     let mut q = vec![];
+     let mut r_stars = vec![];
+-    let mut z_zero = vec![];
+-    for _ in 0..circuit.layer[0].k {
+-        z_zero.push(S::ZERO);
+-    }
+-    let mut z = vec![];
+-    z.push(z_zero);
++    let mut z = vec![transcript.squeeze_n(circuit.k(0))];
+ 
+     for i in 0..circuit.depth() {
+         let add = circuit.add(i);
+-        let mut add_res = vec![];
+-        if z[i].len() == 0 {
+-            add_res = add.clone();
++        let add_res = if z[i].is_empty() {
++            add.clone()
+         } else {
+-            add_res = partial_eval_binary_form(&add, &z[i]);
+-        }
++            partial_eval_binary_form(&add, &z[i])
++        };
+         let mult = circuit.mult(i);
+-        let mut mult_res = vec![];
+-        if z[i].len() == 0 {
+-            mult_res = mult.clone();
++        let mult_res = if z[i].is_empty() {
++            mult.clone()
+         } else {
+-            mult_res = partial_eval_binary_form(&mult, &z[i]);
+-        }
+-        let w_i = input.w(i + 1).clone();
++            partial_eval_binary_form(&mult, &z[i])
++        };
++        let w_i = input.w(i + 1);
+         let mut w_i_ext_b = vec![];
+         for t in w_i.iter() {
+             w_i_ext_b.push(extend_length(t, 2 * circuit.k(i + 1) + 1));
+         }
+-        let mut w_i_ext_c = modify_poly_from_k(&input.w(i + 1), circuit.k(i + 1));
++        let mut w_i_ext_c = modify_poly_from_k(&w_i, circuit.k(i + 1));
+ 
+-        if w_i_ext_b.len() == 0 {
++        if w_i_ext_b.is_empty() {
+             w_i_ext_b = vec![vec![S::ZERO; 2 * circuit.k(i + 1) + 1]];
+         }
+-        if w_i_ext_c.len() == 0 {
++        if w_i_ext_c.is_empty() {
+             w_i_ext_c = vec![vec![S::ZERO; 2 * circuit.k(i + 1) + 1]];
+         }
+ 
+@@ -57,32 +92,28 @@ pub fn prove<S: PrimeField + std::hash::Hash>(
+             &w_i_ext_b,
+             &w_i_ext_c,
+             2 * circuit.k(i + 1),
+-        );
+-        sumcheck_proofs.push(sumcheck_proof.clone());
+-        sumcheck_r.push(r.clone());
++            &mut transcript,
++        )?;
++        sumcheck_proofs.push(sumcheck_proof);
+ 
+-        let mut b_star = vec![];
+-        let mut c_star = vec![];
+-        b_star.extend_from_slice(&r[..circuit.k(i + 1)]);
+-        c_star.extend_from_slice(&r[circuit.k(i + 1)..]);
+-
+-        let next_w = input.w(i + 1);
+-        let q_i = reduce_multiple_polynomial(&b_star, &c_star, &next_w);
++        let b_star = r[..circuit.k(i + 1)].to_vec();
++        let c_star = r[circuit.k(i + 1)..].to_vec();
++        sumcheck_r.push(r);
+ 
++        // q_i(t) = W_{i+1}(l(t)) has degree <= k_{i+1}.
++        let q_i = normalize_coeffs(
++            &reduce_multiple_polynomial(&b_star, &c_star, &w_i),
++            circuit.k(i + 1) + 1,
++        )?;
++        transcript.absorb(&q_i);
+         q.push(q_i);
+ 
+-        let mimc_r_star = sumcheck_proof[sumcheck_proof.len() - 1]
+-            .iter()
+-            .map(|s| convert_s_to_fr(s))
+-            .collect();
+-        let r_star: S = convert_fr_to_s(mimc.multi_hash(mimc_r_star, &Fr::from(0)));
+-
+-        let next_r = l_function(&b_star, &c_star, &r_star);
+-        z.push(next_r);
++        let r_star = transcript.squeeze();
++        z.push(l_function(&b_star, &c_star, &r_star));
+         r_stars.push(r_star);
+     }
+ 
+-    Proof {
++    Ok(Proof {
+         sumcheck_proofs,
+         sumcheck_r,
+         d: input.d.clone(),
+@@ -92,5 +123,5 @@ pub fn prove<S: PrimeField + std::hash::Hash>(
+         depth: circuit.depth() + 1,
+         input_func: input.w(circuit.depth()),
+         k: circuit.get_k_list(),
+-    }
++    })
+ }
+diff --git a/rust/src/gkr/sumcheck.rs b/rust/src/gkr/sumcheck.rs
+index ec50cfe..2758b04 100644
+--- a/rust/src/gkr/sumcheck.rs
++++ b/rust/src/gkr/sumcheck.rs
+@@ -2,27 +2,27 @@ use std::vec;
+ 
+ use ff::PrimeField;
+ use itertools::Itertools;
+-use ff012::PrimeField as _;
+-use mimc_rs::{Fr, FrRepr, Mimc7};
+ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+ 
+ use super::poly::*;
+-
+-pub fn convert_s_to_fr<S>(v: &S) -> mimc_rs::Fr
+-where
+-    S: PrimeField,
+-{
+-    let mut v_bytes = [0u8; 32];
+-    v_bytes.copy_from_slice(v.to_repr().as_ref());
+-    let res = FrRepr(v_bytes);
+-    mimc_rs::Fr::from_repr(res).unwrap()
+-}
+-
+-pub fn convert_fr_to_s<S: PrimeField>(v: mimc_rs::Fr) -> S {
+-    let FrRepr(v_bytes) = v.to_repr();
+-    let mut repr = S::Repr::default();
+-    repr.as_mut().copy_from_slice(&v_bytes);
+-    S::from_repr(repr).unwrap()
++use super::transcript::Transcript;
++use super::GkrError;
++
++/// Round polynomials are sent with exactly `ROUND_COEFFS` coefficients (highest degree
++/// first): the GKR sumcheck polynomial add*(W(b)+W(c)) + mult*W(b)*W(c) has degree <= 2 in
++/// every variable.
++pub const ROUND_COEFFS: usize = 3;
++
++/// Left-pads a highest-degree-first coefficient vector to exactly `len` coefficients.
++pub fn normalize_coeffs<S: PrimeField>(coeffs: &[S], len: usize) -> Result<Vec<S>, GkrError> {
++    let first_nonzero = coeffs.iter().position(|c| *c != S::ZERO).unwrap_or(coeffs.len());
++    let trimmed = &coeffs[first_nonzero..];
++    if trimmed.len() > len {
++        return Err(GkrError::UnsupportedCircuit("round polynomial exceeds degree bound"));
++    }
++    let mut out = vec![S::ZERO; len - trimmed.len()];
++    out.extend_from_slice(trimmed);
++    Ok(out)
+ }
+ 
+ fn n_trailing_bits<S: PrimeField + std::hash::Hash>(
+@@ -37,7 +37,10 @@ fn n_trailing_bits<S: PrimeField + std::hash::Hash>(
+ }
+ 
+ // only can be run for f: add_i(f1 + f2) + mult_i(f1 * f2)
+-pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
++///
++/// Every round polynomial is normalized to `ROUND_COEFFS` coefficients, absorbed into the
++/// running transcript, and the round challenge is squeezed from that transcript.
++pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash, T: Transcript<S>>(
+     add_wire: &Vec<Vec<S>>,
+     mult_wire: &Vec<Vec<S>>,
+     add_i: &Vec<Vec<S>>,
+@@ -45,8 +48,11 @@ pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
+     f1: &Vec<Vec<S>>,
+     f2: &Vec<Vec<S>>,
+     v: usize,
+-) -> (Vec<Vec<S>>, Vec<S>) {
+-    let mimc = Mimc7::new(91);
++    transcript: &mut T,
++) -> Result<(Vec<Vec<S>>, Vec<S>), GkrError> {
++    if v < 2 {
++        return Err(GkrError::UnsupportedCircuit("sumcheck needs at least two variables"));
++    }
+     let mut proof = vec![];
+     let mut r = vec![];
+ 
+@@ -81,12 +87,10 @@ pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
+         })
+         .reduce(|| vec![], |a, b| add_univariate(&a, &b));
+ 
+-    let g_1 = add_univariate(&g_1_add, &g_1_mult);
+-    proof.push(g_1.clone());
+-
+-    let mimc_g1_coeffs = g_1.iter().map(|s| convert_s_to_fr(s)).collect();
+-    let r_1 = mimc.multi_hash(mimc_g1_coeffs, &Fr::from(0));
+-    r.push(convert_fr_to_s(r_1));
++    let g_1 = normalize_coeffs(&add_univariate(&g_1_add, &g_1_mult), ROUND_COEFFS)?;
++    transcript.absorb(&g_1);
++    proof.push(g_1);
++    r.push(transcript.squeeze());
+     let mut f1_j = f1.clone();
+     let mut f2_j = f2.clone();
+     let mut add_j = add_i.clone();
+@@ -126,12 +130,10 @@ pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
+                 mult_univariate(&f1_f2_mult, &mult_j_coeffs)
+             })
+             .reduce(|| vec![], |a, b| add_univariate(&a, &b));
+-        let g_j = add_univariate(&g_j_add, &g_j_mult);
+-        proof.push(g_j.clone());
+-
+-        let mimc_gj_coeffs = g_j.iter().map(|s| convert_s_to_fr(s)).collect();
+-        let r_n = mimc.multi_hash(mimc_gj_coeffs, &Fr::from(0));
+-        r.push(convert_fr_to_s(r_n));
++        let g_j = normalize_coeffs(&add_univariate(&g_j_add, &g_j_mult), ROUND_COEFFS)?;
++        transcript.absorb(&g_j);
++        proof.push(g_j);
++        r.push(transcript.squeeze());
+     }
+     let mut f1_v = f1.clone();
+     let mut f2_v = f2.clone();
+@@ -150,20 +152,21 @@ pub fn prove_sumcheck_opt<S: PrimeField + std::hash::Hash>(
+     let f1_f2_mult = mult_univariate(&f1_v_coeffs, &f2_v_coeffs);
+     let add = mult_univariate(&f1_f2_add, &add_v_coeffs);
+     let mult = mult_univariate(&f1_f2_mult, &mult_v_coeffs);
+-    let f = add_univariate(&add, &mult);
+-    proof.push(f.clone());
+-    let mimc_gv_coeffs = f.iter().map(|s| convert_s_to_fr(s)).collect();
+-    let r_v = mimc.multi_hash(mimc_gv_coeffs, &Fr::from(0));
+-    r.push(convert_fr_to_s(r_v));
++    let f = normalize_coeffs(&add_univariate(&add, &mult), ROUND_COEFFS)?;
++    transcript.absorb(&f);
++    proof.push(f);
++    r.push(transcript.squeeze());
+ 
+-    (proof, r)
++    Ok((proof, r))
+ }
+ 
+-pub fn prove_sumcheck<S: PrimeField + std::hash::Hash>(
++/// Generic (unoptimized) sumcheck prover for a polynomial in monomial form. Round
++/// polynomials are absorbed into `transcript` and challenges squeezed from it.
++pub fn prove_sumcheck<S: PrimeField + std::hash::Hash, T: Transcript<S>>(
+     g: &Vec<Vec<S>>,
+     v: usize,
++    transcript: &mut T,
+ ) -> (Vec<Vec<S>>, Vec<S>) {
+-    let mimc = Mimc7::new(91);
+     let mut proof = vec![];
+     let mut r = vec![];
+ 
+@@ -178,11 +181,9 @@ pub fn prove_sumcheck<S: PrimeField + std::hash::Hash>(
+         g_1 = add_poly(&g_1, &g_1_sub);
+     }
+     let g_1_coeffs = get_univariate_coeff(&g_1, 1, false);
+-    proof.push(g_1_coeffs.clone());
+-
+-    let mimc_g1_coeffs = g_1_coeffs.iter().map(|s| convert_s_to_fr(s)).collect();
+-    let r_1 = mimc.multi_hash(mimc_g1_coeffs, &Fr::from(0));
+-    r.push(convert_fr_to_s(r_1));
++    transcript.absorb(&g_1_coeffs);
++    proof.push(g_1_coeffs);
++    r.push(transcript.squeeze());
+ 
+     for j in 1..v - 1 {
+         let mut g_j: Vec<Vec<S>> = g.clone();
+@@ -201,18 +202,15 @@ pub fn prove_sumcheck<S: PrimeField + std::hash::Hash>(
+             res_g_j = add_poly(&res_g_j, &g_j_sub);
+         }
+         let g_j_coeffs = get_univariate_coeff(&res_g_j, j + 1, false);
+-        proof.push(g_j_coeffs.clone());
+-
+-        let mimc_gj_coeffs = g_j_coeffs.iter().map(|s| convert_s_to_fr(s)).collect();
+-        let r_n = mimc.multi_hash(mimc_gj_coeffs, &Fr::from(0));
+-        r.push(convert_fr_to_s(r_n));
++        transcript.absorb(&g_j_coeffs);
++        proof.push(g_j_coeffs);
++        r.push(transcript.squeeze());
+     }
+     let g_v = partial_eval(&g, &r);
+     let g_v_coeffs = get_univariate_coeff(&g_v, 1, false);
+-    proof.push(g_v_coeffs.clone());
+-    let mimc_gv_coeffs = g_v_coeffs.iter().map(|s| convert_s_to_fr(s)).collect();
+-    let r_v = mimc.multi_hash(mimc_gv_coeffs, &Fr::from(0));
+-    r.push(convert_fr_to_s(r_v));
++    transcript.absorb(&g_v_coeffs);
++    proof.push(g_v_coeffs);
++    r.push(transcript.squeeze());
+ 
+     (proof, r)
+ }
+diff --git a/rust/src/gkr/transcript.rs b/rust/src/gkr/transcript.rs
+new file mode 100644
+index 0000000..8f4415e
+--- /dev/null
++++ b/rust/src/gkr/transcript.rs
+@@ -0,0 +1,160 @@
++//! Fiat–Shamir transcript.
++//!
++//! Upstream derived every challenge as `MiMC(current message)` only, so a challenge
++//! did not depend on the circuit, the public input/output or any earlier message.
++//! Here every challenge is squeezed from a running state that has absorbed the
++//! domain separator, the circuit digest, the public input and output, and every
++//! prover message sent so far (see `prover::prove` / `verifier::verify` for the
++//! exact schedule).
++//!
++//! `MimcTranscript` is designed to be recomputed inside circom with circomlib's
++//! `MultiMiMC7(n, 91)`:
++//!   init:        s = MultiMiMC7([domain], k = 0)
++//!   absorb(xs):  s = MultiMiMC7([s, len(xs), xs...], k = 0)
++//!   squeeze():   s = MultiMiMC7([s], k = 1); return s
++use ff::{Field, PrimeField};
++use halo2curves::bn256::Fr;
++use sha3::{Digest, Keccak256};
++use std::sync::OnceLock;
++
++/// Domain separator of the main proof transcript ("gkr-fs-1" as a big-endian integer).
++pub const DOMAIN_PROOF: u64 = 0x676b_722d_6673_2d31;
++/// Domain separator used to derive the circuit digest ("gkr-circ").
++pub const DOMAIN_CIRCUIT: u64 = 0x676b_722d_6369_7263;
++
++pub trait Transcript<F>: Sized {
++    fn new(domain: u64) -> Self;
++    fn absorb(&mut self, xs: &[F]);
++    fn squeeze(&mut self) -> F;
++    fn squeeze_n(&mut self, n: usize) -> Vec<F> {
++        (0..n).map(|_| self.squeeze()).collect()
++    }
++}
++
++pub const MIMC_ROUNDS: usize = 91;
++
++/// MiMC7 round constants, derived exactly as circomlib / mimc-rs do:
++/// c_0 = 0, h_0 = keccak256("mimc"), h_i = keccak256(h_{i-1} without leading zero
++/// bytes), c_i = h_i mod r.
++fn constants() -> &'static [Fr] {
++    static CTS: OnceLock<Vec<Fr>> = OnceLock::new();
++    CTS.get_or_init(|| {
++        let mut cts = vec![Fr::ZERO];
++        let mut h: [u8; 32] = Keccak256::digest(b"mimc").into();
++        for _ in 1..MIMC_ROUNDS {
++            let first = h.iter().position(|b| *b != 0).unwrap_or(32);
++            h = Keccak256::digest(&h[first..]).into();
++            cts.push(fr_from_be_bytes_mod(&h));
++        }
++        cts
++    })
++}
++
++/// Big-endian bytes reduced modulo r.
++pub fn fr_from_be_bytes_mod(bytes: &[u8]) -> Fr {
++    let base = Fr::from(256u64);
++    bytes
++        .iter()
++        .fold(Fr::ZERO, |acc, b| acc * base + Fr::from(*b as u64))
++}
++
++/// circomlib `MiMC7(91)`.
++pub fn mimc7(x_in: Fr, k: Fr) -> Fr {
++    let cts = constants();
++    let mut h = Fr::ZERO;
++    for (i, c) in cts.iter().enumerate() {
++        let t = if i == 0 { x_in + k } else { h + k + c };
++        let t2 = t.square();
++        let t4 = t2.square();
++        h = t4 * t2 * t;
++    }
++    h + k
++}
++
++/// circomlib `MultiMiMC7(n, 91)`.
++pub fn multi_mimc7(xs: &[Fr], k: Fr) -> Fr {
++    let mut r = k;
++    for x in xs {
++        let h = mimc7(*x, r);
++        r += *x + h;
++    }
++    r
++}
++
++#[derive(Clone, Debug)]
++pub struct MimcTranscript {
++    state: Fr,
++}
++
++impl MimcTranscript {
++    pub fn state(&self) -> Fr {
++        self.state
++    }
++}
++
++impl Transcript<Fr> for MimcTranscript {
++    fn new(domain: u64) -> Self {
++        MimcTranscript {
++            state: multi_mimc7(&[Fr::from(domain)], Fr::ZERO),
++        }
++    }
++
++    fn absorb(&mut self, xs: &[Fr]) {
++        let mut buf = Vec::with_capacity(xs.len() + 2);
++        buf.push(self.state);
++        buf.push(Fr::from(xs.len() as u64));
++        buf.extend_from_slice(xs);
++        self.state = multi_mimc7(&buf, Fr::ZERO);
++    }
++
++    fn squeeze(&mut self) -> Fr {
++        self.state = multi_mimc7(&[self.state], Fr::ONE);
++        self.state
++    }
++}
++
++/// Converts a field element to its canonical little-endian bytes.
++pub fn to_le_bytes<F: PrimeField>(f: &F) -> Vec<u8> {
++    f.to_repr().as_ref().to_vec()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use ff012::PrimeField as _;
++
++    fn to_ref(x: Fr) -> mimc_rs::Fr {
++        let mut b = [0u8; 32];
++        b.copy_from_slice(x.to_repr().as_ref());
++        mimc_rs::Fr::from_repr(mimc_rs::FrRepr(b)).unwrap()
++    }
++
++    #[test]
++    fn mimc_matches_upstream_reference_implementation() {
++        let reference = mimc_rs::Mimc7::new(MIMC_ROUNDS);
++        for (x, k) in [(0u64, 0u64), (1, 0), (2, 3), (12345, 678910)] {
++            let (x, k) = (Fr::from(x), Fr::from(k));
++            assert_eq!(to_ref(mimc7(x, k)), reference.hash(&to_ref(x), &to_ref(k)));
++            let xs = [x, k, x + k];
++            assert_eq!(
++                to_ref(multi_mimc7(&xs, k)),
++                reference.multi_hash(xs.iter().map(|v| to_ref(*v)).collect(), &to_ref(k))
++            );
++        }
++    }
++
++    #[test]
++    fn transcript_binds_order_and_length() {
++        let mut a = MimcTranscript::new(DOMAIN_PROOF);
++        a.absorb(&[Fr::from(1), Fr::from(2)]);
++        let mut b = MimcTranscript::new(DOMAIN_PROOF);
++        b.absorb(&[Fr::from(1)]);
++        b.absorb(&[Fr::from(2)]);
++        assert_ne!(a.squeeze(), b.squeeze());
++        let mut c = MimcTranscript::new(DOMAIN_CIRCUIT);
++        c.absorb(&[Fr::from(1), Fr::from(2)]);
++        let mut d = MimcTranscript::new(DOMAIN_PROOF);
++        d.absorb(&[Fr::from(1), Fr::from(2)]);
++        assert_ne!(c.squeeze(), d.squeeze());
++    }
++}
+-- 
+2.53.0
+

@@ -1,0 +1,185 @@
+From 7152d84e9e7a176ae0347425f97d95480ce7861d Mon Sep 17 00:00:00 2001
+From: indextree <hellonypcteam@gmail.com>
+Date: Fri, 25 Sep 2026 13:06:31 +0900
+Subject: [PATCH 06/12] Pin constant input positions of R1CS-derived circuits
+
+convert.rs places R1CS coefficients (and zero padding) in the GKR input
+layer. When the input layer is a private witness (circom aggregation) a
+prover could substitute different constants and thereby prove satisfaction
+of different constraints. GKRCircuit::fixed_inputs records those positions;
+they are part of the circuit digest and enforced by the verifier (and by the
+generated circom verifier).
+---
+ python/gkr.py            |  1 +
+ python/test_security.py  |  6 +++---
+ rust/src/convert.rs      | 14 +++++++++++++-
+ rust/src/gkr.rs          | 25 ++++++++++++++++++++++++-
+ rust/src/gkr/verifier.rs |  3 +++
+ rust/tests/verifier.rs   | 25 +++++++++++++++++++++++--
+ 6 files changed, 67 insertions(+), 7 deletions(-)
+
+diff --git a/python/gkr.py b/python/gkr.py
+index 85da98c..e49b408 100644
+--- a/python/gkr.py
++++ b/python/gkr.py
+@@ -166,6 +166,7 @@ def circuit_digest(circuit: Circuit):
+     for i in range(depth):
+         for gate_list in gates(circuit, i):
+             t.absorb([x for g in gate_list for x in g])
++    t.absorb([])  # fixed (constant) input positions: none in python circuits
+     return t.squeeze()
+ 
+ 
+diff --git a/python/test_security.py b/python/test_security.py
+index 68570c6..655aced 100644
+--- a/python/test_security.py
++++ b/python/test_security.py
+@@ -107,10 +107,10 @@ class TranscriptVectors(unittest.TestCase):
+         self.assertEqual(hex(int(circuit_digest(example_circuit()))), RUST_EXAMPLE_DIGEST)
+ 
+ 
+-RUST_EXAMPLE_DIGEST = "0x2c74658ef1ed5ab020ed2bc10f5cf1369e7028075b5ed3da8eae7f90d8b5f78d"
++RUST_EXAMPLE_DIGEST = "0x23983e6d2fe8b6457bfccb6e299cbfc9b07350b8bb0f798846302b3b46afc5dd"
+ RUST_EXAMPLE_Q0 = ["0x0",
+-                  "0x132f6d19ef01ea819febd770aba0b973fd20a4ff430d3387a34ffa5569431ed8",
+-                  "0x2b049a8664990e2c1f8b8bc7a3ae7f53377a412cd46bd76e41bed60b9fd8ccea"]
++                  "0x8315e766975844164cd7030350bee8e60b85bcd09e5b693ed3c895fcffd1794",
++                  "0x2d4265f26e493d73621ca6b170fbf3c86f0621ac6259d87730fc4484f8e2744c"]
+ 
+ 
+ class Fixed(unittest.TestCase):
+diff --git a/rust/src/convert.rs b/rust/src/convert.rs
+index 354a3d0..fd1f9e9 100644
+--- a/rust/src/convert.rs
++++ b/rust/src/convert.rs
+@@ -775,7 +775,19 @@ pub fn convert_r1cs_wtns_gkr(
+             let wire = (add_bin, mult_bin);
+             gkr_layers.push(Layer::new(k_i, add_i, mult_i, wire));
+         }
+-        let circuit = GKRCircuit::new(gkr_layers, input_k);
++        // Constants live in the input layer; pin them so that a verifier who treats the
++        // input layer as a private witness cannot be fed different coefficients.
++        let fixed_inputs = input
++            .iter()
++            .enumerate()
++            .filter_map(|(pos, node)| match node {
++                NodeType::Value(Expression::Value(v)) => {
++                    Some((pos, Fr::from_repr(v.0.into()).unwrap()))
++                }
++                _ => None,
++            })
++            .collect();
++        let circuit = GKRCircuit::new(gkr_layers, input_k).with_fixed_inputs(fixed_inputs);
+         circuits.push(circuit);
+         inputs.push(input_gkr);
+     }
+diff --git a/rust/src/gkr.rs b/rust/src/gkr.rs
+index 075ee09..d7d4cd4 100644
+--- a/rust/src/gkr.rs
++++ b/rust/src/gkr.rs
+@@ -89,11 +89,25 @@ impl<S: PrimeField> Layer<S> {
+ pub struct GKRCircuit<S: PrimeField> {
+     pub layer: Vec<Layer<S>>,
+     input_k: usize,
++    /// Input-layer positions that hold circuit constants (e.g. R1CS coefficients placed in
++    /// the input layer by `convert.rs`). When the input layer is a private witness (circom
++    /// aggregation), the verifier must pin these, otherwise the prover can change the
++    /// constraints being checked. Part of the circuit digest.
++    pub fixed_inputs: Vec<(usize, S)>,
+ }
+ 
+ impl<S: PrimeField> GKRCircuit<S> {
+     pub fn new(layer: Vec<Layer<S>>, input_k: usize) -> Self {
+-        GKRCircuit { layer, input_k }
++        GKRCircuit {
++            layer,
++            input_k,
++            fixed_inputs: vec![],
++        }
++    }
++
++    pub fn with_fixed_inputs(mut self, fixed_inputs: Vec<(usize, S)>) -> Self {
++        self.fixed_inputs = fixed_inputs;
++        self
+     }
+ 
+     pub fn depth(&self) -> usize {
+@@ -163,6 +177,9 @@ impl<S: PrimeField> GKRCircuit<S> {
+         if self.layer.is_empty() {
+             return Err(GkrError::UnsupportedCircuit("circuit has no layers"));
+         }
++        if self.fixed_inputs.iter().any(|(pos, _)| *pos >= 1usize << self.input_k) {
++            return Err(GkrError::UnsupportedCircuit("fixed input outside the input layer"));
++        }
+         for i in 0..self.depth() {
+             if self.k(i + 1) == 0 {
+                 return Err(GkrError::UnsupportedCircuit("layers below the output need >= 2 gates"));
+@@ -196,6 +213,12 @@ impl<S: PrimeField> GKRCircuit<S> {
+                 t.absorb(&flat);
+             }
+         }
++        let fixed: Vec<S> = self
++            .fixed_inputs
++            .iter()
++            .flat_map(|(pos, v)| [S::from(*pos as u64), *v])
++            .collect();
++        t.absorb(&fixed);
+         t.squeeze()
+     }
+ 
+diff --git a/rust/src/gkr/verifier.rs b/rust/src/gkr/verifier.rs
+index e8baec0..dfd38b6 100644
+--- a/rust/src/gkr/verifier.rs
++++ b/rust/src/gkr/verifier.rs
+@@ -39,6 +39,9 @@ pub fn verify<S: PrimeField, T: Transcript<S>>(
+     }
+     let input_values = pad_to(input, circuit.k(depth), "input longer than input layer")?;
+     let output_values = pad_to(output, circuit.k(0), "output longer than output layer")?;
++    if circuit.fixed_inputs.iter().any(|(pos, v)| input_values[*pos] != *v) {
++        return Err(GkrError::BadPublicIo("input does not match the circuit's fixed inputs"));
++    }
+     let mut transcript: T = start_transcript(circuit, &input_values, &output_values)?;
+ 
+     let mut z = transcript.squeeze_n(circuit.k(0));
+diff --git a/rust/tests/verifier.rs b/rust/tests/verifier.rs
+index 3fb8fcc..54f4f38 100644
+--- a/rust/tests/verifier.rs
++++ b/rust/tests/verifier.rs
+@@ -222,11 +222,32 @@ fn python_example_matches_rust() {
+     let proof = prove::<Fr, T>(&circuit, &w).unwrap();
+     assert_eq!(
+         format!("{:?}", digest),
+-        "0x2c74658ef1ed5ab020ed2bc10f5cf1369e7028075b5ed3da8eae7f90d8b5f78d"
++        "0x23983e6d2fe8b6457bfccb6e299cbfc9b07350b8bb0f798846302b3b46afc5dd"
+     );
+     assert_eq!(
+         format!("{:?}", proof.q[0][2]),
+-        "0x2b049a8664990e2c1f8b8bc7a3ae7f53377a412cd46bd76e41bed60b9fd8ccea"
++        "0x2d4265f26e493d73621ca6b170fbf3c86f0621ac6259d87730fc4484f8e2744c"
+     );
+     assert_eq!(verify::<Fr, T>(&circuit, &input, &w.output_values, &proof), Ok(()));
+ }
++
++#[test]
++fn fixed_inputs_are_pinned_and_part_of_the_digest() {
++    let c = mixed();
++    let input = inputs(c.input_size);
++    let circuit = c.to_gkr::<Fr>().with_fixed_inputs(vec![(1, input[1]), (6, input[6])]);
++    let w = c.witness(&input);
++    let proof = prove::<Fr, T>(&circuit, &w).unwrap();
++    assert_eq!(verify::<Fr, T>(&circuit, &input, &w.output_values, &proof), Ok(()));
++    // an honest proof for a modified constant is rejected by the circuit that pins it
++    let mut other = input.clone();
++    other[6] += Fr::ONE;
++    let w2 = c.witness(&other);
++    let p2 = prove::<Fr, T>(&c.to_gkr::<Fr>(), &w2).unwrap();
++    assert!(matches!(
++        verify::<Fr, T>(&circuit, &other, &w2.output_values, &p2),
++        Err(GkrError::BadPublicIo(_))
++    ));
++    // same wiring without the pins has a different digest
++    assert_ne!(circuit.digest::<T>(), c.to_gkr::<Fr>().digest::<T>());
++}
+-- 
+2.53.0
+

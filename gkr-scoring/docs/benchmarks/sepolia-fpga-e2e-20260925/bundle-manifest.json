@@ -1,0 +1,380 @@
+{
+  "description": "Public benchmark evidence and added tools. Full repository and SRS are required to rerun. No keys, passwords, RPC configuration, or SRS binary included.",
+  "files": [
+    {
+      "path": "gkr-scoring/SEPOLIA_E2E.md",
+      "bytes": 8388,
+      "sha256": "441a782f272dc7d3662a351ab4c1e3314196abede1328afa3f1ea74cb9e1c702"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/1500/chart.json",
+      "bytes": 53985,
+      "sha256": "465dfb03ca78582114f554e111ee7de8bb75fc002ccefb53eb70cb7deb2a82c7"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/1500/template.json",
+      "bytes": 457092,
+      "sha256": "c2d872bfe9a41584eef49c3871c2205363728d74693d5a9507809052af0b7e36"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/3000/chart.json",
+      "bytes": 105133,
+      "sha256": "f801989b7e0796f04603f5f0feecd33f86b57d1274dd6a4464046b498ec2d2b2"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/3000/template.json",
+      "bytes": 914598,
+      "sha256": "3ca8f004ed73df36f4418202a78bdabe8d3795d2efe6dfd82bb85f65dfc7595f"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/4/chart.json",
+      "bytes": 1786,
+      "sha256": "1533949a45d8f7b470dbde3a2fe564723b8d38fe1f47ff688493ad7fbee9a347"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/4/template.json",
+      "bytes": 4749,
+      "sha256": "766c337563189c3ddfa2f6e86b8e16cd01eab8dfcbc057ce96b872a1c66176b8"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/500/chart.json",
+      "bytes": 19685,
+      "sha256": "79c822f727fa15101d119f432742346ddc6c43659dc253f20efadc79336c453b"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/500/template.json",
+      "bytes": 152732,
+      "sha256": "866474b30192e603c35f07a05958125940b639f838cc25339b46e6a6253ad8cb"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-prepared/vk.json",
+      "bytes": 8010,
+      "sha256": "80fb20b992b2b1a2f55779627413a25195a79f11e4b6ff19ddcaadc03c385ed9"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/device-result.json",
+      "bytes": 4243,
+      "sha256": "25b31f8082a29c68d9a53fad94a9595623cb59c5ed00f920d3c213632122df10"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/header.json",
+      "bytes": 2684,
+      "sha256": "59e53aea5ebc749459a317264be4643532d3b63a26de1347b8c2fa8c3c8d1c0a"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/play.json",
+      "bytes": 457334,
+      "sha256": "6b9eccc7755b1d908740b97e107421024a0a8325aee0982782c4bb8096d1d97e"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/proof.json",
+      "bytes": 60799,
+      "sha256": "faf6a0612892b68e326b22bcd5d3338ab608fd4faa68fb98e4f1002c8d54f633"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/signature.json",
+      "bytes": 154,
+      "sha256": "0593a41df7177cb2d1c52326c96c2a2a95aaf3efb7a3b90e37fd96705285b5bd"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r1/submission.json",
+      "bytes": 52945,
+      "sha256": "e1435d181e832e5192203ecbbf7896fc25cbdc7dbff9fc0c05a9c0177d78dd1b"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/device-result.json",
+      "bytes": 4233,
+      "sha256": "9e948233cea645c343a4e1431ac4f31bb84e86b3289e5f96ffa85ad388d64d9a"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/header.json",
+      "bytes": 2687,
+      "sha256": "767f82182e2efa945625992d529b9264db180287a5372492b46108b4997cac88"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/play.json",
+      "bytes": 457338,
+      "sha256": "47e2e0f1c496dd530e4e28207bcbad49d803231045469bd850a47745b959fa5a"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/proof.json",
+      "bytes": 60800,
+      "sha256": "630e6f3c48307383307e799569893e86da894c7081bf748f1492b71c58bd7654"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/signature.json",
+      "bytes": 154,
+      "sha256": "2a1c7d3564ef782169da4b5cec36358f3952aee794e80cb0632014271cfd0a10"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r2/submission.json",
+      "bytes": 52945,
+      "sha256": "ad4dcf2a7b9afedc51404005e62fb98ae23622a2c32c9612d598bca7577ba2b3"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/device-result.json",
+      "bytes": 4248,
+      "sha256": "52ef9e91fc0df648abcbf14f4503178a41f43f4b8cf1fe65470fe61bd63a2bc2"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/header.json",
+      "bytes": 2691,
+      "sha256": "5aad81648cd66dc2e68e66e534f61988b34f7a1eea865b08dbaf4f0694dea9a2"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/play.json",
+      "bytes": 457347,
+      "sha256": "5cea69d559cd6838536805997ac1633ea86ae2e6f4a30cc9a17378404f29bc3e"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/proof.json",
+      "bytes": 60805,
+      "sha256": "58be4dd42f1a88c16feaf29b5a14a023536d44cc8279cfac96a892c23f7e78d7"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/signature.json",
+      "bytes": 154,
+      "sha256": "b76ace7b98ef9c4fcebaccef3068ebcb1ba8cef5aa673a5fe1d4149f2943f326"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/1500-r3/submission.json",
+      "bytes": 52945,
+      "sha256": "5948955a0c474ef53ebe43ee4ace80b85cc6ce9c0d3581d518b55fa4422a3012"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/device-result.json",
+      "bytes": 4221,
+      "sha256": "e6a6cbed9abd21c18e137ca15f6a6e9b6872a01d52197e855496becc465b7a70"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/header.json",
+      "bytes": 2681,
+      "sha256": "ccd8b560bee0ba5e2d49b38914c229348bd20744fa0ae525ccf17e55399faf65"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/play.json",
+      "bytes": 914822,
+      "sha256": "00dca93a1069eb0cb98475206204a6b0f39bf1d88cd3e201fc77a74122e09240"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/proof.json",
+      "bytes": 65669,
+      "sha256": "8653d00da063b8a30dc2d43c1298583386a1bf1002eb289307d0ede181ced171"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/signature.json",
+      "bytes": 154,
+      "sha256": "a26e826c6c8df37a82f2cc127759770e54a7a7c11abfb5b000fea069aaa3529f"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r1/submission.json",
+      "bytes": 57169,
+      "sha256": "634483ca65b302f257400ae2a76d15aa0be7bf302a8166918392d34a1f9289ee"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/device-result.json",
+      "bytes": 4228,
+      "sha256": "bf472891052eaf9b7d26b67e10a9a2c70b703bcd663273b4d9e2a5bd50faad0d"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/header.json",
+      "bytes": 2689,
+      "sha256": "2b5efc12c6948846616c5dfbfe6fad7b51a3d8d875a519b09145eef7d8adbbf9"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/play.json",
+      "bytes": 914843,
+      "sha256": "49f8ec94426d726c664d0bd6308f75723b994b257394692a846c50d6301f462b"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/proof.json",
+      "bytes": 65684,
+      "sha256": "81a18a22c0b5bad796253d7854c675859fafee8a79f82dff7959f213f42c68b3"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/signature.json",
+      "bytes": 154,
+      "sha256": "a77ed0c78371e7e72f9b9a45a7dd5bbddabec6ef6673d6b6ae45c2921d079ce0"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r2/submission.json",
+      "bytes": 57169,
+      "sha256": "19ed6388fbde262177bdfe6bfad04996ede278f3cf4b9ec71ea34448772562ed"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/device-result.json",
+      "bytes": 4237,
+      "sha256": "58dc9c3a004b3c9e8790cb7c393e59958824e536cfb9612668a65e2e786a37b0"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/header.json",
+      "bytes": 2689,
+      "sha256": "3b20274eab87fc6f9248b8de267ae57d97ac80364add19f37af9fecac9fd19e1"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/play.json",
+      "bytes": 914844,
+      "sha256": "95587d4bbaaf225751bb0c4ed2b800bce8c10af628c01a331286719274a9ea53"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/proof.json",
+      "bytes": 65704,
+      "sha256": "dd7e8cc8397e6a9fa01f442377438294a589d0d77917c94754b8505373870227"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/signature.json",
+      "bytes": 154,
+      "sha256": "c8dc81540dbc65487f39ccea3df020a424e62bfb8f92f323cbe7bd3b2c354f7c"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/3000-r3/submission.json",
+      "bytes": 57169,
+      "sha256": "4a80d149da452878fcb9315cb377dbd9f55514f0ae7b2961b09a5a66fd78ec03"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/device-result.json",
+      "bytes": 4236,
+      "sha256": "94613e368f364e63199a368af25fed4e8b2612e206a5f7619094d5ce1b4659c9"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/header.json",
+      "bytes": 2686,
+      "sha256": "7026093023595dcb785e4deca39e444361a0c0c57bcf89227e4b6466266d064a"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/play.json",
+      "bytes": 152980,
+      "sha256": "cc0d62888ccb0aba9657c97148c633520d59bb736bd0e816ead116cf56e37238"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/proof.json",
+      "bytes": 51697,
+      "sha256": "db3706ca646330404ecd4aa1c4e29b7a198634d9c614ce05f442f77c91a0549c"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/signature.json",
+      "bytes": 154,
+      "sha256": "b8ee8eb46e9e1dd0e59a847931120ee4dce87e1aa1b614068668140920f9671d"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r1/submission.json",
+      "bytes": 45073,
+      "sha256": "6e51bc0260963d9ee6254bbf74c75a72d5ab64274ef8dc6bd82494e2c7d89dbb"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/device-result.json",
+      "bytes": 4231,
+      "sha256": "e7732dc8c27935573b4e559a3c46ab2613b12c85b63165d56577181c479f8219"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/header.json",
+      "bytes": 2687,
+      "sha256": "557aacc839ded82a6d099ec946e9e837c2ca230c9119fee38c9247558645886e"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/play.json",
+      "bytes": 152979,
+      "sha256": "ffd078fb5adcf8eeddab323930b3d7f20061130b94b18450193c89a1e9c32221"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/proof.json",
+      "bytes": 51669,
+      "sha256": "d6cd829aee80a353b67c2a26819661b7820acdbfea99b62b3f999a2db3b4e684"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/signature.json",
+      "bytes": 154,
+      "sha256": "23752964ec526cfe1b9f3d0c9ced3f32d9da71f0e98133d026ba03aa905b2587"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r2/submission.json",
+      "bytes": 45073,
+      "sha256": "4b54e37712f03bacdcf63843593075e89b6d87b12bdcbe4eb9ec62164ac2a597"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/device-result.json",
+      "bytes": 4218,
+      "sha256": "e70aac57a07901aea8c3bdc9123f933ff6a12a8816f0c3187d3133166ca42233"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/header.json",
+      "bytes": 2682,
+      "sha256": "c80469d440fdab945bf48d5ccf8120c3104d0280523f726724c6b0dfcdb5fe3f"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/play.json",
+      "bytes": 152970,
+      "sha256": "0d81b2e845159e690e3f806a0c24f34350a0c2ac9f09e1d99cd48d53571d7240"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/proof.json",
+      "bytes": 51697,
+      "sha256": "55038386a161357a05b616b58a0367e4abf1fc5f5fd276647dabe3a398197398"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/signature.json",
+      "bytes": 154,
+      "sha256": "b9f4f8141f570e1bcb269ac58912ecb58be4172d75cecf72c6f74cb15f0ae880"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/500-r3/submission.json",
+      "bytes": 45073,
+      "sha256": "79084d0b65a4344e538766eef78d25c85a9f9e86f6043a89e39c1dee9286edfd"
+    },
+    {
+      "path": "gkr-scoring/artifacts/fpga-e2e-sepolia-20260925/run.json",
+      "bytes": 82192,
+      "sha256": "159db3b646f8d229bce9bdf888f61575b2ddc3f2e2d43510715a14cf6c99fee0"
+    },
+    {
+      "path": "gkr-scoring/docs/benchmarks/sepolia-fpga-e2e-20260925/REPORT.md",
+      "bytes": 10336,
+      "sha256": "a11683796c5b7cab59ae3b8bbcab569e36134324f7d00e555a34417cfa44204c"
+    },
+    {
+      "path": "gkr-scoring/docs/benchmarks/sepolia-fpga-e2e-20260925/adapter-tests.log",
+      "bytes": 766,
+      "sha256": "0fa4af0245d12c229f0fffa1aa49734b3d2a9267adfec84a2c2aa098236d1ed5"
+    },
+    {
+      "path": "gkr-scoring/docs/benchmarks/sepolia-fpga-e2e-20260925/chain-recheck.json",
+      "bytes": 12048,
+      "sha256": "beb617757b070182bf530c40b301f0ff3ddb1fab24ff90d8015ce8161be902ff"
+    },
+    {
+      "path": "gkr-scoring/docs/benchmarks/sepolia-fpga-e2e-20260925/execution.log",
+      "bytes": 3894,
+      "sha256": "4df59e76969122233c712d407c10f2f930af09b3ba49b66d35daea112c5f3c62"
+    },
+    {
+      "path": "gkr-scoring/docs/benchmarks/sepolia-fpga-e2e-20260925/run.json",
+      "bytes": 82192,
+      "sha256": "159db3b646f8d229bce9bdf888f61575b2ddc3f2e2d43510715a14cf6c99fee0"
+    },
+    {
+      "path": "gkr-scoring/engine/examples/fpga_e2e.rs",
+      "bytes": 12329,
+      "sha256": "8f34e70f784ad8989c343995a3252561db5c0519c430e93a93e27a387cdae273"
+    },
+    {
+      "path": "gkr-scoring/scripts/recheck_e2e.py",
+      "bytes": 3882,
+      "sha256": "5bd880e74953a67441a07e750d7de27c2e836f7e0c22300f4c1718f4a7b6781b"
+    },
+    {
+      "path": "gkr-scoring/scripts/report_e2e.py",
+      "bytes": 10626,
+      "sha256": "74c856fbd8bf380454caca99dafd620a98b613e5fe450134deba39fd9d5d9407"
+    },
+    {
+      "path": "gkr-scoring/scripts/sepolia_e2e.py",
+      "bytes": 17986,
+      "sha256": "1203e1d92cb5c1124e72c37d8b0b48f9bc18d422b91a640c04175af7258c57db"
+    },
+    {
+      "path": "gkr-scoring/scripts/test_e2e_adapter.py",
+      "bytes": 4152,
+      "sha256": "d0675e8920fb2cb6cb888f29196839f7edf667f29d968e0fe0c3f7d890d6b1b3"
+    }
+  ]
+}

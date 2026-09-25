@@ -1,0 +1,11 @@
+PASS boundary-0 events= 0
+PASS boundary-1 events= 1
+PASS boundary-2 events= 2
+PASS boundary-31 events= 31
+PASS boundary-32 events= 32
+PASS boundary-33 events= 33
+PASS boundary-63 events= 63
+PASS boundary-64 events= 64
+PASS boundary-65 events= 65
+PASS timestamp-max events= 1
+PASS 10 device vectors; all chunk hashes, event-prefix commitments, V1/V2 digests; 3 group cases

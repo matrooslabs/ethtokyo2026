@@ -1,0 +1,12 @@
+[workspace]
+members = ["engine"]
+# The patched swjng/gkr fork keeps its own workspace/lockfile (optional circom/aggregator features).
+exclude = ["gkr"]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+
+[profile.test]
+opt-level = 3

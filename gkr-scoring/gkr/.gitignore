@@ -1,0 +1,15 @@
+.vscode
+/target
+.DS_Store
+/__pycache__
+*.r1cs
+*.json
+*.ptau
+
+# Checked-in manifests and test inputs, not generated prover output.
+!/gkr-verifier-circuits/circom/package.json
+!/gkr-verifier-circuits/circom/package-lock.json
+!/repro/upstream-zero-proof/zero-proof.json
+!/rust/example/input1.json
+!/rust/example/input2.json
+!/rust/example/input3.json

@@ -1,0 +1,4 @@
+   Compiling mania-gkr v0.1.0 (/Users/indextree/EthTokyo2026/osu/gkr-scoring/engine)
+    Finished `release` profile [optimized] target(s) in 2.29s
+     Running `target/release/examples/fpga_vectors --out docs/fpga/vectors`
+exported 10 vectors and 260 canonical G1 points to docs/fpga/vectors

@@ -1,0 +1,22 @@
+osu file format v14
+
+[General]
+AudioFilename: demo.ogg
+Mode: 3
+
+[Metadata]
+Title: SP1 Synthetic Fixture
+Artist: Prototype
+Creator: Prototype
+Version: 4K OD5
+
+[Difficulty]
+CircleSize: 4
+OverallDifficulty: 5
+
+[HitObjects]
+64,192,1000,1,0,0:0:0:0:
+192,192,1500,128,0,2000:0:0:0:0:
+320,192,1500,1,0,0:0:0:0:
+448,192,2500,1,0,0:0:0:0:
+
