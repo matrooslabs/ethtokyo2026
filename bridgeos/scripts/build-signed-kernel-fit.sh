@@ -2,10 +2,10 @@
 # Build only the authenticated kernel handoff. Never programs OTP or boot fuses.
 set -euo pipefail
 if [ "$#" -ne 7 ]; then
-    echo "Usage: $0 Image board.dtb rootfs.cpio.gz BOOT_SIGN_KEY_DIR trusted-u-boot.dtb output.itb signed-lab|hardware-root" >&2
+    echo "Usage: $0 Image board.dtb rootfs.cpio.gz BOOT_SIGN_KEY_DIR trusted-u-boot.dtb output.itb signed-lab|mvp-keyed|hardware-root" >&2
     exit 2
 fi
-case "$7" in signed-lab|hardware-root) profile="$7" ;; *) echo 'Unsupported signed boot profile' >&2; exit 2 ;; esac
+case "$7" in signed-lab|mvp-keyed|hardware-root) profile="$7" ;; *) echo 'Unsupported signed boot profile' >&2; exit 2 ;; esac
 project="$(cd "$(dirname "$0")/.." && pwd)"
 image="$(realpath "$1")"
 dtb="$(realpath "$2")"

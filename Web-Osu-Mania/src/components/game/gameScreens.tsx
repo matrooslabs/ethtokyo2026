@@ -38,6 +38,7 @@ const GameScreens = ({
   setShowHud: Dispatch<SetStateAction<boolean>>;
 }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
+  const devRun = useGameStore.use.devRun();
   const backgroundDim = useSettingsStore.use.backgroundDim();
   const backgroundBlur = useSettingsStore.use.backgroundBlur();
   const lightenBackgroundDuringBreaks =
@@ -84,7 +85,13 @@ const GameScreens = ({
     gameInstance.main(containerRef.current, initialShowHud.current)
       .then(() => setGame(gameInstance))
       .catch((error: unknown) => {
-        toast.error(error instanceof Error ? error.message : "Hardware capture could not start. This play was spent.");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : paidAttempt
+              ? "Hardware capture could not start. This play was spent."
+              : "Game could not start.",
+        );
         useGameStore.getState().closeGame();
       });
 
@@ -98,7 +105,7 @@ const GameScreens = ({
         videoEl.currentTime = 0;
       }
     };
-  }, [beatmapData, replayData, retry, beatmapId, videoRef, hardware.startRecording]);
+  }, [beatmapData, replayData, retry, beatmapId, videoRef, hardware.startRecording, paidAttempt]);
 
   // Pause logic
   useEffect(() => {
@@ -107,9 +114,11 @@ const GameScreens = ({
     }
 
     if (isPaused) {
-      if (paidAttempt) {
-        toast("Paid run ended. This play was used; there is no resume.");
-        void hardware.abortRecording().catch(() => {});
+      if (paidAttempt || devRun) {
+        toast(devRun
+          ? "Simulation ended. This play was used; there is no resume."
+          : "Paid run ended. This play was used; there is no resume.");
+        if (paidAttempt) void hardware.abortRecording().catch(() => {});
         useGameStore.getState().closeGame();
         return;
       }
@@ -117,18 +126,20 @@ const GameScreens = ({
     } else if (game.state === "PAUSE") {
       game.resume();
     }
-  }, [isPaused, game, paidAttempt, hardware.abortRecording]);
+  }, [isPaused, game, paidAttempt, devRun, hardware.abortRecording]);
 
   useEffect(() => {
     if (results || replayData) return;
     const disconnected = () => {
-      toast.error(paidAttempt ? "Controller disconnected. This play was used." : "Controller disconnected. Practice ended.");
+      toast.error(paidAttempt || devRun
+        ? "Controller disconnected. This play was used."
+        : "Controller disconnected. Practice ended.");
       useGameStore.getState().closeGame();
     };
     if (hardware.disconnectSignal.aborted) disconnected();
     else hardware.disconnectSignal.addEventListener("abort", disconnected, { once: true });
     return () => hardware.disconnectSignal.removeEventListener("abort", disconnected);
-  }, [hardware.disconnectSignal, paidAttempt, replayData, results]);
+  }, [hardware.disconnectSignal, paidAttempt, devRun, replayData, results]);
 
   // Event listeners
   useEffect(() => {
@@ -203,11 +214,11 @@ const GameScreens = ({
           <ArenaHud game={game} arena={arena} />
         )}
         {game && !results && <VolumeWidget game={game} />}
-        {game && !results && !paidAttempt && <RetryWidget retry={retry} />}
+        {game && !results && !paidAttempt && !devRun && <RetryWidget retry={retry} />}
         {game && !results && <PauseButton setIsPaused={setIsPaused} />}
         {game && !results && replayData && <ReplayControls game={game} />}
 
-        {isPaused && game && (
+        {isPaused && game && !paidAttempt && !devRun && (
           <PauseScreen
             beatmapData={beatmapData}
             setIsPaused={setIsPaused}

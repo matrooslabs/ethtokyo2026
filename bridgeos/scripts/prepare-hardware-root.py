@@ -3,7 +3,6 @@
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -56,11 +55,9 @@ def main():
     offset = record.get('secure_otp_huk_byte_offset')
     if type(offset) is not int or offset < 0 or offset % 2 or offset + 16 > SECURE_OTP_BYTES:
         fail('16-byte HUK offset must fit in TF-A secure OTP, aligned to a halfword')
-    if not record.get('otp_slot_reference') or not record.get('device_serial'):
+    serial = record.get('device_serial')
+    if not record.get('otp_slot_reference') or not isinstance(serial, str) or not serial:
         fail('record must identify reviewed OTP slot reference and device serial')
-    bitstream = hex32(record.get('bitstream_hash'), 'bitstream_hash')
-    if bitstream == bytes([4]) * 32:
-        fail('development bitstream marker is not a production identity')
     bank = outside_project(record['srs_bank'], 'approved SRS bank')
     expected_bank_hash = hex32(record.get('srs_sha256'), 'srs_sha256')
     digest = hashlib.sha256()
@@ -82,17 +79,26 @@ def main():
         fail('upstream OP-TEE development TA trust key is forbidden')
     if record.get('ta_key_reviewed') is not True:
         fail('TA trust key requires separate review')
+    # This legacy bitstream_hash field is only a public, reproducible build
+    # identifier while there is no FPGA bitstream artifact to attest.
+    bitstream = hashlib.sha256(
+        b'OSUMANIA_BUILD_MARKER_V1\0' +
+        hashlib.sha256((PROJECT / 'manifests/sources.lock').read_bytes()).digest() +
+        digest.digest() + hashlib.sha256(trusted_public).digest() +
+        offset.to_bytes(4, 'big') + serial.encode('utf-8')
+    ).digest()
     output = Path(args.output).resolve()
     if not (PROJECT / 'sources/optee-os-artifacts/hardware-policy') in output.parents:
         fail('generated header must remain in hardware-policy directory')
     output.parent.mkdir(parents=True, exist_ok=True)
     initializer = ','.join('0x%02x' % b for b in bitstream)
-    output.write_text('/* Generated from reviewed external provisioning record; no secrets. */\n'
+    output.write_text('/* Public build marker, NOT an FPGA bitstream attestation. */\n'
                       '#define OSUMANIA_PROVISIONED_BITSTREAM_HASH {' + initializer + '}\n'
                       '#define OSUMANIA_PROVISIONED_SRS 1\n')
     print(json.dumps({'offset': offset, 'srs_bank': str(bank),
                       'srs_sha256': digest.hexdigest(), 'ta_sign_key': str(key),
-                      'ta_public_key': str(public), 'header': str(output)}, sort_keys=True))
+                      'ta_public_key': str(public), 'build_marker': bitstream.hex(),
+                      'header': str(output)}, sort_keys=True))
 
 
 if __name__ == '__main__':

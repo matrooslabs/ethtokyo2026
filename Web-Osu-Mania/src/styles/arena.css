@@ -1213,6 +1213,7 @@ body {
   min-height: 102px;
   padding: 10px 32px;
   border-bottom: 2px solid var(--arena-ink);
+  position: relative;
 }
 .arena-brand {
   gap: 12px;
@@ -1236,6 +1237,23 @@ body {
   height: 98px;
   max-width: none;
   transform: translate(-50%, -50%);
+}
+.arena-nav-clock {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  white-space: nowrap;
+  color: var(--arena-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.arena-nav-clock strong {
+  color: var(--arena-ink);
+  font: 20px/1.2 "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
 }
 .arena-header nav {
   font-size: 13px;
@@ -1299,11 +1317,17 @@ body {
   max-width: 52ch;
   text-wrap: pretty;
 }
-.arena-round-timer {
-  margin-top: 14px;
-  color: var(--arena-pink);
-  font-variant-numeric: tabular-nums;
+.arena-play-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 16px 0 8px;
 }
+.arena-play-balance strong {
+  color: var(--arena-pink);
+  font: 600 32px/1 "IBM Plex Mono", monospace;
+}
+.arena-play-balance span { color: var(--arena-muted); font-size: 14px; }
 .arena-play-row {
   margin-top: 28px;
   gap: 24px;
@@ -1770,6 +1794,18 @@ body {
     gap: 16px;
   }
   .arena-header nav > a { padding-block: 8px; }
+  .arena-nav-clock {
+    position: static;
+    transform: none;
+    order: 3;
+    width: 100%;
+    flex-direction: row;
+    justify-content: center;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--arena-line);
+  }
+  .arena-nav-clock strong { font-size: 17px; }
   .arena-shell {
     padding: 20px;
   }
@@ -2078,6 +2114,70 @@ body {
 .arena-entry {
   padding: 24px 0 34px;
 }
+
+.arena-wallet-connect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 12px 20px;
+  border: 1px solid var(--arena-pink);
+  border-radius: 0;
+  background: var(--arena-pink);
+  color: hsl(var(--background));
+  font: 600 15px/1.3 var(--arena-body-font);
+  box-shadow: none;
+  transition: background 0.15s, color 0.15s;
+}
+.arena-wallet-connect:hover { background: transparent; color: var(--arena-pink); }
+
+.arena-connected-wallet {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--arena-line);
+}
+.arena-connected-wallet-icon { width: 28px; height: 28px; flex: none; object-fit: contain; }
+.arena-wallet-identity { display: grid; min-width: 0; gap: 2px; }
+.arena-wallet-identity strong { color: var(--arena-ink); font: 600 14px/1.2 var(--arena-body-font); }
+.arena-wallet-identity code { color: var(--arena-muted); font: 12px/1.2 "IBM Plex Mono", monospace; white-space: nowrap; }
+.arena-wallet-disconnect {
+  margin-left: 12px;
+  padding: 5px 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--arena-muted);
+  font: 12px/1.3 var(--arena-body-font);
+}
+.arena-wallet-disconnect:hover:not(:disabled) { color: var(--arena-pink); }
+@media (max-width: 380px) { .arena-wallet-disconnect { margin-left: 2px; } }
+.arena-wallet-dialog {
+  max-width: 420px;
+  padding: 24px;
+  border: 1px solid var(--arena-line);
+  border-radius: 0;
+  background: var(--arena-surface);
+  color: var(--arena-ink);
+}
+.arena-wallet-dialog h2 { font: 600 22px/1.3 var(--arena-body-font); }
+.arena-wallet-options { display: grid; gap: 8px; margin-top: 14px; }
+.arena-wallet-options button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--arena-line);
+  background: var(--arena-raised);
+  color: var(--arena-ink);
+  text-align: left;
+}
+.arena-wallet-options button:hover:not(:disabled) { border-color: var(--arena-ink); }
+.arena-wallet-options img { width: 32px; height: 32px; object-fit: contain; }
 .arena-difficulty { max-width: 380px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .arena-difficulty legend { margin-bottom: 10px; color: var(--arena-muted); font-size: 13px; }
 .arena-difficulty-toggle {
@@ -2228,4 +2328,53 @@ body {
 }
 .arena-guide-keys small {
   font-size: 12px;
+}
+
+.arena-dev-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--arena-pink);
+  background: var(--arena-surface);
+  line-height: 1.4;
+}
+.arena-dev-top { margin-bottom: 6px; }
+.arena-dev-top h1 {
+  font: 400 clamp(28px, 4vw, 46px)/1.15 "Silkscreen", monospace;
+  margin-bottom: 8px;
+}
+.arena-dev-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.arena-dev-controls label,
+.arena-dev-claim label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--arena-muted);
+  font-size: 13px;
+}
+.arena-dev select,
+.arena-dev input[type="datetime-local"] {
+  padding: 10px 12px;
+  border: 1px solid var(--arena-line);
+  background: var(--arena-surface);
+  color: var(--arena-ink);
+}
+.arena-dev-claim {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin: 18px 0;
+}
+@media (max-width: 767px) {
+  .arena-dev-top h1 { font-size: 27px; }
 }

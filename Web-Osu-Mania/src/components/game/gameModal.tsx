@@ -151,8 +151,8 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
   }, [beatmapData]);
 
   const retry = useCallback(() => {
-    if (useGameStore.getState().paidAttempt) {
-      toast("A paid run cannot resume. Start a new run to use another play.");
+    if (useGameStore.getState().paidAttempt || useGameStore.getState().devRun) {
+      toast("A ranked run cannot resume. Start a new run to use another play.");
       return;
     }
     setKey((prev) => prev + 1);

@@ -15,8 +15,7 @@ import {
 import appCss from "../styles/globals.css?url";
 
 const title = "versu! · four keys, one leaderboard";
-const description =
-  "Four-key rhythm on Sui. One USDC buys three plays; five unique claimants split the verified-score prize pot.";
+const description = "A hardware-verified rhythm game on-chain.";
 const ogImageUrl = "/versu-logo.png";
 
 export const Route = createRootRoute({

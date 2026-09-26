@@ -1,12 +1,12 @@
 // Two-phase real Sui testnet deployment. `--prepare` publishes the native package,
 // creates a Registry and validates BOTH Forest charts; NO Challenge clock starts.
 // `--activate` reads the confirmed manifest, provisions an operator's REAL device
-// public key, then creates ONE Challenge<Circle USDC> with an exact six-hour cutoff.
+// public key, then schedules ONE Challenge<Circle USDC> for an exact six-hour window.
 //
-// node deploy_forest_challenge.mjs --prepare --srs ../artifacts/dev-srs-24.bin --out ./forest-deployment
-// node deploy_forest_challenge.mjs --resume --srs ../artifacts/dev-srs-24.bin --out ./forest-deployment
+// node deploy_forest_challenge.mjs --prepare --srs /approved/bls12-381-srs.bin --out ./forest-deployment
+// node deploy_forest_challenge.mjs --resume --srs /approved/bls12-381-srs.bin --out ./forest-deployment
 // node deploy_forest_challenge.mjs --activate --out ./forest-deployment \
-//   --round-date YYYY-MM-DD --device-pubkey 0x<33-byte-compressed-secp256k1> \
+//   --start-at 2026-09-27T12:00:00Z --device-pubkey 0x<33-byte-compressed-secp256k1> \
 //   --bitstream-hash 0x<32-byte-real-image-hash> --identity-attestor 0x<Sui-wallet>
 // Optional SUI_ORGANIZER_PRIVATE_KEY overrides the active `sui client` keystore key.
 // Development SRS/software signers NEVER imply mainnet eligibility or real hardware.
@@ -31,6 +31,7 @@ const CHAIN_ID = 0x5ec7n; // registry's SP1 V1 header domain; not Sui's chain id
 const PTB_ARG_BYTES = 15_000;
 const CHART_NOTES_PER_TX = 3_000;
 const GAS_BUDGET = 3_000_000_000n;
+const KNOWN_INSECURE_SRS_ID = '0xcd199354a4ea127f32c21fc6f56863a42af6df3133bef40702f8d9d0a1326a84';
 const byteItems = bcs.vector(bcs.vector(bcs.u8()));
 const chartRegistered = bcs.struct('ChartRegistered', {
   chart_hash: bcs.vector(bcs.u8()), notes: bcs.u64(), components: bcs.u64(),
@@ -106,6 +107,18 @@ const activating = process.argv.includes('--activate');
 if (Number(preparing) + Number(resuming) + Number(activating) !== 1) {
   throw new Error('Choose exactly one of --prepare, --resume or --activate');
 }
+const startAt = activating ? required('--start-at') : null;
+if (activating && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(startAt)) {
+  throw new Error('--start-at must be an ISO 8601 UTC timestamp, e.g. 2026-09-27T12:00:00Z');
+}
+const startAtMs = activating ? Date.parse(startAt) : null;
+if (activating && (!Number.isFinite(startAtMs) || new Date(startAtMs).toISOString().slice(0, 19) !== startAt.slice(0, 19))) {
+  throw new Error('--start-at must be an actual UTC date and time');
+}
+const ensureScheduledStart = () => {
+  if (startAtMs <= Date.now()) throw new Error('--start-at must still be in the future before activation writes');
+};
+if (activating) ensureScheduledStart();
 const outDir = resolve(required('--out'));
 const manifestPath = join(outDir, 'deployment.json');
 if (preparing && existsSync(manifestPath)) {
@@ -128,7 +141,7 @@ if (preparing) {
   const prepared = prepareForest(charts, srs, outDir);
   preparations = Object.fromEntries(['easy', 'hard'].map((key) => [key,
     JSON.parse(readFileSync(prepared.artifacts[key].registration, 'utf8'))]));
-  const srsSecurity = /(^|\/)dev-srs-24\.bin$/.test(srs)
+  const srsSecurity = /(^|\/)dev-srs-24\.bin$/.test(srs) || prepared.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID
     ? 'INSECURE DEVELOPMENT SRS: NOT MAINNET ELIGIBLE'
     : 'OPERATOR-SUPPLIED SRS: setup provenance must be independently verified';
   manifest = {
@@ -187,7 +200,7 @@ async function confirmed(digest) {
   return tx;
 }
 
-async function execute(step, tx) {
+async function execute(step, tx, beforeSubmit) {
   tx.setSender(owner);
   const held = BigInt((await client.getBalance({ owner })).balance.balance);
   const reserve = 300_000_000n;
@@ -209,6 +222,7 @@ async function execute(step, tx) {
     throw error;
   }
   const { signature } = await signer.signTransaction(signed);
+  beforeSubmit?.();
   const sent = await client.executeTransaction({ transaction: signed, signatures: [signature],
     include: { effects: true, objectTypes: true, events: true } });
   const digest = sent.Transaction?.digest ?? sent.FailedTransaction?.digest;
@@ -386,18 +400,20 @@ manifest.phase = 'prepared';
 checkpoint();
 console.log(JSON.stringify(manifest, null, 2));
 } else {
-const roundDate = required('--round-date');
+if (manifest.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID || !manifest.srsSecurity || manifest.srsSecurity.startsWith('INSECURE DEVELOPMENT SRS')) {
+  throw new Error('Secure paid activation requires a reviewed ceremony Sui GKR SRS. This Registry uses dev-srs-24.bin with a known toxic secret; prepare a new Registry and both charts from an approved SRS.');
+}
+const roundDate = new Date(startAtMs).toISOString().slice(0, 10);
 const devicePubkey = bytes(required('--device-pubkey'), 33, 'device pubkey');
 const bitstreamHash = bytes(required('--bitstream-hash'), 32, 'bitstream hash');
 const attestor = required('--identity-attestor');
 const claimWindowMs = BigInt(optional('--claim-window-ms', '86400000'));
-if (!/^\d{4}-\d{2}-\d{2}$/.test(roundDate) ||
-    new Date(`${roundDate}T00:00:00Z`).toISOString().slice(0, 10) !== roundDate) {
-  throw new Error('--round-date must be an actual YYYY-MM-DD UTC date');
+if (BigInt(startAtMs) + 21_600_000n + claimWindowMs > 2n ** 64n - 1n) {
+  throw new Error('--claim-window-ms must leave room for scheduled scoring and claiming deadlines');
 }
 if (!isValidSuiAddress(attestor)) throw new Error('--identity-attestor must be a Sui wallet address');
-if (claimWindowMs <= 0n || claimWindowMs > 2n ** 64n - 1n - 21_600_000n) {
-  throw new Error('--claim-window-ms must be a positive u64 leaving room for the six-hour gameplay window');
+if (claimWindowMs <= 0n) {
+  throw new Error('--claim-window-ms must be a positive u64');
 }
 if (![2, 3].includes(devicePubkey[0])) throw new Error('Device key must be compressed secp256k1');
 if (bitstreamHash.every((value) => value === bitstreamHash[0])) {
@@ -434,7 +450,9 @@ for (const key of ['easy', 'hard']) {
     throw new Error(`${key} prepared Rust opening differs from confirmed Forest chart`);
   }
 }
+ensureScheduledStart();
 manifest.roundDate = roundDate;
+manifest.scheduledStartAtMs = startAtMs.toString();
 manifest.roundId = hex(sha256(`versu:${roundDate}`));
 manifest.claimWindowMs = claimWindowMs.toString();
 manifest.deviceAddress = deviceAddress;
@@ -446,15 +464,13 @@ manifest.identityAttestor = attestor;
 manifest.phase = 'activating';
 checkpoint();
 
+// One PTB: neither a device nor a six-hour Challenge is left half activated.
 tx = new Transaction();
 tx.moveCall({ target: fn('registry', 'set_device'), arguments: [tx.object(manifest.registryId),
   tx.object(manifest.organizerCapId), tx.pure.vector('u8', devicePubkey),
   tx.pure.vector('u8', bitstreamHash), tx.pure.bool(true)] });
-await execute('register operator device public key', tx);
 
-// The Challenge creation transaction stamps started_at_ms from the chain Clock;
-// score_deadline_ms is EXACTLY started_at_ms + 21_600_000 in Move.
-tx = new Transaction();
+// Schedule scoring from the immutable requested UTC start, not the creation transaction time.
 const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArguments: [USDC], arguments: [
   tx.object(manifest.registryId), tx.object(manifest.organizerCapId),
   tx.pure.vector('u8', new TextEncoder().encode(roundDate)),
@@ -462,10 +478,10 @@ const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArgum
   tx.pure.vector('u8', bytes(charts.easy.chartHash, 32, 'Easy chart hash')),
   tx.pure.vector('u8', bytes(charts.hard.chartHash, 32, 'Hard chart hash')),
   tx.pure.vector('u8', bytes(deviceAddress, 20, 'device address')),
-  tx.pure.u64(claimWindowMs), tx.object.clock(),
+  tx.pure.u64(startAtMs), tx.pure.u64(claimWindowMs), tx.object.clock(),
 ] });
 tx.transferObjects([identityCap], attestor);
-res = await execute('create one shared Forest Challenge<CircleUSDC>', tx);
+res = await execute('register device and schedule Forest Challenge<CircleUSDC>', tx, ensureScheduledStart);
 manifest.challengeId = created(res, '::competition::Challenge<'+USDC+'>');
 manifest.identityCapId = created(res, '::competition::IdentityCap');
 const event = challengeCreated.parse(emitted(res, '::competition::ChallengeCreated'));
@@ -474,9 +490,10 @@ if (event.challenge !== manifest.challengeId || event.registry !== manifest.regi
     hex(event.round_id) !== manifest.roundId ||
     hex(event.easy_chart_hash) !== charts.easy.chartHash ||
     hex(event.hard_chart_hash) !== charts.hard.chartHash ||
-    BigInt(event.score_deadline_ms) - BigInt(event.started_at_ms) !== 21_600_000n ||
+    BigInt(event.started_at_ms) !== BigInt(startAtMs) ||
+    BigInt(event.score_deadline_ms) !== BigInt(startAtMs) + 21_600_000n ||
     BigInt(event.claim_window_ms) !== claimWindowMs ||
-    BigInt(event.claim_deadline_ms) - BigInt(event.score_deadline_ms) !== claimWindowMs) {
+    BigInt(event.claim_deadline_ms) !== BigInt(startAtMs) + 21_600_000n + claimWindowMs) {
   throw new Error(`Challenge creation event in ${res.digest} does not match configured charts/timing`);
 }
 manifest.startedAtMs = event.started_at_ms;

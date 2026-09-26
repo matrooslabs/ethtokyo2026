@@ -18,6 +18,7 @@ import { loadAssets } from "@/osuMania/assets";
 import { defaultSettings } from "@/stores/settingsStore";
 import { encodeMods } from "@/lib/replay";
 import { useGameStore } from "@/stores/gameStore";
+import { useChallengeClockStore } from "@/stores/challengeClockStore";
 import {
   buyPlays, configured, difficultyCode, readCompetition, readRankings, readRounds,
   refund, settle, startPaid, suiDeployment, type Difficulty, type Ranking,
@@ -40,6 +41,8 @@ export default function DailyCompetition() {
   const wallet = useDAppKit();
   const client = useCurrentClient();
   const queryClient = useQueryClient();
+  const setClock = useChallengeClockStore((value) => value.setClock);
+  const clearClock = useChallengeClockStore((value) => value.clearClock);
   const hardware = useBridgeHardware();
   const [difficulty, setDifficulty] = useState<Difficulty>("Easy");
   const [beatmapSet, setBeatmapSet] = useState<BeatmapSet | null>(null);
@@ -55,7 +58,7 @@ export default function DailyCompetition() {
   const [claimId, setClaimId] = useState(suiDeployment.challengeId);
   const actionLock = useRef(false);
   const address = account?.address || "0x0";
-  const tokenLabel = import.meta.env.VITE_SUI_NETWORK === "mainnet" ? "USDC" : "test USDC";
+  const tokenLabel = "USDC";
   const state = useQuery({
     queryKey: ["sui-forest-challenge-v2", suiDeployment.challengeId, address],
     enabled: configured,
@@ -123,18 +126,27 @@ export default function DailyCompetition() {
   const remaining = competition?.remaining ?? 0n;
   const correctDevice = !!competition && hardware.info?.deviceAddress.toLowerCase() === competition.device.toLowerCase();
   const chartMatches = !!competition && competition.chartHashes[difficulty].toLowerCase() === chartHashExpected.toLowerCase();
-  const timeRemainingMs = Math.max(0, (competition?.scoreDeadlineMs ?? 0) - now);
+  const active = !!competition && now >= competition.startedAtMs && now < competition.scoreDeadlineMs;
   const latestSafeStartMs = (competition?.scoreDeadlineMs ?? 0) - (forestDurationSeconds + proofBufferSeconds) * 1000;
-  const safeTime = proofBufferConfigured && now < latestSafeStartMs;
+  const safeTime = proofBufferConfigured && active && now < latestSafeStartMs;
   const deviceCapacityReady = (hardware.info?.maxEvents ?? 0) >= 2 * forestNoteCounts[difficulty];
   const canBuy = !!account && hardware.ready && correctDevice && chartMatches && deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime;
   const canStart = canBuy && remaining > 0n;
-  const canSettle = !!selectedRound && !selectedRound.settled && now > selectedRound.claimDeadlineMs;
+  const canSettle = !!selectedRound && !selectedRound.settled && now >= selectedRound.claimDeadlineMs;
   const canRefund = !!account && !!selectedRound?.refundEligible;
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!competition) { clearClock(); return; }
+    const phase = now < competition.startedAtMs ? "upcoming" :
+      now < competition.scoreDeadlineMs ? "scoring" : now < competition.claimDeadlineMs ? "claims" : null;
+    setClock({ phase, nowMs: now, deadlineMs: phase === "upcoming" ? competition.startedAtMs :
+      phase === "scoring" ? competition.scoreDeadlineMs : phase === "claims" ? competition.claimDeadlineMs : null,
+    simulated: false });
+  }, [competition, now, setClock, clearClock]);
+  useEffect(() => () => clearClock(), [clearClock]);
 
   useEffect(() => {
     const home = () => setScreen("home");
@@ -343,7 +355,7 @@ export default function DailyCompetition() {
       ) : screen === "setup" ? (
         beatmapSet && beatmap ? <>
           {setupPaid && <section className="arena-entry" aria-label="Shared paid plays">
-            <p role="status">{String(remaining)} shared plays left · {difficulty} needs {2 * forestNoteCounts[difficulty]} controller events</p>
+            <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>
             {selectedChart.isPending && <p role="status">Checking loaded chart against Sui before payment…</p>}
             {selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart hash check failed."}</p>}
           </section>}
@@ -363,9 +375,8 @@ export default function DailyCompetition() {
           <section className="arena-hero">
             <div className="arena-hero-copy">
               <h1>Forest of Clock</h1>
-              <p className="arena-intro">One six-hour challenge for Easy and Hard.</p>
+              <p className="arena-intro">A hardware-verified rhythm game on-chain.</p>
               <HomeKeysGuide />
-              {competition && <p className="arena-round-timer" role="status">Score cutoff in {Math.floor(timeRemainingMs / 3600000)}h {String(Math.floor(timeRemainingMs / 60000) % 60).padStart(2, "0")}m {String(Math.floor(timeRemainingMs / 1000) % 60).padStart(2, "0")}s</p>}
             </div>
             <aside className="arena-pot" aria-label="Shared prize pot"><div className="arena-pot-content">
               <p className="arena-pot-title">Shared pot</p>
@@ -388,8 +399,10 @@ export default function DailyCompetition() {
               </div>
             </fieldset>
             <p className="arena-entry-price">1 {tokenLabel} buys 3 shared plays.</p>
+            {account && competition && <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>}
             {(paidAttempt || activeBeatmapId !== null) && <p className="arena-fine-print">Finish or leave this run before changing difficulty.</p>}
             {!configured && <p className="arena-availability" role="status">Challenge not live.</p>}
+            {competition && now < competition.startedAtMs && <p role="status">Starts {new Date(competition.startedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC</p>}
             {!proofBufferConfigured && <p role="alert">Paid starts paused: score submission time is not configured.</p>}
             {hardware.ready && !deviceCapacityReady && <p role="alert">Controller supports {hardware.info?.maxEvents ?? 0} events; {difficulty} needs {2 * forestNoteCounts[difficulty]}. Provision a larger controller before buying.</p>}
             {configured && selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart does not match this Sui challenge."}</p>}
@@ -405,7 +418,6 @@ export default function DailyCompetition() {
                   </>
                 ) : (
                   <>
-                    <p role="status">{String(remaining)} shared plays left</p>
                     {remaining > 0n ? (
                       <div className="arena-play-row">
                         <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
@@ -418,7 +430,7 @@ export default function DailyCompetition() {
                   </>
                 )}
               </div>
-            ) : !hardware.ready ? <HardwareGate hardware={hardware} /> : null}
+            ) : <div className="arena-entry-step"><SuiConnectButton />{!hardware.ready && <HardwareGate hardware={hardware} />}</div>}
             {hardware.ready && <button className="arena-text-button" onClick={() => void prepareSetup(false)}>Practice demo</button>}
           </section>
           <section className="arena-standings" aria-label="Verified leaderboard">

@@ -16,7 +16,7 @@ SRS = SRC / "data/srs-g1-be.bin"
 def build_library(path):
     subprocess.run([
         "cc", "-shared", "-fPIC", "-std=c11", "-O2", "-Wall", "-Wextra",
-        "-Wno-deprecated-declarations", "-I", str(SRC), "-o", str(path),
+        "-Wno-deprecated-declarations", "-DOSUMANIA_ALLOW_DEV_CRYPTO", "-I", str(SRC), "-o", str(path),
         str(SRC / "osumania_protocol.c"), str(SRC / "osumania_crypto.c"),
         str(SRC / "optee_signer.c"), str(SRC / "keccak256.c"), "-lcrypto",
     ], check=True)

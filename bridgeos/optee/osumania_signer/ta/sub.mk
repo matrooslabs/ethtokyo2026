@@ -7,6 +7,20 @@ cppflags-y += -DuECC_NO_DEFAULT_RNG=1
 cppflags-y += -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0
 cppflags-y += -DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256r1=0
 cppflags-y += -DuECC_SUPPORT_COMPRESSED_POINT=0
+ifeq ($(CFG_OSUMANIA_MVP_KEYED),y)
+ifneq ($(CFG_OSUMANIA_DEV_INSECURE_KEY),n)
+$(error MVP signer requires CFG_OSUMANIA_DEV_INSECURE_KEY=n)
+endif
+ifeq ($(OSUMANIA_MVP_PRIVATE_HEADER),)
+$(error MVP signer requires OSUMANIA_MVP_PRIVATE_HEADER)
+endif
+ifeq ($(OSUMANIA_MVP_POLICY_HEADER),)
+$(error MVP signer requires OSUMANIA_MVP_POLICY_HEADER)
+endif
+cppflags-osumania_signer_ta.c-y += -DCFG_OSUMANIA_MVP_KEYED
+cppflags-osumania_signer_ta.c-y += -include $(OSUMANIA_MVP_PRIVATE_HEADER)
+cppflags-osumania_signer_ta.c-y += -include $(OSUMANIA_MVP_POLICY_HEADER)
+else
 ifeq ($(CFG_OSUMANIA_DEV_INSECURE_KEY),y)
 srcs-y += device_root_dev.c
 cppflags-y += -DOSUMANIA_PROVISIONED_SRS=1
@@ -17,5 +31,6 @@ ifneq ($(OSUMANIA_PROVISIONED_HEADER),)
 cppflags-y += -include $(OSUMANIA_PROVISIONED_HEADER)
 else
 cppflags-y += -DOSUMANIA_PROVISIONED_SRS=0
+endif
 endif
 endif

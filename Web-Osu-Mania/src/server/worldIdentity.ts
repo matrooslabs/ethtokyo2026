@@ -1,4 +1,5 @@
-// Server-only claim configuration: WORLD_ID_DB (D1; apply migrations/0001_world_identity.sql),
+// Server-only claim configuration: signed short-lived challenge/attestation tokens,
+// with on-chain Challenge nullifiers providing the durable uniqueness boundary.
 // WORLD_ID_APP_ID, WORLD_ID_RP_ID, WORLD_ID_RP_SIGNING_KEY (secret),
 // WORLD_ID_ACTION=versu-prize-claim (Portal-registered), WORLD_ID_ENVIRONMENT.
 // Claim attestor: SUI_NETWORK, SUI_RPC_URL, SUI_IDENTITY_PRIVATE_KEY (sui1... Ed25519
@@ -15,9 +16,9 @@ import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import { hashSignal } from "@worldcoin/idkit-core/hashing";
 import { signRequest } from "@worldcoin/idkit-core/signing";
 import { env } from "cloudflare:workers";
+import { openWorldToken, sealWorldToken, type WorldAttestationToken, type WorldChallengeToken } from "./worldClaimToken";
 
 type IdentityEnv = {
-  WORLD_ID_DB?: D1Database;
   WORLD_ID_APP_ID?: string;
   WORLD_ID_RP_ID?: string;
   WORLD_ID_RP_SIGNING_KEY?: string;
@@ -34,7 +35,7 @@ type IdentityEnv = {
   SUI_IDENTITY_COIN_TYPE?: string;
 };
 
-type IdentityConfig = Required<Pick<IdentityEnv, "WORLD_ID_DB" | "WORLD_ID_APP_ID" | "WORLD_ID_RP_ID" |
+type IdentityConfig = Required<Pick<IdentityEnv, "WORLD_ID_APP_ID" | "WORLD_ID_RP_ID" |
   "WORLD_ID_RP_SIGNING_KEY" | "WORLD_ID_ACTION" | "WORLD_ID_ENVIRONMENT">> & IdentityEnv;
 const json = (body: object, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -67,7 +68,7 @@ async function onchainNullifier(challengeId: string, nullifier: string): Promise
 }
 function configured(): IdentityConfig | null {
   const c = env as unknown as IdentityEnv;
-  if (!c.WORLD_ID_DB || !/^app_[a-zA-Z0-9_-]+$/.test(c.WORLD_ID_APP_ID ?? "") ||
+  if (!/^app_[a-zA-Z0-9_-]+$/.test(c.WORLD_ID_APP_ID ?? "") ||
       !/^rp_[a-zA-Z0-9_-]+$/.test(c.WORLD_ID_RP_ID ?? "") ||
       !/^(0x)?[a-fA-F0-9]{64}$/.test(c.WORLD_ID_RP_SIGNING_KEY ?? "") ||
       c.WORLD_ID_ACTION !== "versu-prize-claim" ||
@@ -211,34 +212,29 @@ export async function challenge(request: Request): Promise<Response> {
   const signal = `${challengeId}:${difficulty}:${wallet}`;
   const rp = signRequest({ signingKeyHex: c.WORLD_ID_RP_SIGNING_KEY, action: c.WORLD_ID_ACTION });
   const message = `versu prize claim\nchallenge: ${challengeId}\ndifficulty: ${difficulty}\nwallet: ${wallet}\nnonce: ${rp.nonce}\naction: ${c.WORLD_ID_ACTION}\n`;
-  const expires = rp.expiresAt;
+  let challengeToken: string;
   try {
-    await c.WORLD_ID_DB.prepare(
-      "INSERT INTO world_identity_challenges (nonce, challenge_id, difficulty, wallet, action, environment, message, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(rp.nonce, challengeId, difficulty, wallet, c.WORLD_ID_ACTION, c.WORLD_ID_ENVIRONMENT, message, expires).run();
+    challengeToken = await sealWorldToken({ kind: "challenge", challengeId, difficulty, wallet,
+      nonce: rp.nonce, message, action: c.WORLD_ID_ACTION,
+      environment: c.WORLD_ID_ENVIRONMENT, expiresAt: rp.expiresAt }, c.WORLD_ID_RP_SIGNING_KEY);
   } catch {
-    return error("identity_storage_unavailable", 503);
+    return error("identity_token_unavailable", 503);
   }
   return json({ app_id: c.WORLD_ID_APP_ID, rp_id: c.WORLD_ID_RP_ID, action: c.WORLD_ID_ACTION,
-    environment: c.WORLD_ID_ENVIRONMENT, challengeId, difficulty, signal, message,
+    environment: c.WORLD_ID_ENVIRONMENT, challengeId, difficulty, signal, message, challengeToken,
     rp_context: { rp_id: c.WORLD_ID_RP_ID, nonce: rp.nonce, created_at: rp.createdAt,
       expires_at: rp.expiresAt, signature: rp.sig } });
 }
 
-type Challenge = { challenge_id: string; difficulty: "easy" | "hard"; wallet: string; action: string; environment: string;
-  message: string; expires_at: number; consumed: number };
-type AuthenticatedWallet = { wallet: string; nonce: string; challenge: Challenge };
+type AuthenticatedWallet = { wallet: string; nonce: string; challenge: WorldChallengeToken };
 async function authenticate(c: IdentityConfig, data: Record<string, unknown>): Promise<AuthenticatedWallet | null> {
   const wallet = walletAddress(data.wallet);
   const nonce = data.nonce;
-  if (!wallet || !text(nonce) || !noncePattern.test(nonce) || !text(data.signature)) return null;
-  const challenge = await c.WORLD_ID_DB.prepare(
-    "SELECT challenge_id, difficulty, wallet, action, environment, message, expires_at, consumed FROM world_identity_challenges WHERE nonce = ?",
-  ).bind(nonce).first<Challenge>();
-  if (!challenge || challenge.wallet !== wallet ||
-      challenge.challenge_id !== walletAddress(data.challengeId) || challenge.difficulty !== data.difficulty ||
-      challenge.action !== c.WORLD_ID_ACTION || challenge.environment !== c.WORLD_ID_ENVIRONMENT ||
-      challenge.expires_at <= Date.now() / 1000) return null;
+  if (!wallet || !text(nonce) || !noncePattern.test(nonce) || !text(data.signature) || !text(data.challengeToken)) return null;
+  const challenge = await openWorldToken<WorldChallengeToken>(data.challengeToken, c.WORLD_ID_RP_SIGNING_KEY, "challenge");
+  if (!challenge || challenge.wallet !== wallet || challenge.nonce !== nonce ||
+      challenge.challengeId !== walletAddress(data.challengeId) || challenge.difficulty !== data.difficulty ||
+      challenge.action !== c.WORLD_ID_ACTION || challenge.environment !== c.WORLD_ID_ENVIRONMENT) return null;
   try {
     const network = c.SUI_NETWORK && c.SUI_RPC_URL
       ? new SuiGrpcClient({ baseUrl: c.SUI_RPC_URL, network: c.SUI_NETWORK as "testnet" | "mainnet" | "devnet" | "localnet" })
@@ -251,7 +247,7 @@ async function authenticate(c: IdentityConfig, data: Record<string, unknown>): P
   return { wallet, nonce, challenge };
 }
 
-function validProof(proof: unknown, nonce: string, challenge: Challenge): proof is Record<string, unknown> {
+function validProof(proof: unknown, nonce: string, challenge: WorldChallengeToken): proof is Record<string, unknown> {
   if (!record(proof) || proof.protocol_version !== "4.0" || proof.nonce !== nonce ||
       proof.action !== challenge.action || proof.environment !== challenge.environment ||
       !Array.isArray(proof.responses) || proof.responses.length !== 1) return false;
@@ -260,11 +256,11 @@ function validProof(proof: unknown, nonce: string, challenge: Challenge): proof 
     canonicalNullifier(response.nullifier) !== null &&
     text(response.signal_hash) &&
     /^0x[0-9a-fA-F]+$/.test(response.signal_hash) &&
-    BigInt(response.signal_hash) === BigInt(hashSignal(`${challenge.challenge_id}:${challenge.difficulty}:${challenge.wallet}`)) &&
+    BigInt(response.signal_hash) === BigInt(hashSignal(`${challenge.challengeId}:${challenge.difficulty}:${challenge.wallet}`)) &&
     Array.isArray(response.proof) && response.proof.length === 5 && !proof.session_id;
 }
 
-function verifiedNullifier(result: unknown, proof: Record<string, unknown>, challenge: Challenge) {
+function verifiedNullifier(result: unknown, proof: Record<string, unknown>, challenge: WorldChallengeToken) {
   if (!record(result) || result.success !== true || result.action !== challenge.action ||
       result.environment !== challenge.environment || !Array.isArray(result.results) || result.results.length !== 1) return null;
   const item = result.results[0];
@@ -281,128 +277,115 @@ export async function verify(request: Request): Promise<Response> {
   if (!c) return error("identity_not_configured", 503);
   const data = await body(request);
   if (!data) return error("invalid_request", 400);
-  let auth: AuthenticatedWallet | null;
-  try { auth = await authenticate(c, data); } catch { return error("identity_storage_unavailable", 503); }
-  if (!auth || auth.challenge.consumed !== 0 || !validProof(data.proof, auth.nonce, auth.challenge))
+  const auth = await authenticate(c, data);
+  if (!auth || !validProof(data.proof, auth.nonce, auth.challenge))
     return error("invalid_identity_proof", 400);
-  const eligibility = await claimEligibility(c, auth.challenge.challenge_id, auth.challenge.difficulty, auth.wallet);
+  const eligibility = await claimEligibility(c, auth.challenge.challengeId, auth.challenge.difficulty, auth.wallet);
   if (eligibility) return eligibility;
   const portal = c.WORLD_ID_ENVIRONMENT === "staging"
-    ? "https://staging-developer.worldcoin.org"
-    : "https://developer.world.org";
+    ? "https://staging-developer.worldcoin.org" : "https://developer.world.org";
   let result: unknown;
   try {
-    const res = await fetch(`${portal}/api/v4/verify/${c.WORLD_ID_RP_ID}`, {
+    const response = await fetch(`${portal}/api/v4/verify/${c.WORLD_ID_RP_ID}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data.proof),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return error("identity_proof_rejected", 400);
-    result = await res.json();
+    if (!response.ok) return error("identity_proof_rejected", 400);
+    result = await response.json();
   } catch {
     return error("identity_verifier_unavailable", 503);
   }
-  const nullifier = verifiedNullifier(result, data.proof, auth.challenge);
+  const nullifier = verifiedNullifier(result, data.proof as Record<string, unknown>, auth.challenge);
   if (!nullifier) return error("identity_proof_rejected", 400);
-  try {
-    const claimed = await c.WORLD_ID_DB.prepare(
-      "UPDATE world_identity_challenges SET consumed = 1 WHERE nonce = ? AND consumed = 0 AND expires_at > ?",
-    ).bind(auth.nonce, Date.now() / 1000).run();
-    if (claimed.meta.changes !== 1) return error("identity_challenge_used", 409);
-    await c.WORLD_ID_DB.prepare(
-      "INSERT INTO world_identity_bindings (challenge_id, difficulty, nullifier, wallet) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-    ).bind(auth.challenge.challenge_id, auth.challenge.difficulty, nullifier, auth.wallet).run();
-    const binding = await c.WORLD_ID_DB.prepare(
-      "SELECT wallet, difficulty FROM world_identity_bindings WHERE challenge_id = ? AND nullifier = ?",
-    ).bind(auth.challenge.challenge_id, nullifier).first<{ wallet: string; difficulty: string }>();
-    if (binding?.wallet !== auth.wallet) return error("human_already_bound_to_another_wallet", 409);
-    if (binding.difficulty !== auth.challenge.difficulty) return error("human_already_claimed_this_challenge", 409);
-    // One wallet and one World-verified human per Challenge, across both difficulty prize slices.
-    const own = await c.WORLD_ID_DB.prepare(
-      "SELECT nullifier, difficulty FROM world_identity_bindings WHERE challenge_id = ? AND wallet = ?",
-    ).bind(auth.challenge.challenge_id, auth.wallet).first<{ nullifier: string; difficulty: string }>();
-    if (own?.nullifier !== nullifier) return error("wallet_already_bound_to_another_human", 409);
-    if (own.difficulty !== auth.challenge.difficulty) return error("wallet_already_claimed_this_challenge", 409);
-  } catch {
-    return error("identity_storage_unavailable", 503);
-  }
-  return attestBinding(c, auth.challenge.challenge_id, auth.challenge.difficulty, auth.wallet, nullifier);
+  const commitment = `0x${Array.from(await onchainNullifier(auth.challenge.challengeId, nullifier),
+    (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const attestation: WorldAttestationToken = {
+    kind: "attestation", challengeId: auth.challenge.challengeId, difficulty: auth.challenge.difficulty,
+    wallet: auth.wallet, commitment, action: c.WORLD_ID_ACTION,
+    environment: c.WORLD_ID_ENVIRONMENT, expiresAt: Math.floor(Date.now() / 1000) + 86_400,
+  };
+  const attestationToken = await sealWorldToken(attestation, c.WORLD_ID_RP_SIGNING_KEY);
+  return attestBinding(c, attestation, attestationToken);
 }
 
+/** Retry a verified World result without asking World to accept the same proof twice. */
 export async function attest(request: Request): Promise<Response> {
   const c = configured();
   if (!c) return error("identity_not_configured", 503);
   const data = await body(request);
-  if (!data) return error("invalid_request", 400);
+  const wallet = walletAddress(data?.wallet);
+  if (!wallet || !text(data?.signature) || !text(data?.attestationToken)) return error("invalid_request", 400);
+  const token = data.attestationToken;
+  const ticket = await openWorldToken<WorldAttestationToken>(token, c.WORLD_ID_RP_SIGNING_KEY, "attestation");
+  if (!ticket || ticket.wallet !== wallet || ticket.challengeId !== walletAddress(data.challengeId) ||
+      ticket.difficulty !== data.difficulty || ticket.action !== c.WORLD_ID_ACTION ||
+      ticket.environment !== c.WORLD_ID_ENVIRONMENT || !/^0x[0-9a-fA-F]{64}$/.test(ticket.commitment))
+    return error("invalid_attestation_ticket", 401);
   try {
-    const auth = await authenticate(c, data);
-    if (!auth) return error("invalid_wallet_signature", 401);
-    const eligibility = await claimEligibility(c, auth.challenge.challenge_id, auth.challenge.difficulty, auth.wallet);
-    if (eligibility) return eligibility;
-    const binding = await c.WORLD_ID_DB.prepare(
-      "SELECT nullifier, difficulty FROM world_identity_bindings WHERE challenge_id = ? AND wallet = ?",
-    ).bind(auth.challenge.challenge_id, auth.wallet).first<{ nullifier: string; difficulty: string }>();
-    if (!binding) return error("identity_proof_required", 403);
-    if (binding.difficulty !== auth.challenge.difficulty) return error("wallet_already_claimed_this_challenge", 409);
-    return attestBinding(c, auth.challenge.challenge_id, auth.challenge.difficulty, auth.wallet, binding.nullifier);
+    const network = c.SUI_NETWORK && c.SUI_RPC_URL
+      ? new SuiGrpcClient({ baseUrl: c.SUI_RPC_URL, network: c.SUI_NETWORK as "testnet" | "mainnet" | "devnet" | "localnet" })
+      : undefined;
+    await verifyPersonalMessageSignature(new TextEncoder().encode(token), data.signature,
+      { address: wallet, client: network });
   } catch {
-    return error("identity_storage_unavailable", 503);
+    return error("invalid_wallet_signature", 401);
   }
+  const eligibility = await claimEligibility(c, ticket.challengeId, ticket.difficulty, wallet);
+  if (eligibility) return eligibility;
+  return attestBinding(c, ticket, token);
 }
 
-async function attestBinding(c: IdentityConfig, challengeId: string, difficulty: "easy" | "hard", wallet: string, nullifier: string): Promise<Response> {
-  const db = c.WORLD_ID_DB;
-  const pending = () => json({ verified: true, ready: false, challengeId, difficulty, wallet }, 202);
+async function attestBinding(c: IdentityConfig, ticket: WorldAttestationToken, attestationToken: string): Promise<Response> {
+  const { challengeId, difficulty, wallet } = ticket;
+  const pending = () => json({ verified: true, ready: false, challengeId, difficulty, wallet, attestationToken }, 202);
   if (!c.SUI_NETWORK || !c.SUI_RPC_URL || !c.SUI_IDENTITY_PRIVATE_KEY ||
       !c.SUI_IDENTITY_PACKAGE_ID || !c.SUI_IDENTITY_CHALLENGES || !c.SUI_IDENTITY_COIN_TYPE)
-    return error("claim_attestor_not_configured", 503);
-  // Sandbox/staging proofs cannot authorize real-money activity on Sui mainnet.
+    return pending();
   if (c.SUI_NETWORK === "mainnet" && c.WORLD_ID_ENVIRONMENT !== "production")
     return error("identity_environment_mismatch", 503);
   const objects = deployedChallenge(c, challengeId);
   if (!objects) return error("claim_round_unavailable", 409);
-  const target = `${normalizeSuiAddress(c.SUI_IDENTITY_PACKAGE_ID)}::competition::Challenge<${c.SUI_IDENTITY_COIN_TYPE}>`;
-  const existing = await db.prepare(
-    "SELECT status, attestation_digest, attestation_challenge_id, attestation_network, attestation_target FROM world_identity_bindings WHERE challenge_id = ? AND difficulty = ? AND nullifier = ? AND wallet = ?",
-  ).bind(challengeId, difficulty, nullifier, wallet).first<{ status: string; attestation_digest: string | null;
-    attestation_challenge_id: string | null; attestation_network: string | null; attestation_target: string | null }>();
-  if (existing?.status === "ready" && existing.attestation_digest &&
-      existing.attestation_challenge_id === challengeId &&
-      existing.attestation_network === c.SUI_NETWORK && existing.attestation_target === target)
-    return json({ verified: true, ready: true, challengeId, difficulty, wallet, attestationDigest: existing.attestation_digest });
-  if (existing?.status === "ready") return error("claim_attestation_mismatch", 409);
-  const now = Math.floor(Date.now() / 1000);
-  const lease = await db.prepare(
-    "UPDATE world_identity_bindings SET lease_until = ? WHERE challenge_id = ? AND difficulty = ? AND nullifier = ? AND wallet = ? AND status = 'pending' AND lease_until < ?",
-  ).bind(now + 90, challengeId, difficulty, nullifier, wallet, now).run();
-  if (lease.meta.changes !== 1) return pending();
   try {
     const signer = Ed25519Keypair.fromSecretKey(c.SUI_IDENTITY_PRIVATE_KEY);
-    const client = new SuiGrpcClient({ baseUrl: c.SUI_RPC_URL, network: c.SUI_NETWORK as "testnet" | "mainnet" | "devnet" | "localnet" });
+    const client = new SuiGrpcClient({ baseUrl: c.SUI_RPC_URL,
+      network: c.SUI_NETWORK as "testnet" | "mainnet" | "devnet" | "localnet" });
+    const { object: challenge } = await client.getObject({ objectId: challengeId, include: { json: true } });
+    const claims = challenge?.json?.claims;
+    const claimsTable = record(claims) && text(claims.id) ? claims.id : null;
+    if (!text(claimsTable)) return pending();
+    try {
+      const { dynamicField } = await client.getDynamicField({
+        parentId: claimsTable, name: { type: "address", bcs: bcs.Address.serialize(wallet).toBytes() },
+      });
+      const { object: field } = await client.getObject({ objectId: dynamicField.fieldId, include: { json: true } });
+      const binding = field?.json?.value;
+      if (!record(binding)) return pending();
+      if (chainHash(binding.nullifier) !== ticket.commitment.toLowerCase() ||
+          Number(binding.difficulty) !== (difficulty === "easy" ? 0 : 1))
+        return error("wallet_already_claimed_this_challenge", 409);
+      return json({ verified: true, ready: true, challengeId, difficulty, wallet });
+    } catch (cause) {
+      if (!record(cause) || cause.code !== "notExists" || cause.reason !== "notFound") return pending();
+    }
     const tx = new Transaction();
     tx.moveCall({
       target: `${c.SUI_IDENTITY_PACKAGE_ID}::competition::register_claim`,
       typeArguments: [c.SUI_IDENTITY_COIN_TYPE],
       arguments: [tx.object(challengeId), tx.object(objects.identityCapId), tx.pure.address(wallet),
         tx.pure.u8(difficulty === "easy" ? 0 : 1),
-        tx.pure.vector("u8", await onchainNullifier(challengeId, nullifier)), tx.object("0x6")],
+        tx.pure.vector("u8", fromHex(ticket.commitment.slice(2))), tx.object("0x6")],
     });
     tx.setSender(signer.toSuiAddress());
     tx.setGasBudget(100_000_000);
     const bytes = await tx.build({ client });
     const { signature } = await signer.signTransaction(bytes);
     const out = await client.executeTransaction({ transaction: bytes, signatures: [signature], include: { effects: true } });
-    const result = out.Transaction ?? out.FailedTransaction;
-    if (!result || !result.effects?.status.success) throw new Error("Identity attestation transaction failed");
-    await client.waitForTransaction({ digest: result.digest });
-    await db.prepare(
-      "UPDATE world_identity_bindings SET status = 'ready', attestation_digest = ?, attestation_challenge_id = ?, attestation_network = ?, attestation_target = ?, lease_until = 0 WHERE challenge_id = ? AND difficulty = ? AND nullifier = ? AND wallet = ? AND status = 'pending'",
-    ).bind(result.digest, challengeId, c.SUI_NETWORK, target, challengeId, difficulty, nullifier, wallet).run();
-    return json({ verified: true, ready: true, challengeId, difficulty, wallet, attestationDigest: result.digest });
+    const receipt = out.Transaction ?? out.FailedTransaction;
+    if (!receipt?.effects?.status.success) return error("claim_rejected_on_sui", 409);
+    await client.waitForTransaction({ digest: receipt.digest });
+    return json({ verified: true, ready: true, challengeId, difficulty, wallet, attestationDigest: receipt.digest });
   } catch (cause) {
-    console.error("World ID Sui attestation failed", cause);
-    await db.prepare(
-      "UPDATE world_identity_bindings SET lease_until = 0 WHERE challenge_id = ? AND difficulty = ? AND nullifier = ? AND wallet = ? AND status = 'pending'",
-    ).bind(challengeId, difficulty, nullifier, wallet).run();
+    if (record(cause) && cause.executionError) return error("claim_rejected_on_sui", 409);
     return pending();
   }
 }

@@ -12,6 +12,7 @@ export default function QuickSetup({
   onStart,
   onBack,
   paid,
+  simulated = false,
   busy = false,
 }: {
   beatmap: Beatmap;
@@ -19,6 +20,7 @@ export default function QuickSetup({
   onStart: () => void;
   onBack: () => void;
   paid: boolean;
+  simulated?: boolean;
   busy?: boolean;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -123,7 +125,7 @@ export default function QuickSetup({
               Reset
             </button>
             <button className="arena-primary" disabled={busy} onClick={onStart}>
-              {busy ? "Starting…" : paid ? "Start paid run (1 play)" : "Start practice"}
+              {busy ? "Starting…" : simulated && paid ? "Start simulated run (1 play)" : paid ? "Start paid run (1 play)" : "Start practice"}
             </button>
           </div>
         </div>

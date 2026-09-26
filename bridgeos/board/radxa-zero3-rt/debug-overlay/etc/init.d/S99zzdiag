@@ -44,7 +44,11 @@ if [ -x /usr/bin/osumania-optee-test ] && [ "$run_optee_smoke" -eq 1 ]; then
 else
     {
         echo "image_mode=$mode"
-        echo 'standalone_smoke=skipped-active-bridge-owns-TA'
+        if [ "$mode" = rng-lab ] || [ "$mode" = otp-lab ]; then
+            echo 'standalone_smoke=not-installed-no-signer-TA'
+        else
+            echo 'standalone_smoke=skipped-active-bridge-owns-TA'
+        fi
     } > /run/optee-test.txt
 fi
 mkdir -p /run/rt-diag
@@ -63,6 +67,13 @@ mount -t vfat -o sync "$device" /run/rt-diag
         echo '--- isolated secure TRNG observer (not qualified entropy) ---'
         printf 'rng_lab_status='; devmem 0xfdc20224 32 2>&1 || true
         echo '0x54524e01 entered; 02 MMIO missing; 03 reset timeout; 04 start timeout; 05 data observed only'
+    fi
+    if [ "$mode" = otp-lab ]; then
+        echo '--- isolated read-only Protected OEM OTP probe; no secret exported ---'
+        printf 'otp_lab_status='; devmem 0xfdc20220 32 2>&1 || true
+        echo '0x4f545001 entered; 02 read error; 03 inconsistent reads; 04 first 16 bytes blank; 05 nonzero (not a HUK attestation)'
+        printf 'oem_key_slots='; devmem 0xfdc2021c 32 2>&1 || true
+        echo '0x4b455900 = all four 32-byte OEM key slots zero; low nibble = nonzero slot mask; fe inconsistent; ff read error; neither proves a usable sealing root'
     fi
     echo '--- UDC controllers ---'
     for udc in /sys/class/udc/*; do

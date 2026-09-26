@@ -4,14 +4,14 @@ project="$(cd "$(dirname "$0")/.." && pwd)"
 export SOURCE_DATE_EPOCH=1779278600
 mode="${1:-dev}"
 case "$mode" in
-    dev|rng-lab|signed-lab|hardware) ;;
-    *) echo "Usage: $0 [dev|rng-lab|signed-lab|hardware]" >&2; exit 2 ;;
+    dev|rng-lab|otp-lab|signed-lab|mvp-keyed|hardware) ;;
+    *) echo "Usage: $0 [dev|rng-lab|otp-lab|signed-lab|mvp-keyed|hardware]" >&2; exit 2 ;;
 esac
 if [ "$mode" = hardware ]; then
     echo 'REFUSED: TA-only hardware-key firmware needs an approved, provisioned RK3566 Secure OTP root and qualified Secure World RNG. No OTP provisioning is implemented. ROM enforcement against replacement BL32 is a separate stronger requirement.' >&2
     exit 1
 fi
-if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ] && [ "$mode" != otp-lab ]; then
     : "${BOOT_SIGN_KEY_DIR:?Signed firmware requires an external BOOT_SIGN_KEY_DIR containing boot.key, boot.crt and boot.pubkey}"
     keydir="$(realpath -e "$BOOT_SIGN_KEY_DIR")"
     case "$keydir/" in "$(dirname "$project")/"*)
@@ -34,7 +34,14 @@ if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
         echo 'Boot signing key must be RSA-2048 for the signed U-Boot FIT' >&2; exit 1;
     }
 fi
-if [ "$mode" = signed-lab ]; then
+if [ "$mode" = mvp-keyed ]; then
+    # The orchestrator builds the keyed TA once while the external private
+    # header exists; it removes that temporary header before firmware signing.
+    artifacts="$project/sources/optee-os-artifacts/mvp-keyed"
+    for part in tee-raw.bin 91fc6874-8551-4b42-a95d-6ee4a147f421.ta; do
+        [ -s "$artifacts/$part" ] || { echo "Missing keyed OP-TEE artifact: $part" >&2; exit 1; }
+    done
+elif [ "$mode" = signed-lab ]; then
     "$project/scripts/build-optee.sh" dev
 else
     "$project/scripts/build-optee.sh" "$mode"
@@ -103,7 +110,7 @@ make -C "$uboot" CROSS_COMPILE="$uboot_cross" mrproper
 make -C "$uboot" CROSS_COMPILE="$uboot_cross" radxa-zero-3-rk3566_defconfig
 "$uboot/scripts/config" --file "$uboot/.config" -e SPL_OPTEE_IMAGE \
     --set-val OPTEE_TZDRAM_SIZE 0x02000000
-if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ] && [ "$mode" != otp-lab ]; then
     "$uboot/scripts/config" --file "$uboot/.config" -e BRIDGEOS_SIGNED_BOOT \
         -d LEGACY_IMAGE_FORMAT -d BOOTSTD -d BOOTSTD_FULL \
         -d BOOTMETH_EXTLINUX -d BOOTMETH_EXTLINUX_PXE \
@@ -116,7 +123,7 @@ if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
         --set-str BOOTCOMMAND 'if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi; while true; do reset; sleep 1; done'
 fi
 make -C "$uboot" olddefconfig CROSS_COMPILE="$uboot_cross"
-if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ] && [ "$mode" != otp-lab ]; then
     for setting in CONFIG_BRIDGEOS_SIGNED_BOOT=y CONFIG_SPL_FIT_SIGNATURE=y CONFIG_FIT_SIGNATURE=y CONFIG_SPL_SHA256=y CONFIG_RSA_VERIFY=y; do
         grep -qx "$setting" "$uboot/.config" || { echo "Signed firmware requires $setting" >&2; exit 1; }
     done
@@ -144,7 +151,7 @@ if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
         echo 'U-Boot control DTB has no required boot key' >&2; exit 1;
     }
 fi
-if [ "$mode" = dev ] || [ "$mode" = rng-lab ]; then
+if [ "$mode" = dev ] || [ "$mode" = rng-lab ] || [ "$mode" = otp-lab ]; then
     make -C "$uboot" -j"${JOBS:-$(nproc)}" CROSS_COMPILE="$uboot_cross" \
         PYTHON3="$host/bin/python3" BL31="$bl31" TEE="$tee" ROCKCHIP_TPL="$ddr" \
         KBUILD_BUILD_USER=builder KBUILD_BUILD_HOST=build
@@ -245,7 +252,7 @@ PY
 fi
 cp "$bl31" "$out/bl31.elf"
 cp "$tee" "$out/tee-raw.bin"
-if [ "$mode" = dev ] || [ "$mode" = rng-lab ]; then
+if [ "$mode" = dev ] || [ "$mode" = rng-lab ] || [ "$mode" = otp-lab ]; then
     sha256sum "$out"/u-boot-rockchip.bin "$out"/u-boot.itb "$out"/bl31.elf "$out"/tee-raw.bin > "$out/SHA256SUMS"
 else
     sha256sum "$out"/u-boot-rockchip.bin "$out"/idbloader.img "$out"/u-boot.itb \

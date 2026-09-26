@@ -95,7 +95,7 @@ index 0000000..73dd90c
 +
 +#define CRU_CLKGATE_CON0 0x300
 +#define CRU_CLKGATES_CON(i) (CRU_CLKGATE_CON0 + (i) * 4)
-+#define CRU_SOFTRST_CON 0x300
++#define CRU_SOFTRST_CON 0x400
 +#define CRU_SOFTRSTS_CON(i) (CRU_SOFTRST_CON + (i) * 4)
 +#define SCRU_GATE_CON01 0x0184
 +#define SGRF_SOC_CON2 0x0008
@@ -180,7 +180,7 @@ index 0000000..73dd90c
 +    io_write32(otp + SBPI_CTRL, BITS_WMASK(0x2, 0xff, SBPI_DEV_ID_SHIFT));
 +    io_write32(otp + SBPI_CMD_VALID_PRE, SBPI_VALID(1));
 +    io_write32(otp + SBPI_CMD(0), 0xfa);
-+    io_write32(otp + SBPI_CMD(1), 0x09); /* disable ECC for raw provisioned HUK */
++    io_write32(otp + SBPI_CMD(1), 0x00); /* OEM Protected Zone uses ECC-enabled reads */
 +    io_write32(otp + SBPI_CTRL, WMASK(SBPI_ENABLE) | SBPI_ENABLE);
 +    if (wait_sbpi(otp)) return -1;
 +

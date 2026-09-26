@@ -11,7 +11,7 @@ export function HomeKeysGuide() {
     <section className="arena-home-keys" aria-labelledby="arena-home-keys-title">
       <div className="arena-home-keys-copy">
         <h2 id="arena-home-keys-title" className="sr-only">How to play</h2>
-        <p>Press at the line. Hold long notes.</p>
+        <p>Catch notes at the line.</p>
       </div>
       <div className="arena-home-keys-row" aria-label="Four lanes from left to right: D, F, J, K. Press at the hit line.">
         {FOUR_KEYS.map(({ key }, index) => (

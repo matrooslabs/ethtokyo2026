@@ -10,6 +10,10 @@ export default defineConfig({
   base: env.VITE_PRERENDER ? "/Web-Osu-Mania/" : "/",
   server: {
     port: 3000,
+    allowedHosts: [
+      'localhost',
+      'versu.astar.moe',
+    ],
   },
   plugins: [
     cloudflare({ viteEnvironment: { name: "ssr" } }),

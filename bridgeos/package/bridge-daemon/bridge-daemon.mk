@@ -13,7 +13,7 @@ BRIDGE_DAEMON_DEPENDENCIES = openssl optee-client
 
 define BRIDGE_DAEMON_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -std=c11 -Wall -Wextra -Wno-deprecated-declarations -O2 \
-		-DHAVE_LIBTEEC -I$(STAGING_DIR)/usr/include \
+		-DHAVE_LIBTEEC $(BRIDGE_DAEMON_DEV_CFLAGS) -I$(STAGING_DIR)/usr/include \
 		-o $(@D)/bridge-daemon \
 		$(@D)/bridge-daemon.c $(@D)/osumania_protocol.c $(@D)/osumania_crypto.c \
 		$(@D)/osumania_session.c $(@D)/osumania_vendor.c \
@@ -26,6 +26,7 @@ define BRIDGE_DAEMON_INSTALL_TARGET_CMDS
 endef
 
 ifeq ($(BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO),y)
+BRIDGE_DAEMON_DEV_CFLAGS = -DOSUMANIA_ALLOW_DEV_CRYPTO
 define BRIDGE_DAEMON_INSTALL_DEV_SRS
 	$(INSTALL) -D -m 0644 $(@D)/data/srs-g1-be.bin \
 		$(TARGET_DIR)/usr/share/osumania/srs-g1-be.bin

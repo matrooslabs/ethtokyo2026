@@ -237,7 +237,7 @@ def main() -> None:
         sources = ("osumania_crypto.c", "osumania_protocol.c", "osumania_session.c",
                    "osumania_vendor.c", "optee_signer.c", "keccak256.c")
         subprocess.run(["cc", "-O2", "-Wno-deprecated-declarations", "-pthread",
-                        "-I", str(SOURCE), str(BRIDGE / "tests/bridge-capacity-device.c"),
+                        "-DOSUMANIA_ALLOW_DEV_CRYPTO", "-I", str(SOURCE), str(BRIDGE / "tests/bridge-capacity-device.c"),
                         *(str(SOURCE / name) for name in sources), "-lcrypto", "-o", str(binary)],
                        check=True)
         ensure_keccak(path)

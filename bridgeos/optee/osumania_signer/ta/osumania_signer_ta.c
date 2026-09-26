@@ -15,8 +15,26 @@ typedef size_t tee_output_length_t;
 #define STATE_FINALIZED 3u
 #define STATE_ERROR 255u
 
+#if defined(CFG_OSUMANIA_MVP_KEYED)
+#if defined(CFG_OSUMANIA_DEV_INSECURE_KEY)
+#error "MVP signer cannot use the development device root"
+#endif
+#ifndef OSUMANIA_MVP_PRIVATE_KEY_BYTES
+#error "MVP signer requires OSUMANIA_MVP_PRIVATE_KEY_BYTES"
+#endif
+#ifndef OSUMANIA_PROVISIONED_BITSTREAM_HASH
+#error "MVP signer requires OSUMANIA_PROVISIONED_BITSTREAM_HASH"
+#endif
+#if !defined(OSUMANIA_PROVISIONED_SRS) || OSUMANIA_PROVISIONED_SRS != 1
+#error "MVP signer requires OSUMANIA_PROVISIONED_SRS=1"
+#endif
+/* This scalar is extractable from the signed TA on the SD card. */
+static const uint8_t provisioned_private_key[] = OSUMANIA_MVP_PRIVATE_KEY_BYTES;
+_Static_assert(sizeof(provisioned_private_key) == 32, "MVP private scalar must be 32 bytes");
+#else
 #ifndef OSUMANIA_PROVISIONED_SRS
 #define OSUMANIA_PROVISIONED_SRS 0
+#endif
 #endif
 static const uint8_t expected_policy[32] = {
     0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,
@@ -69,6 +87,7 @@ static TEE_Result sha256(const void *data, size_t length, uint8_t output[32])
     return status;
 }
 
+#if !defined(CFG_OSUMANIA_MVP_KEYED)
 static TEE_Result hmac_sha256(const uint8_t key[32], const void *data, size_t length,
                               uint8_t output[32])
 {
@@ -138,6 +157,23 @@ out:
     TEE_MemFill(data, 0, sizeof(data));
     return status;
 }
+#else
+static TEE_Result derive_key(void)
+{
+    uint8_t public_key[64], hash[32];
+    TEE_MemMove(private_key, provisioned_private_key, sizeof(private_key));
+    if (!uECC_compute_public_key(private_key, public_key, uECC_secp256k1())) {
+        TEE_MemFill(private_key, 0, sizeof(private_key));
+        TEE_MemFill(device_address, 0, sizeof(device_address));
+        return TEE_ERROR_SECURITY;
+    }
+    osum_keccak256(public_key, sizeof(public_key), hash);
+    TEE_MemMove(device_address, hash + 12, sizeof(device_address));
+    TEE_MemFill(public_key, 0, sizeof(public_key));
+    TEE_MemFill(hash, 0, sizeof(hash));
+    return TEE_SUCCESS;
+}
+#endif
 
 struct tee_sha_context {
     uECC_HashContext base;

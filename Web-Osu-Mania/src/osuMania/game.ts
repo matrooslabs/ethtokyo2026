@@ -203,7 +203,7 @@ export class Game {
 
     this.settings = JSON.parse(JSON.stringify(useSettingsStore.getState()));
 
-    if (useGameStore.getState().paidAttempt) {
+    if (useGameStore.getState().paidAttempt || useGameStore.getState().devRun) {
       this.settings.mods = structuredClone(defaultSettings.mods);
       this.settings.retryOnFail = false;
     }

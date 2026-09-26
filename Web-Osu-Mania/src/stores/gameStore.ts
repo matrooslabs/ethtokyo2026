@@ -1,4 +1,5 @@
 import type { PaidAttempt } from "@/lib/sui/paidAttempt";
+import type { DevResult, DevRun } from "@/lib/dev/types";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { getBundledBeatmapSet, getPracticeBeatmapSet, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
 import { createSelectors } from "@/lib/zustand";
@@ -10,6 +11,12 @@ import { immer } from "zustand/middleware/immer";
 
 type GameState = {
   paidAttempt: PaidAttempt | null;
+  devRun: DevRun | null;
+  devResult: DevResult | null;
+  recordedDevRunId: string | null;
+  startDevGame: (beatmapSet: BeatmapSet, beatmapId: number, run: DevRun) => void;
+  recordDevResult: (result: DevResult) => void;
+  clearDevResult: () => void;
   startPaidGame: (beatmapSet: BeatmapSet, beatmapId: number, attempt: PaidAttempt) => void;
   beatmapSet: BeatmapSet | null;
   beatmapId: number | null;
@@ -25,9 +32,40 @@ type GameState = {
 const useGameStoreBase = create<GameState>()(
   immer((set, get) => ({
     paidAttempt: null,
+    devRun: null,
+    devResult: null,
+    recordedDevRunId: null,
+    startDevGame: (beatmapSet, beatmapId, run) => {
+      if (import.meta.env.MODE !== "development" || import.meta.env.VITE_VERSU_MODE !== "dev") {
+        throw new Error("Simulated runs are available only in local dev mode.");
+      }
+      set((state) => {
+        state.paidAttempt = null;
+        state.devRun = run;
+        state.devResult = null;
+        state.recordedDevRunId = null;
+        state.beatmapSet = beatmapSet;
+        state.beatmapId = beatmapId;
+        state.replayData = null;
+        state.scrollPosition = window.scrollY;
+      });
+    },
+    recordDevResult: (result) => {
+      set((state) => {
+        if (state.devRun?.id !== result.runId || state.recordedDevRunId === result.runId) return;
+        state.devResult = result;
+        state.recordedDevRunId = result.runId;
+      });
+    },
+    clearDevResult: () => {
+      set((state) => {
+        state.devResult = null;
+      });
+    },
     startPaidGame: (beatmapSet, beatmapId, attempt) => {
       set((state) => {
         state.paidAttempt = attempt;
+        state.devRun = null;
         state.beatmapSet = beatmapSet;
         state.beatmapId = beatmapId;
         state.replayData = null;
@@ -40,7 +78,7 @@ const useGameStoreBase = create<GameState>()(
     scrollPosition: null,
 
     startGame: (beatmapId: number) => {
-      set((state) => { state.paidAttempt = null; });
+      set((state) => { state.paidAttempt = null; state.devRun = null; });
       if (
         !get().beatmapSet?.beatmaps.some(
           (beatmap) => beatmap.id === beatmapId && beatmap.cs === 4,
@@ -74,6 +112,8 @@ const useGameStoreBase = create<GameState>()(
           return;
         }
         set((state) => {
+          state.paidAttempt = null;
+          state.devRun = null;
           state.beatmapId = beatmap.id;
           state.beatmapSet = beatmapSet;
           state.replayData = replay;
@@ -91,6 +131,7 @@ const useGameStoreBase = create<GameState>()(
       Howler.unload();
       set((state) => {
         state.paidAttempt = null;
+        state.devRun = null;
         state.beatmapId = null;
         state.replayData = null;
         state.beatmapSet = null;

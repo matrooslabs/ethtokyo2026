@@ -192,8 +192,8 @@ fun chart_for<T>(c: &Challenge<T>, difficulty: u8): vector<u8> {
     if (difficulty == EASY) c.easy_chart_hash else c.hard_chart_hash
 }
 
-/// Both native-verified charts must preexist. Clock fixes the six-hour cutoff;
-/// operator chooses ONLY the post-gameplay claim window (24h recommended).
+/// Both native-verified charts must preexist. The organizer schedules the immutable
+/// six-hour gameplay window; only the post-gameplay claim window is configurable.
 /// Hardware match ID = SHA256(utf8("versu:") || utf8(YYYY-MM-DD)).
 public fun create<T>(
     reg: &Registry,
@@ -203,6 +203,7 @@ public fun create<T>(
     easy_chart_hash: vector<u8>,
     hard_chart_hash: vector<u8>,
     device: vector<u8>,
+    start_at_ms: u64,
     claim_window_ms: u64,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -212,13 +213,14 @@ public fun create<T>(
         easy_chart_hash.length() == 32 && hard_chart_hash.length() == 32 &&
         easy_chart_hash != hard_chart_hash && device.length() == 20 &&
         claim_window_ms >= MIN_CLAIM_WINDOW_MS && claim_window_ms <= MAX_CLAIM_WINDOW_MS, EConfig);
+    assert!(start_at_ms >= clock.timestamp_ms(), EConfig);
     let mut preimage = b"versu:";
     preimage.append(round_date);
     assert!(round_id == sha2_256(preimage) &&
         registry::has_chart(reg, easy_chart_hash) &&
         registry::has_chart(reg, hard_chart_hash), EConfig);
-    let started_at_ms = clock.timestamp_ms();
-    let score_deadline_ms = started_at_ms + GAME_DURATION_MS;
+    let started_at_ms = start_at_ms;
+    let score_deadline_ms = start_at_ms + GAME_DURATION_MS;
     let claim_deadline_ms = score_deadline_ms + claim_window_ms;
     let id = object::new(ctx);
     let challenge = id.to_inner();
@@ -242,7 +244,8 @@ public fun create<T>(
 /// Exactly one canonical six-decimal USDC buys three plays for the sender, on either
 /// difficulty. No World identity, organizer relay or refundable interruption.
 public fun buy_plays<T>(c: &mut Challenge<T>, payment: Coin<T>, clock: &Clock, ctx: &TxContext) {
-    assert!(clock.timestamp_ms() < c.score_deadline_ms, EClosed);
+    let now = clock.timestamp_ms();
+    assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     assert!(coin::value(&payment) == PRICE, EPrice);
     let wallet = ctx.sender();
     if (!c.buyers.contains(wallet)) {
@@ -269,7 +272,8 @@ public fun start_paid<T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ): ID {
-    assert!(clock.timestamp_ms() < c.score_deadline_ms, EClosed);
+    let now = clock.timestamp_ms();
+    assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     assert!(c.registry == object::id(reg), ERegistry);
     let chart_hash = chart_for(c, difficulty);
     let wallet = ctx.sender();
@@ -292,7 +296,8 @@ public fun start_paid<T>(
 /// Only a consumed native GKR score on this original paid Session/chart/difficulty
 /// counts. Anyone can relay; accepted recordings are immutable and replay-protected.
 public fun record_score<T>(c: &mut Challenge<T>, session: &Session, clock: &Clock) {
-    assert!(clock.timestamp_ms() < c.score_deadline_ms, EClosed);
+    let now = clock.timestamp_ms();
+    assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     let sid = object::id(session);
     assert!(c.attempts.contains(sid), EAttempt);
     let attempt = c.attempts.borrow(sid);

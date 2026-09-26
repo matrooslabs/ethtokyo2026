@@ -19,6 +19,7 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
 static const uint8_t input_policy_hash[32] = {
     0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,
     0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60,
@@ -29,6 +30,7 @@ struct dev_signer {
     uint8_t header[OSUM_HEADER_SIZE];
     uint8_t result[OSUM_RESULT_SIZE];
 };
+#endif
 
 struct osum_signer {
     enum { SIGNER_NONE, SIGNER_DEV, SIGNER_OPTEE } backend;
@@ -37,13 +39,16 @@ struct osum_signer {
     uint32_t last_result;
     uint32_t last_origin;
     struct osum_signer_info info;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     struct dev_signer dev;
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Context context;
     TEEC_Session session;
 #endif
 };
 
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
 static int hex_value(char ch)
 {
     if (ch >= '0' && ch <= '9') return ch - '0';
@@ -225,6 +230,7 @@ static int dev_open(struct osum_signer *signer)
     signer->ready = true;
     return 0;
 }
+#endif
 
 #ifdef HAVE_LIBTEEC
 static int invoke(struct osum_signer *signer, uint32_t command, TEEC_Operation *operation)
@@ -306,10 +312,20 @@ struct osum_signer *osum_signer_open(const char *backend)
     struct osum_signer *signer = calloc(1, sizeof(*signer));
     if (!signer)
         return NULL;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (backend && !strcmp(backend, "dev-insecure")) {
         if (dev_open(signer) != 0)
             signer->ready = false;
-    } else {
+    } else
+#endif
+    {
+#ifndef OSUMANIA_ALLOW_DEV_CRYPTO
+        if (backend && strcmp(backend, "optee")) {
+            fprintf(stderr, "Unsupported signer backend for this build\n");
+            signer->ready = false;
+            return signer;
+        }
+#endif
 #ifdef HAVE_LIBTEEC
         if (optee_open(signer) != 0) {
             fprintf(stderr, "OP-TEE signer unavailable; keyboard forwarding remains active\n");
@@ -326,7 +342,9 @@ struct osum_signer *osum_signer_open(const char *backend)
 void osum_signer_close(struct osum_signer *signer)
 {
     if (!signer) return;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     EC_KEY_free(signer->dev.key);
+#endif
 #ifdef HAVE_LIBTEEC
     if (signer->backend == SIGNER_OPTEE) {
         TEEC_CloseSession(&signer->session);
@@ -338,7 +356,11 @@ void osum_signer_close(struct osum_signer *signer)
 }
 
 bool osum_signer_ready(const struct osum_signer *signer) { return signer && signer->ready; }
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
 bool osum_signer_is_insecure(const struct osum_signer *signer) { return signer && signer->backend == SIGNER_DEV; }
+#else
+bool osum_signer_is_insecure(const struct osum_signer *signer) { (void)signer; return false; }
+#endif
 enum osum_state osum_signer_state(const struct osum_signer *signer) { return signer ? signer->state : OSUM_STATE_ERROR; }
 void osum_signer_failure(const struct osum_signer *signer, uint32_t *result,
                          uint32_t *origin)
@@ -350,7 +372,9 @@ void osum_signer_failure(const struct osum_signer *signer, uint32_t *result,
 int osum_signer_get_info(struct osum_signer *signer, struct osum_signer_info *info)
 {
     if (!osum_signer_ready(signer)) return -1;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) { *info = signer->info; return 0; }
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Operation op = { .paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_NONE, TEEC_NONE, TEEC_NONE) };
     uint8_t data[OSUMANIA_TA_DEVICE_INFO_SIZE];
@@ -366,6 +390,7 @@ int osum_signer_set_header(struct osum_signer *signer, const uint8_t header[OSUM
 {
     *detail = 0;
     if (!osum_signer_ready(signer) || signer->state != OSUM_STATE_IDLE) return -1;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) {
         if (memcmp(header + 144, signer->info.device, 20)) { *detail = OSUM_HEADER_DEVICE; return -1; }
         if (memcmp(header + 228, signer->info.bitstream_hash, 32)) { *detail = OSUM_HEADER_BITSTREAM; return -1; }
@@ -374,6 +399,7 @@ int osum_signer_set_header(struct osum_signer *signer, const uint8_t header[OSUM
         signer->state = OSUM_STATE_HEADER_LOADED;
         return 0;
     }
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Operation op = { .paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT, TEEC_VALUE_OUTPUT, TEEC_NONE, TEEC_NONE) };
     op.params[0].tmpref.buffer = (void *)header; op.params[0].tmpref.size = OSUM_HEADER_SIZE;
@@ -390,7 +416,9 @@ int osum_signer_set_header(struct osum_signer *signer, const uint8_t header[OSUM
 int osum_signer_start(struct osum_signer *signer)
 {
     if (!osum_signer_ready(signer) || signer->state != OSUM_STATE_HEADER_LOADED) return -1;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) { signer->state = OSUM_STATE_RECORDING; return 0; }
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Operation op = {0};
     int status = invoke(signer, OSUMANIA_TA_START_SESSION, &op);
@@ -409,6 +437,7 @@ int osum_signer_finalize(struct osum_signer *signer, uint32_t count, uint64_t du
     uint8_t fields[OSUMANIA_TA_FINAL_FIELDS_SIZE];
     osum_be32_store(fields, count); osum_be64_store(fields + 4, duration_us);
     memcpy(fields + 12, root, 32); memcpy(fields + 44, commitment, 64);
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) {
         static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2";
         uint8_t preimage[430], digest[32], signature[65];
@@ -423,6 +452,7 @@ int osum_signer_finalize(struct osum_signer *signer, uint32_t count, uint64_t du
         OPENSSL_cleanse(preimage, sizeof(preimage)); OPENSSL_cleanse(digest, sizeof(digest));
         signer->state = OSUM_STATE_FINALIZED; return 0;
     }
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Operation op = { .paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT, TEEC_NONE, TEEC_NONE, TEEC_NONE) };
     op.params[0].tmpref.buffer = fields; op.params[0].tmpref.size = sizeof(fields);
@@ -437,7 +467,9 @@ int osum_signer_finalize(struct osum_signer *signer, uint32_t count, uint64_t du
 int osum_signer_get_result(struct osum_signer *signer, uint8_t result[OSUM_RESULT_SIZE])
 {
     if (!osum_signer_ready(signer) || signer->state != OSUM_STATE_FINALIZED) return -1;
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) { memcpy(result, signer->dev.result, OSUM_RESULT_SIZE); return 0; }
+#endif
 #ifdef HAVE_LIBTEEC
     TEEC_Operation op = { .paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT, TEEC_NONE, TEEC_NONE, TEEC_NONE) };
     op.params[0].tmpref.buffer = result; op.params[0].tmpref.size = OSUM_RESULT_SIZE;
@@ -455,8 +487,10 @@ int osum_signer_abort(struct osum_signer *signer)
     if (signer->backend == SIGNER_OPTEE) { TEEC_Operation op = {0}; status = invoke(signer, OSUMANIA_TA_ABORT_SESSION, &op); }
 #endif
     if (!status) {
+#ifdef OSUMANIA_ALLOW_DEV_CRYPTO
         OPENSSL_cleanse(signer->dev.header, sizeof(signer->dev.header));
         OPENSSL_cleanse(signer->dev.result, sizeof(signer->dev.result));
+#endif
         signer->state = OSUM_STATE_IDLE;
     }
     return status;

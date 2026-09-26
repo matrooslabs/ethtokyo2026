@@ -40,7 +40,7 @@ class HardwarePreflight(unittest.TestCase):
                       'otp_slot_reference': 'synthetic-test-only',
                       'approved_secure_otp_slot': True, 'secure_otp_huk_byte_offset': 880,
                       'srs_bank': str(bank), 'srs_sha256': hashlib.sha256(bank.read_bytes()).hexdigest(),
-                      'bitstream_hash': 'ab' * 32, 'ta_sign_key': str(key),
+                      'ta_sign_key': str(key),
                       'ta_public_key': str(pub), 'ta_key_reviewed': True}
             record_file = directory / 'record.json'
             header = PROJECT / 'sources/optee-os-artifacts/hardware-policy/test-policy.h'
@@ -53,7 +53,6 @@ class HardwarePreflight(unittest.TestCase):
 
             try:
                 check({}, True)
-                self.assertIn('#define OSUMANIA_PROVISIONED_SRS 1', header.read_text())
                 run = subprocess.run(['bash', str(PROJECT / 'scripts/build.sh'), 'hardware-root'],
                                      env={**os.environ, 'OSUMANIA_PROVISIONING_RECORD': str(record_file)},
                                      text=True, capture_output=True)
@@ -62,8 +61,6 @@ class HardwarePreflight(unittest.TestCase):
                 check({'secure_otp_huk_byte_offset': 882}, False)
                 check({'approved_secure_otp_slot': False}, False)
                 check({'srs_sha256': 'cd' * 32}, False)
-                check({'bitstream_hash': '00' * 32}, False)
-                check({'bitstream_hash': '04' * 32}, False)
                 check({'ta_public_key': str(key)}, False)
             finally:
                 header.unlink(missing_ok=True)

@@ -1,6 +1,10 @@
 import { Link } from "@tanstack/react-router";
+import { useChallengeClockStore } from "@/stores/challengeClockStore";
 
 export default function Header() {
+  const { deadlineMs, nowMs, phase, simulated } = useChallengeClockStore();
+  const seconds = Math.max(0, Math.ceil(((deadlineMs ?? nowMs) - nowMs) / 1000));
+  const countdown = `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   return (
     <header className="arena-header">
       <Link
@@ -13,6 +17,10 @@ export default function Header() {
         </span>
         <strong>versu!</strong>
       </Link>
+      {phase && <div className="arena-nav-clock" role="timer">
+        <span>{simulated ? "Demo " : ""}{phase === "upcoming" ? "Starts in" : phase === "scoring" ? "Scores close" : "Claims close"}</span>
+        <strong>{countdown}</strong>
+      </div>}
       <nav aria-label="Main navigation">
         <Link
           to="/"
