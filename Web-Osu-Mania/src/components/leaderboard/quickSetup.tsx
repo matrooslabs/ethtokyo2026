@@ -36,19 +36,15 @@ export default function QuickSetup({
       </button>
       <div className="arena-page-heading">
         <div>
-          <h1>Set your speed.</h1>
-          <p>{paid ? "Paid run: 1 play is used when you start." : "Free practice"}</p>
+          <h1>Set your speed</h1>
+          {paid && <p>Starting uses 1 play.</p>}
         </div>
       </div>
       <div className="arena-song">
         <span className="arena-song-icon">4K</span>
         <div>
-          <strong>{beatmapSet.title}</strong>
-          <p>
-            {beatmapSet.artist} · {Math.floor(beatmap.total_length / 60)}:
-            {String(beatmap.total_length % 60).padStart(2, "0")} ·{" "}
-            {beatmap.version}
-          </p>
+          <strong>{paid ? beatmapSet.title : "Practice"}</strong>
+          {paid && <p>{beatmapSet.artist} · {Math.floor(beatmap.total_length / 60)}:{String(beatmap.total_length % 60).padStart(2, "0")} · {beatmap.version}</p>}
         </div>
       </div>
       <div className="arena-setup-grid">

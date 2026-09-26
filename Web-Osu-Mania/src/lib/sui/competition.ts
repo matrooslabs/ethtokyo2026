@@ -1,5 +1,6 @@
 import { bcs } from "@mysten/sui/bcs";
 import { Transaction } from "@mysten/sui/transactions";
+import { fromBase64 } from "@mysten/sui/utils";
 import type { SuiGrpcClient } from "@mysten/sui/grpc";
 
 // Circle-published native USDC types; never trust a coin's display symbol alone.
@@ -9,175 +10,214 @@ const circleUsdc = {
 };
 const network = import.meta.env.VITE_SUI_NETWORK === "mainnet" ? "mainnet" : "testnet";
 
+export type Difficulty = "Easy" | "Hard";
 export const suiDeployment = {
   packageId: import.meta.env.VITE_SUI_PACKAGE_ID || "",
   registryId: import.meta.env.VITE_SUI_REGISTRY_ID || "",
-  competitionId: import.meta.env.VITE_SUI_COMPETITION_ID || "",
+  challengeId: import.meta.env.VITE_SUI_CHALLENGE_ID || "",
+  charts: {
+    Easy: import.meta.env.VITE_SUI_EASY_CHART_HASH || "",
+    Hard: import.meta.env.VITE_SUI_HARD_CHART_HASH || "",
+  },
   usdcType: import.meta.env.VITE_SUI_USDC_TYPE || "",
 };
 
-export const configured = Object.values(suiDeployment).every(Boolean) && suiDeployment.usdcType === circleUsdc[network];
+const hex32 = /^0x[0-9a-fA-F]{64}$/;
+export const configured = !!suiDeployment.packageId && !!suiDeployment.registryId &&
+  suiDeployment.usdcType === circleUsdc[network] && hex32.test(suiDeployment.challengeId) &&
+  Object.values(suiDeployment.charts).every((hash) => hex32.test(hash)) &&
+  suiDeployment.charts.Easy.toLowerCase() !== suiDeployment.charts.Hard.toLowerCase();
+export const difficultyCode = (difficulty: Difficulty): number => difficulty === "Easy" ? 0 : 1;
 const target = (method: string) => `${suiDeployment.packageId}::competition::${method}`;
 const coinType = [suiDeployment.usdcType];
 
 const dynamicTable = bcs.struct("Table", { id: bcs.Address, size: bcs.u64() });
-const competitionObject = bcs.struct("Competition", {
+const rankedClaim = bcs.struct("RankedClaim", {
+  wallet: bcs.Address, session: bcs.Address, score: bcs.u64(), order: bcs.u64(),
+});
+const challengeObject = bcs.struct("Challenge", {
   id: bcs.Address,
   registry: bcs.Address,
+  round_date: bcs.vector(bcs.u8()),
   round_id: bcs.vector(bcs.u8()),
-  chart_hash: bcs.vector(bcs.u8()),
+  easy_chart_hash: bcs.vector(bcs.u8()),
+  hard_chart_hash: bcs.vector(bcs.u8()),
   device: bcs.vector(bcs.u8()),
-  sales_deadline_ms: bcs.u64(),
-  starts_deadline_ms: bcs.u64(),
+  started_at_ms: bcs.u64(),
   score_deadline_ms: bcs.u64(),
+  claim_window_ms: bcs.u64(),
   claim_deadline_ms: bcs.u64(),
   pot: bcs.u64(),
-  wallets: dynamicTable,
-  people: dynamicTable,
+  buyers: dynamicTable,
   attempts: dynamicTable,
-  has_winner: bcs.bool(),
-  winner: bcs.Address,
-  winning_session: bcs.option(bcs.Address),
-  high_score: bcs.u64(),
-  prize_paid: bcs.bool(),
+  claims: dynamicTable,
+  nullifiers: dynamicTable,
+  easy_top: bcs.vector(rankedClaim),
+  hard_top: bcs.vector(rankedClaim),
+  score_order: bcs.u64(),
+  total_purchases: bcs.u64(),
+  refund_purchases_remaining: bcs.u64(),
+  original_pot: bcs.u64(),
+  refund_pool: bcs.u64(),
+  settled: bcs.bool(),
 });
 
-export type CompetitionState = {
+export type RankedClaim = { wallet: string; session: string; score: bigint; order: bigint };
+export type ChallengeState = {
   pot: bigint;
+  originalPot: bigint;
+  refundPool: bigint;
   remaining: bigint;
-  attested: boolean;
+  claimRegistered: boolean;
+  refundEligible: boolean;
+  roundDate: string;
   device: string;
-  chartHash: string;
-  hasWinner: boolean;
-  winner: string;
-  highScore: bigint;
-  salesDeadlineMs: number;
-  startsDeadlineMs: number;
+  chartHashes: Record<Difficulty, string>;
+  rankedClaims: Record<Difficulty, RankedClaim[]>;
+  startedAtMs: number;
   scoreDeadlineMs: number;
   claimDeadlineMs: number;
-  prizePaid: boolean;
+  settled: boolean;
 };
 
-async function walletState(client: SuiGrpcClient, wallet: string, competitionId: string): Promise<{ remaining: bigint; attested: boolean }> {
+function hex(bytes: number[]): string {
+  return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function walletState(client: SuiGrpcClient, wallet: string, challengeId: string): Promise<{ remaining: bigint; claimRegistered: boolean; refundEligible: boolean }> {
   const tx = new Transaction();
   tx.setSender(wallet);
   tx.moveCall({ target: target("remaining_plays"), typeArguments: coinType,
-    arguments: [tx.object(competitionId), tx.pure.address(wallet)] });
-  tx.moveCall({ target: target("is_attested"), typeArguments: coinType,
-    arguments: [tx.object(competitionId), tx.pure.address(wallet)] });
+    arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
+  tx.moveCall({ target: target("claim_registered"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
+  tx.moveCall({ target: target("refund_eligible"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
   const result = await client.simulateTransaction({ transaction: tx, include: { commandResults: true }, checksEnabled: false });
   const remainingBytes = result.Transaction && result.commandResults?.[0]?.returnValues?.[0]?.bcs;
-  const attestedBytes = result.Transaction && result.commandResults?.[1]?.returnValues?.[0]?.bcs;
-  if (!remainingBytes || !attestedBytes) throw new Error("Unable to read wallet eligibility from Sui.");
-  return { remaining: BigInt(bcs.u64().parse(remainingBytes)), attested: bcs.bool().parse(attestedBytes) };
+  const claimBytes = result.Transaction && result.commandResults?.[1]?.returnValues?.[0]?.bcs;
+  const refundBytes = result.Transaction && result.commandResults?.[2]?.returnValues?.[0]?.bcs;
+  if (!remainingBytes || !claimBytes || !refundBytes) throw new Error("Unable to read Sui wallet plays and claim.");
+  return { remaining: BigInt(bcs.u64().parse(remainingBytes)),
+    claimRegistered: bcs.bool().parse(claimBytes), refundEligible: bcs.bool().parse(refundBytes) };
 }
 
-export async function readCompetition(client: SuiGrpcClient, wallet: string, competitionId = suiDeployment.competitionId): Promise<CompetitionState> {
-  if (!configured) throw new Error("Sui competition deployment is not configured.");
+export async function readCompetition(client: SuiGrpcClient, wallet: string, challengeId: string,
+  difficulty: Difficulty, expectedChartHash: string): Promise<ChallengeState> {
+  if (!configured) throw new Error("Sui challenge deployment is not configured.");
   const [object, player] = await Promise.all([
-    client.getObject({ objectId: competitionId, include: { content: true } }),
-    walletState(client, wallet, competitionId),
+    client.getObject({ objectId: challengeId, include: { content: true } }),
+    walletState(client, wallet, challengeId),
   ]);
   const content = object.object?.content;
-  if (!content || object.object?.type !== `${suiDeployment.packageId}::competition::Competition<${suiDeployment.usdcType}>`) {
-    throw new Error("Sui competition object does not match the configured vault.");
+  if (!content || object.object?.type !== `${suiDeployment.packageId}::competition::Challenge<${suiDeployment.usdcType}>`) {
+    throw new Error("Sui challenge object does not match the configured vault.");
   }
-  const parsed = competitionObject.parse(content);
-  if (parsed.registry !== suiDeployment.registryId) throw new Error("Competition registry does not match this deployment.");
+  const parsed = challengeObject.parse(content);
+  if (parsed.registry !== suiDeployment.registryId) throw new Error("Challenge registry does not match this deployment.");
+  const chartHashes = { Easy: hex(parsed.easy_chart_hash), Hard: hex(parsed.hard_chart_hash) };
+  if (chartHashes[difficulty].toLowerCase() !== expectedChartHash.toLowerCase() ||
+      (challengeId === suiDeployment.challengeId && (
+        chartHashes.Easy.toLowerCase() !== suiDeployment.charts.Easy.toLowerCase() ||
+        chartHashes.Hard.toLowerCase() !== suiDeployment.charts.Hard.toLowerCase()))) {
+    throw new Error("Sui challenge charts do not match the selected Forest difficulty.");
+  }
+  const ranks = (top: typeof parsed.easy_top) => top.map((claim) => ({
+    wallet: claim.wallet, session: claim.session, score: BigInt(claim.score), order: BigInt(claim.order),
+  }));
   return {
-    pot: BigInt(parsed.pot),
-    remaining: player.remaining,
-    attested: player.attested,
-    hasWinner: parsed.has_winner,
-    winner: parsed.winner,
-    highScore: BigInt(parsed.high_score),
-    device: `0x${Array.from(parsed.device, (value) => value.toString(16).padStart(2, "0")).join("")}`,
-    chartHash: `0x${Array.from(parsed.chart_hash, (value) => value.toString(16).padStart(2, "0")).join("")}`,
-    salesDeadlineMs: Number(parsed.sales_deadline_ms),
-    startsDeadlineMs: Number(parsed.starts_deadline_ms),
-    scoreDeadlineMs: Number(parsed.score_deadline_ms),
-    claimDeadlineMs: Number(parsed.claim_deadline_ms),
-    prizePaid: parsed.prize_paid,
+    pot: BigInt(parsed.pot), originalPot: BigInt(parsed.original_pot), refundPool: BigInt(parsed.refund_pool),
+    remaining: player.remaining, claimRegistered: player.claimRegistered, refundEligible: player.refundEligible,
+    roundDate: new TextDecoder().decode(Uint8Array.from(parsed.round_date)),
+    device: hex(parsed.device), chartHashes,
+    rankedClaims: { Easy: ranks(parsed.easy_top), Hard: ranks(parsed.hard_top) },
+    startedAtMs: Number(parsed.started_at_ms), scoreDeadlineMs: Number(parsed.score_deadline_ms),
+    claimDeadlineMs: Number(parsed.claim_deadline_ms), settled: parsed.settled,
   };
 }
 
-export function buyPlays(): Transaction {
+export function buyPlays(challengeId: string): Transaction {
   const tx = new Transaction();
   tx.moveCall({
-    target: target("buy_plays"),
-    typeArguments: coinType,
-    arguments: [tx.object(suiDeployment.competitionId), tx.coin({ balance: 1_000_000n, type: suiDeployment.usdcType }), tx.object.clock()],
+    target: target("buy_plays"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.coin({ balance: 1_000_000n, type: suiDeployment.usdcType }), tx.object.clock()],
   });
   return tx;
 }
 
-export function startPaid(): Transaction {
+export function startPaid(challengeId: string, difficulty: Difficulty): Transaction {
   const tx = new Transaction();
   tx.moveCall({
-    target: target("start_paid"),
-    typeArguments: coinType,
-    arguments: [tx.object(suiDeployment.competitionId), tx.object(suiDeployment.registryId), tx.object.clock()],
+    target: target("start_paid"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.object(suiDeployment.registryId), tx.pure.u8(difficultyCode(difficulty)), tx.object.clock()],
   });
   return tx;
 }
 
-export function claimPrize(competitionId = suiDeployment.competitionId): Transaction {
+export function settle(challengeId: string): Transaction {
   const tx = new Transaction();
-  tx.moveCall({
-    target: target("claim_prize"),
-    typeArguments: coinType,
-    arguments: [tx.object(competitionId), tx.object.clock()],
-  });
+  tx.moveCall({ target: target("settle"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.object.clock()] });
   return tx;
 }
 
-export function refund(wallet: string, competitionId = suiDeployment.competitionId): Transaction {
+export function refund(wallet: string, challengeId: string): Transaction {
   const tx = new Transaction();
-  tx.moveCall({
-    target: target("refund"),
-    typeArguments: coinType,
-    arguments: [tx.object(competitionId), tx.pure.address(wallet), tx.object.clock()],
-  });
+  tx.moveCall({ target: target("refund"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.pure.address(wallet), tx.object.clock()] });
   return tx;
 }
 
-export type Ranking = { wallet: string; score: bigint; session: string };
-export async function readRankings(client: SuiGrpcClient, winner?: string, competitionId = suiDeployment.competitionId): Promise<Ranking[]> {
+export type Ranking = { wallet: string; score: bigint; session: string; order: number };
+export async function readRankings(client: SuiGrpcClient, challengeId: string, difficulty: Difficulty): Promise<Ranking[]> {
   const best = new Map<string, Ranking>();
-  let before: string | undefined;
+  let after: string | undefined;
+  let order = 0;
   do {
     const page = await client.listEvents({
       filter: { eventType: `${suiDeployment.packageId}::competition::PaidScoreRecorded` },
-      order: "descending", limit: 50, ...(before ? { before } : {}),
+      order: "ascending", limit: 50, ...(after ? { after } : {}),
     });
     for (const event of page.events) {
-      const row = event.json as { competition: string; wallet: string; score: string; session: string };
-      if (row.competition !== competitionId) continue;
+      const row = event.json as { challenge: string; difficulty: string | number; wallet: string; score: string; session: string };
+      if (row.challenge !== challengeId || Number(row.difficulty) !== difficultyCode(difficulty)) continue;
       const current = best.get(row.wallet);
       const score = BigInt(row.score);
-      if (!current || score > current.score) best.set(row.wallet, { wallet: row.wallet, score, session: row.session });
+      if (!current || score > current.score) best.set(row.wallet, { wallet: row.wallet, score, session: row.session, order });
+      order++;
     }
-    before = page.hasNextPage ? page.endCursor ?? undefined : undefined;
-  } while (before);
+    after = page.hasNextPage ? page.endCursor ?? undefined : undefined;
+  } while (after);
   return Array.from(best.values()).sort((a, b) => a.score === b.score ?
-    a.wallet === winner ? -1 : b.wallet === winner ? 1 : 0 : a.score > b.score ? -1 : 1).slice(0, 20);
+    a.order - b.order : a.score > b.score ? -1 : 1).slice(0, 20);
 }
 
-export type RoundOption = { id: string; closeMs: number };
-export async function readRounds(client: SuiGrpcClient): Promise<RoundOption[]> {
+export type RoundOption = { id: string; date: string; closeMs: number };
+export async function readRounds(client: SuiGrpcClient, chartHash: string): Promise<RoundOption[]> {
   const rounds: RoundOption[] = [];
   const seen = new Set<string>();
   let before: string | undefined;
   do {
     const page = await client.listEvents({
-      filter: { eventType: `${suiDeployment.packageId}::competition::CompetitionCreated` },
+      filter: { eventType: `${suiDeployment.packageId}::competition::ChallengeCreated` },
       order: "descending", limit: 50, ...(before ? { before } : {}),
     });
     for (const event of page.events) {
-      const row = event.json as { competition?: string; registry?: string; score_deadline_ms?: string };
-      if (!row.competition || row.registry !== suiDeployment.registryId || seen.has(row.competition)) continue;
-      seen.add(row.competition);
-      rounds.push({ id: row.competition, closeMs: Number(row.score_deadline_ms) });
+      const row = event.json as { challenge?: string; registry?: string; easy_chart_hash?: string | number[];
+        hard_chart_hash?: string | number[]; round_date?: string | number[]; score_deadline_ms?: string };
+      if (!row.challenge || row.registry !== suiDeployment.registryId || seen.has(row.challenge)) continue;
+      const asHex = (raw: string | number[] | undefined): string => {
+        if (Array.isArray(raw)) return hex(raw);
+        if (typeof raw !== "string") return "";
+        return hex32.test(raw) ? raw : hex(Array.from(fromBase64(raw)));
+      };
+      if (![asHex(row.easy_chart_hash), asHex(row.hard_chart_hash)].some((hash) => hash.toLowerCase() === chartHash.toLowerCase())) continue;
+      const date = Array.isArray(row.round_date) ? new TextDecoder().decode(Uint8Array.from(row.round_date)) :
+        typeof row.round_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.round_date) ? row.round_date :
+          typeof row.round_date === "string" ? new TextDecoder().decode(fromBase64(row.round_date)) : "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      seen.add(row.challenge);
+      rounds.push({ id: row.challenge, date, closeMs: Number(row.score_deadline_ms) });
     }
     before = page.hasNextPage ? page.endCursor ?? undefined : undefined;
   } while (before);

@@ -59,6 +59,11 @@ mount -t vfat -o sync "$device" /run/rt-diag
     echo '--- OP-TEE preserved/live stage markers ---'
     printf 'last='; devmem 0xfdc20228 32 2>&1 || true
     printf 'live='; devmem 0xfdc2022c 32 2>&1 || true
+    if [ "$mode" = rng-lab ]; then
+        echo '--- isolated secure TRNG observer (not qualified entropy) ---'
+        printf 'rng_lab_status='; devmem 0xfdc20224 32 2>&1 || true
+        echo '0x54524e01 entered; 02 MMIO missing; 03 reset timeout; 04 start timeout; 05 data observed only'
+    fi
     echo '--- UDC controllers ---'
     for udc in /sys/class/udc/*; do
         [ -d "$udc" ] || continue

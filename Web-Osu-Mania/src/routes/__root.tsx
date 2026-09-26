@@ -16,7 +16,7 @@ import appCss from "../styles/globals.css?url";
 
 const title = "versu! · four keys, one leaderboard";
 const description =
-  "Play the four-key rhythm challenge with a verified device. One USDC buys three plays; the highest verified score takes the daily prize.";
+  "Four-key rhythm on Sui. One USDC buys three plays; five unique claimants split the verified-score prize pot.";
 const ogImageUrl = "/versu-logo.png";
 
 export const Route = createRootRoute({

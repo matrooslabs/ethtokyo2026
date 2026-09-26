@@ -9,13 +9,7 @@ export default function Header() {
         className="arena-brand"
       >
         <span className="arena-brand-mark" aria-hidden="true">
-          <img
-            className="arena-logo"
-            src={`${import.meta.env.BASE_URL}versu-logo.png`}
-            alt=""
-            width="1536"
-            height="1024"
-          />
+          <img src={`${import.meta.env.BASE_URL}versu-logo.png`} alt="" width="1536" height="1024" />
         </span>
         <strong>versu!</strong>
       </Link>

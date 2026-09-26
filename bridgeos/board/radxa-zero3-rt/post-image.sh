@@ -16,6 +16,12 @@ case "$profile" in
     optee-debug)
         firmware="$project/sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin"
         image_cfg="$board_dir/genimage-debug.cfg" ;;
+    optee-capacity-lab)
+        firmware="$project/sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin"
+        image_cfg="$board_dir/genimage-debug.cfg" ;;
+    rng-lab)
+        firmware="$project/sources/boot-firmware/out-optee-rng-lab/u-boot-rockchip.bin"
+        image_cfg="$board_dir/genimage-debug.cfg" ;;
     optee-runtime)
         firmware="$project/sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin"
         image_cfg="$board_dir/genimage.cfg" ;;
@@ -47,6 +53,11 @@ if [ "$profile" = hardware-root ] || [ "$profile" = signed-lab ]; then
         "$BOOT_SIGN_KEY_DIR" "$trusted" "$BINARIES_DIR/kernel.itb" "$profile"
     mkdir -p "$boot/boot"
     cp "$BINARIES_DIR/kernel.itb" "$boot/boot/kernel.itb"
+    if [ "$profile" = signed-lab ]; then
+        "$project/scripts/boot-key-identity.py" \
+            "$project/sources/boot-firmware/out-optee-signed-lab/u-boot-spl-pubkey.dtb" \
+            "$trusted" "$BINARIES_DIR/boot-key-identity.json"
+    fi
 else
     mkdir -p "$boot/boot/extlinux"
     cp "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" "$boot/boot/"

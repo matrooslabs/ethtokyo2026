@@ -44,6 +44,13 @@ EVENT_SIZE = 14
 DOMAIN_SESSION = b"OSUMANIA_HARDWARE_SESSION_V2"
 DOMAIN_TRACE = b"OSUMANIA_TRACE_V1"
 SECP256K1_ORDER = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+BN254_FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+BN254_ORDER = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+DEV_SRS_SHA256 = '9429d8e688b4879bcab8f84a7f8574d682277bcb6021841cca060ff969e9c2d7'
+DEFAULT_SRS = SCRIPT_DIR / 'srs-g1-be.bin'
+if not DEFAULT_SRS.is_file():
+    DEFAULT_SRS = SCRIPT_DIR.parent / 'tests/vendor-hid/vectors/srs-g1-be.bin'
+
 
 
 def make_report(message_type: int, transfer_id: int, offset: int,
@@ -186,35 +193,92 @@ def trace_root(session_id: bytes, trace: bytes) -> bytes:
 
 
 def point_add(left: tuple[int, int] | None,
-              right: tuple[int, int] | None) -> tuple[int, int] | None:
+              right: tuple[int, int] | None,
+              field: int = SECP256K1_FIELD) -> tuple[int, int] | None:
     if left is None:
         return right
     if right is None:
         return left
     x1, y1 = left
     x2, y2 = right
-    if x1 == x2 and (y1 + y2) % SECP256K1_FIELD == 0:
+    if x1 == x2 and (y1 + y2) % field == 0:
         return None
     if left == right:
-        slope = (3 * x1 * x1) * pow(2 * y1, -1, SECP256K1_FIELD)
+        slope = (3 * x1 * x1) * pow(2 * y1, -1, field)
     else:
-        slope = (y2 - y1) * pow(x2 - x1, -1, SECP256K1_FIELD)
-    slope %= SECP256K1_FIELD
-    x3 = (slope * slope - x1 - x2) % SECP256K1_FIELD
-    y3 = (slope * (x1 - x3) - y1) % SECP256K1_FIELD
+        slope = (y2 - y1) * pow(x2 - x1, -1, field)
+    slope %= field
+    x3 = (slope * slope - x1 - x2) % field
+    y3 = (slope * (x1 - x3) - y1) % field
     return x3, y3
 
 
-def scalar_mul(value: int, point: tuple[int, int] | None) -> tuple[int, int] | None:
+def scalar_mul(value: int, point: tuple[int, int] | None,
+               field: int = SECP256K1_FIELD,
+               order: int = SECP256K1_ORDER) -> tuple[int, int] | None:
     result = None
     addend = point
-    value %= SECP256K1_ORDER
+    value %= order
     while value:
         if value & 1:
-            result = point_add(result, addend)
-        addend = point_add(addend, addend)
+            result = point_add(result, addend, field)
+        addend = point_add(addend, addend, field)
         value >>= 1
     return result
+
+
+def load_srs(path: pathlib.Path, info: Any, trusted_hash: str | None = None) -> bytes:
+    if not path.is_file():
+        raise RuntimeError(f"local SRS bank missing: {path}; copy srs-g1-be.bin beside this script or use --srs")
+    bank = path.read_bytes()
+    if len(bank) % 64 or len(bank) < 4 * info.max_events * 64 or info.max_events > 50000:
+        raise RuntimeError("local SRS bank length does not cover GET_INFO max_events")
+    if trusted_hash is None:
+        if info.max_events == 65 and info.bitstream_hash.lower() == '04' * 32:
+            trusted_hash = DEV_SRS_SHA256
+        else:
+            raise RuntimeError("non-development SRS requires --srs-sha256 from an approved manifest")
+    trusted_hash = trusted_hash.lower().removeprefix('0x')
+    if len(trusted_hash) != 64 or any(c not in '0123456789abcdef' for c in trusted_hash):
+        raise RuntimeError("--srs-sha256 must be a 32-byte hexadecimal SHA-256 digest")
+    digest = hashlib.sha256(bank).hexdigest()
+    if digest != trusted_hash or digest != info.srs_hash.lower().removeprefix('0x'):
+        raise RuntimeError("local SRS bank hash differs from trusted manifest or GET_INFO")
+    return bank
+
+
+def bn254_point(bank: bytes, index: int) -> tuple[int, int] | None:
+    offset = 64 * index
+    encoded = bank[offset:offset + 64]
+    if len(encoded) != 64:
+        raise RuntimeError("SRS bank truncated during commitment verification")
+    x = int.from_bytes(encoded[:32], 'big')
+    y = int.from_bytes(encoded[32:], 'big')
+    if x == y == 0:
+        return None
+    if x >= BN254_FIELD or y >= BN254_FIELD or (y * y - x * x * x - 3) % BN254_FIELD:
+        raise RuntimeError(f"invalid BN254 G1 point at bank index {index}")
+    return x, y
+
+
+def verify_commitment(trace: bytes, expected: bytes, bank: bytes) -> None:
+    if len(expected) != 64 or len(trace) % EVENT_SIZE:
+        raise RuntimeError("invalid commitment or trace length")
+    accumulator = None
+    for j in range(len(trace) // EVENT_SIZE):
+        offset = j * EVENT_SIZE
+        scalars = (struct.unpack_from('>Q', trace, offset + 4)[0],
+                   trace[offset + 12], trace[offset + 13])
+        for c, scalar in enumerate(scalars):
+            if scalar:
+                base_point = bn254_point(bank, 4 * j + c)
+                accumulator = point_add(accumulator,
+                                        scalar_mul(scalar, base_point, BN254_FIELD, BN254_ORDER),
+                                        BN254_FIELD)
+    actual = bytes(64) if accumulator is None else (
+        accumulator[0].to_bytes(32, 'big') + accumulator[1].to_bytes(32, 'big'))
+    if actual != expected:
+        raise RuntimeError(f"BN254 commitment mismatch: expected {expected.hex()}, computed {actual.hex()}")
 
 
 def recover_public_key(digest: bytes, r: int, s: int,
@@ -305,6 +369,7 @@ def verify_result(info: Any, header: bytes, session_id: bytes,
         "duration_us": duration_us,
         "commitment_is_infinity": int(not any(commitment)),
         "public_key": "04" + public_key.hex(),
+        "compressed_public_key": "0x" + ("03" if public_point[1] & 1 else "02") + public_point[0].to_bytes(32, "big").hex(),
         "recovered_address": recovered_address,
     }
 
@@ -324,6 +389,10 @@ def main() -> int:
     parser.add_argument("--capture-seconds", type=float, default=5.0)
     parser.add_argument("--min-events", type=int, default=0)
     parser.add_argument("--timeout-ms", type=int, default=10000)
+    parser.add_argument('--srs', default=str(DEFAULT_SRS),
+                        help='local contiguous BN254 G1 bank; defaults to srs-g1-be.bin beside this script')
+    parser.add_argument('--srs-sha256',
+                        help='trusted SRS digest from approved manifest; required outside development profile')
     args = parser.parse_args()
     if args.capture_seconds < 0 or args.min_events < 0 or args.timeout_ms <= 0:
         parser.error("capture seconds, min events and timeout must be nonnegative/positive")
@@ -337,6 +406,7 @@ def main() -> int:
         except (AttributeError, OSError):
             pass
         info = get_info(device, args.timeout_ms)
+        bank = load_srs(pathlib.Path(args.srs).expanduser(), info, args.srs_sha256)
         print(f"TA ready: {info.device_address}")
         try:
             transact(device, ABORT, timeout_ms=args.timeout_ms)
@@ -361,6 +431,7 @@ def main() -> int:
         result = transact(device, GET_RESULT, timeout_ms=args.timeout_ms)
         trace = transact(device, GET_TRACE, timeout_ms=args.timeout_ms)
         verified = verify_result(info, header, session_id, result, trace, args.min_events)
+        verify_commitment(trace, result[336:400], bank)
         print("TA stateful signing: PASS")
         print(f"event_count:          {verified['event_count']}")
         print(f"duration_us:          {verified['duration_us']}")
@@ -371,9 +442,11 @@ def main() -> int:
         print(f"recovery_v:           {result[464]}")
         print(f"recovered_address:    {info.device_address}")
         print(f"public_key_uncompressed: {verified['public_key']}")
+        print(f"public_key_compressed: {verified['compressed_public_key']}")
+        print(f"bitstream_hash:       0x{info.bitstream_hash}")
         print("signature_low_s:      yes")
         print("trace_root_verified:  yes")
-        print("commitment_recompute: not performed (requires the development SRS)")
+        print('commitment_recompute: verified against trusted local SRS')
         transact(device, ABORT, timeout_ms=args.timeout_ms)
         return 0
     finally:

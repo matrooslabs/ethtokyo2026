@@ -7,7 +7,8 @@ type Challenge = {
   rp_id: string;
   action: string;
   environment: "production" | "staging" | "sandbox";
-  round: string;
+  challengeId: string;
+  difficulty: "easy" | "hard";
   signal: string;
   rp_context: RpContext;
   message: string;
@@ -16,12 +17,17 @@ type Challenge = {
 type Verification = {
   verified: boolean;
   ready: boolean;
-  round: string;
+  challengeId: string;
+  difficulty: "easy" | "hard";
   wallet: string;
   attestationDigest?: string;
 };
 
-export default function WorldVerification({ onReady }: { onReady: (ready: boolean) => void }) {
+export default function ClaimVerification({ challengeId, difficulty, onReady }: {
+  challengeId: string;
+  difficulty: "easy" | "hard";
+  onReady: (ready: boolean) => void;
+}) {
   const account = useCurrentAccount();
   const kit = useDAppKit();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -39,7 +45,7 @@ export default function WorldVerification({ onReady }: { onReady: (ready: boolea
     setChallenge(null);
     setBoundWallet("");
     onReady(false);
-  }, [account?.address, onReady]);
+  }, [account?.address, challengeId, difficulty, onReady]);
 
   async function begin() {
     if (!account) return;
@@ -49,10 +55,11 @@ export default function WorldVerification({ onReady }: { onReady: (ready: boolea
       const response = await fetch("/api/identity/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet: account.address }),
+        body: JSON.stringify({ wallet: account.address, challengeId, difficulty }),
       });
       const value = await response.json() as Challenge & { error?: string };
       if (!response.ok) throw new Error(value.error || "Could not start World ID verification.");
+      if (value.challengeId !== challengeId || value.difficulty !== difficulty) throw new Error("World ID challenge does not match the selected chart.");
       setChallenge(value);
       setOpened(true);
     } catch (cause) {
@@ -63,23 +70,23 @@ export default function WorldVerification({ onReady }: { onReady: (ready: boolea
   }
 
   async function verify(proof: IDKitResult) {
-    if (!account || !challenge || challenge.round !== new Date().toISOString().slice(0, 10)) {
-      throw new Error("The round changed. Start verification again.");
+    if (!account || !challenge || challenge.challengeId !== challengeId || challenge.difficulty !== difficulty) {
+      throw new Error("The selected challenge or chart changed. Start your claim again.");
     }
     const signature = await kit.signPersonalMessage({ message: new TextEncoder().encode(challenge.message) });
     const response = await fetch("/api/identity/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallet: account.address, nonce: challenge.rp_context.nonce, signature: signature.signature, proof }),
+      body: JSON.stringify({ wallet: account.address, challengeId, difficulty, nonce: challenge.rp_context.nonce, signature: signature.signature, proof }),
     });
     const result = await response.json() as Verification & { error?: string };
     if (!response.ok) throw new Error(result.error || "World ID verification was rejected.");
-    if (!result.verified || result.wallet !== account.address || result.round !== challenge.round) {
-      throw new Error("World ID verification did not match this wallet and round.");
+    if (!result.verified || result.wallet !== account.address || result.challengeId !== challengeId || result.difficulty !== difficulty) {
+      throw new Error("World ID verification did not match this wallet and chart.");
     }
     if (!result.ready) {
       setPending(true);
-      setError("Human verified. Sui attestation is pending; finalize it before buying plays.");
+      setError("Identity verified. Sui claim registration is pending.");
       return;
     }
     setPending(false);
@@ -96,19 +103,20 @@ export default function WorldVerification({ onReady }: { onReady: (ready: boolea
       const challengeResponse = await fetch("/api/identity/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet: account.address }),
+        body: JSON.stringify({ wallet: account.address, challengeId, difficulty }),
       });
       const fresh = await challengeResponse.json() as Challenge & { error?: string };
       if (!challengeResponse.ok) throw new Error(fresh.error || "Could not renew verification challenge.");
+      if (fresh.challengeId !== challengeId || fresh.difficulty !== difficulty) throw new Error("Renewed World ID challenge does not match the selected chart.");
       const signed = await kit.signPersonalMessage({ message: new TextEncoder().encode(fresh.message) });
       const response = await fetch("/api/identity/attest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallet: account.address, nonce: fresh.rp_context.nonce, signature: signed.signature }),
+        body: JSON.stringify({ wallet: account.address, challengeId, difficulty, nonce: fresh.rp_context.nonce, signature: signed.signature }),
       });
       const value = await response.json() as Verification & { error?: string };
       if (!response.ok) throw new Error(value.error || "Sui attestation failed.");
-      if (!value.ready || value.wallet !== account.address || value.round !== fresh.round) {
+      if (!value.ready || value.wallet !== account.address || value.challengeId !== challengeId || value.difficulty !== difficulty) {
         throw new Error("Sui attestation is not confirmed yet. Try again.");
       }
       setPending(false);
@@ -124,17 +132,17 @@ export default function WorldVerification({ onReady }: { onReady: (ready: boolea
 
   return (
     <section className="arena-identity-check" aria-label="World ID verification">
-      <h2>World ID</h2>
-      <p>One person, one wallet per round.</p>
+      <h2>Claim with World ID</h2>
+      <p>Use your best-scoring wallet. One share per person across Easy and Hard.</p>
       {verified && boundWallet === account?.address ? (
-        <p role="status">Verified.</p>
+        <p role="status">Claim registered.</p>
       ) : pending ? (
         <button type="button" className="arena-secondary" disabled={!account || busy} onClick={() => void finalize()}>
           {busy ? "Checking…" : "Finish verification"}
         </button>
       ) : (
         <button type="button" className="arena-secondary" disabled={!account || busy} onClick={() => void begin()}>
-          {busy ? "Opening World ID…" : "Verify with World ID"}
+          {busy ? "Opening World ID…" : "Verify prize claim"}
         </button>
       )}
       {error && <p role="alert">{error}</p>}

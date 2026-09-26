@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@mysten/sui": "2.33.1"
+    "@mysten/sui": "2.33.1",
+    "@noble/hashes": "^2.4.0"
   }
 }

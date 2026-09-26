@@ -3,9 +3,9 @@ import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-ki
 import { bcs } from "@mysten/sui/bcs";
 import { Transaction } from "@mysten/sui/transactions";
 import type { BeatmapData } from "@/lib/beatmapParser";
-import { chartFromBeatmap } from "@/lib/sui/chart";
+import { chartFromBeatmap, chartHash } from "@/lib/sui/chart";
 import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
-import { suiDeployment } from "@/lib/sui/competition";
+import { configured, difficultyCode, suiDeployment } from "@/lib/sui/competition";
 import { useGameStore } from "@/stores/gameStore";
 import type { PlayResults } from "@/types";
 
@@ -94,13 +94,32 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
     tx.moveCall({
       target: `${suiDeployment.packageId}::competition::attempt_recorded`,
       typeArguments: [suiDeployment.usdcType],
-      arguments: [tx.object(suiDeployment.competitionId), tx.pure.address(attempt.sessionId)],
+      arguments: [tx.object(attempt.challengeId), tx.pure.address(attempt.sessionId)],
     });
     const result = await client.simulateTransaction({ transaction: tx, include: { commandResults: true }, checksEnabled: false });
     const bytes = result.Transaction && result.commandResults?.[0]?.returnValues?.[0]?.bcs;
     if (!bytes) throw new Error("Could not check this score on Sui.");
     return bcs.bool().parse(bytes);
-  }, [attempt?.sessionId, attempt?.player, client]);
+  }, [attempt?.sessionId, attempt?.player, attempt?.challengeId, client]);
+
+  async function assertOpenScoreWindow() {
+    if (!attempt || !Number.isSafeInteger(attempt.scoreDeadlineMs)) throw new Error("Paid session has no valid Sui score deadline.");
+    const [{ object: challenge }, { object: clock }] = await Promise.all([
+      client.getObject({ objectId: attempt.challengeId, include: { json: true } }),
+      client.getObject({ objectId: "0x6", include: { json: true } }),
+    ]);
+    const chainDeadline = challenge?.json?.score_deadline_ms;
+    const chainTime = clock?.json?.timestamp_ms;
+    const validTime = (value: unknown): value is number | string =>
+      typeof value === "number" ? Number.isSafeInteger(value) && value >= 0 :
+        typeof value === "string" && /^\d+$/.test(value);
+    if (challenge?.type !== `${suiDeployment.packageId}::competition::Challenge<${suiDeployment.usdcType}>` ||
+        !validTime(chainDeadline) || !validTime(chainTime) ||
+        BigInt(chainDeadline) !== BigInt(attempt.scoreDeadlineMs)) {
+      throw new Error("Paid session deadline does not match this Sui challenge.");
+    }
+    if (BigInt(chainTime) >= BigInt(chainDeadline)) throw new Error("The six-hour Sui score window closed before proof submission.");
+  }
 
   async function sendStage(tx: Transaction) {
     const result = await wallet.signAndExecuteTransaction({ transaction: tx });
@@ -118,11 +137,17 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
     setSubmitting(true);
     setMessage("");
     try {
+      if (!configured || attempt.challengeId !== suiDeployment.challengeId ||
+          beatmap.sourceHash !== attempt.webBeatmapHash ||
+          (await chartHash(chartFromBeatmap(beatmap))).toLowerCase() !== suiDeployment.charts[attempt.difficulty].toLowerCase()) {
+        throw new Error("This signed run does not match its selected challenge chart.");
+      }
       if (await confirmOnChain()) {
         setAccepted(true);
         setMessage("The signed score was already accepted on Sui.");
         return;
       }
+      await assertOpenScoreWindow();
       if (plan.sessionId !== attempt.sessionId || plan.registryId !== suiDeployment.registryId || plan.packageId !== suiDeployment.packageId) {
         throw new Error("Proof does not match this paid Sui session.");
       }
@@ -202,17 +227,20 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
       tx.moveCall({
         target: `${suiDeployment.packageId}::competition::record_score`,
         typeArguments: [suiDeployment.usdcType],
-        arguments: [tx.object(suiDeployment.competitionId), tx.object(attempt.sessionId), tx.object.clock()],
+        arguments: [tx.object(attempt.challengeId), tx.object(attempt.sessionId), tx.object.clock()],
       });
+      await assertOpenScoreWindow();
       setMessage("Confirm the signed score transaction in your Sui wallet…");
       const sent = await wallet.signAndExecuteTransaction({ transaction: tx });
       if (!sent.Transaction) throw new Error("Score transaction was rejected. Recheck this proof without consuming another play.");
       const confirmed = await client.waitForTransaction({ digest: sent.Transaction.digest, include: { events: true } });
-      if (!confirmed.Transaction?.status.success || !confirmed.Transaction.events?.some((event) =>
-        event.eventType.endsWith("::competition::PaidScoreRecorded") &&
-        (event.json as { session?: string }).session === attempt.sessionId)) {
-        throw new Error("No accepted Sui score was recorded for this session. Recheck before resubmitting.");
-      }
+      if (!confirmed.Transaction?.status.success || !confirmed.Transaction.events?.some((event) => {
+        const value = event.json;
+        return event.eventType.endsWith("::competition::PaidScoreRecorded") &&
+          value && typeof value === "object" && "session" in value && "challenge" in value && "difficulty" in value && "wallet" in value &&
+          value.session === attempt.sessionId && value.challenge === attempt.challengeId && value.wallet === attempt.player &&
+          Number(value.difficulty) === difficultyCode(attempt.difficulty);
+      })) throw new Error("No accepted Sui score was recorded for this selected challenge and difficulty. Recheck before resubmitting.");
       setAccepted(true);
       setMessage(`Bridge score ${plan.result?.score?.toLocaleString() ?? ""} accepted on Sui.`);
       try { localStorage.removeItem(`sui-trace-upload:${attempt.sessionId}`); } catch { /* Optional checkpoint. */ }

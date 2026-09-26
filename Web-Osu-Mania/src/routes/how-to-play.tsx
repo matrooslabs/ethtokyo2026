@@ -8,7 +8,7 @@ export const Route = createFileRoute("/how-to-play")({
   component: HowToPlayPage,
   head: () => ({ meta: [
     { title: "How to play · versu!" },
-    { name: "description", content: "Four keys, three plays per payment, one verified winner." },
+    { name: "description", content: "Play Forest of Clock Easy or Hard with four keys. Verified players share one six-hour challenge pot." },
   ] }),
 });
 
@@ -25,17 +25,17 @@ function HowToPlayPage() {
         <p>Tap short notes. Hold long notes until the tail. Press chords together.</p>
       </section>
       <section id="entry" className="arena-guide scroll-mt-20">
-        <h2>Start a run</h2>
+        <h2>Choose your chart</h2>
         <ol>
-          <li>Connect your Sui wallet, then verify your identity with World ID.</li>
-          <li>Connect the approved controller on a desktop browser.</li>
-          <li>Buy 3 plays for 1 {coinLabel}. Set your speed before starting; each start uses 1 play.</li>
+          <li>Choose Forest of Clock Easy or Hard. Both charts share one six-hour challenge.</li>
+          <li>Connect the approved controller and your Sui wallet. A run starts only while enough time remains to finish and submit its proof.</li>
+          <li>Buy 3 shared play credits for 1 {coinLabel}, then set your speed. Each paid start spends 1 credit on either chart, even if the run is interrupted.</li>
         </ol>
       </section>
       <section id="results" className="arena-guide scroll-mt-20">
-        <h2>Win the pot</h2>
-        <p>Finish a run and submit its signed score. Only scores verified on Sui rank. The top wallet gets the pot after the round.</p>
-        <p>No device? You can still see the leaderboard or claim a prize. If nobody records a score, buyers can get a refund.</p>
+        <h2>Claim a share</h2>
+        <p>Submit your controller-signed score before the six-hour deadline. Easy and Hard have separate verified standings, but all purchases fund one pot: 30% for Easy and 70% for Hard. Each chart pays its top five eligible players 40%, 20%, 20%, 10%, 10% of that chart’s slice.</p>
+        <p>After scoring closes, verify with World ID to claim one wallet on one chart. Unclaimed shares return to the buyers; they do not increase a winner’s share.</p>
       </section>
     </DocsLayout>
   );

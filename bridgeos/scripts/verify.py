@@ -19,10 +19,10 @@ def require(test, description):
     if not test:
         raise SystemExit('FAILED invariant: ' + description)
 
-require(profile in ('production', 'debug', 'optee-debug', 'optee-runtime', 'signed-lab', 'hardware-root'),
+require(profile in ('production', 'debug', 'optee-debug', 'optee-capacity-lab', 'rng-lab', 'optee-runtime', 'signed-lab', 'hardware-root'),
         'known profile')
-debug_profile = profile in ('debug', 'optee-debug', 'signed-lab')
-optee_profile = profile in ('optee-debug', 'optee-runtime', 'signed-lab', 'hardware-root')
+debug_profile = profile in ('debug', 'optee-debug', 'optee-capacity-lab', 'rng-lab', 'signed-lab')
+optee_profile = profile in ('optee-debug', 'optee-capacity-lab', 'rng-lab', 'optee-runtime', 'signed-lab', 'hardware-root')
 require(config.is_file(), 'Buildroot .config')
 build_config = config.read_text()
 require('BR2_aarch64=y' in build_config, 'aarch64 Buildroot target')
@@ -155,6 +155,16 @@ if profile in ('hardware-root', 'signed-lab'):
                               check=True, capture_output=True, text=True).stdout.strip()
         require(f'bridgeos.profile={profile}' in args and 'rdinit=/init' in args,
                 'signed FDT owns appliance boot arguments')
+    if profile == 'signed-lab':
+        published = images / 'boot-key-identity.json'
+        require(published.is_file(), 'public boot-key identity record')
+        with tempfile.TemporaryDirectory(prefix='zero3-key-verification-') as scratch:
+            computed = Path(scratch) / 'identity.json'
+            subprocess.run([str(project / 'scripts/boot-key-identity.py'),
+                            str(project / 'sources/boot-firmware/out-optee-signed-lab/u-boot-spl-pubkey.dtb'),
+                            str(trusted), str(computed)], check=True, capture_output=True)
+            require(published.read_bytes() == computed.read_bytes(),
+                    'public boot key fingerprint matches both signed stages')
     boot_fit = subprocess.run([str(debugfs), '-R', 'stat /boot/kernel.itb', str(boot_image)],
                               capture_output=True, text=True, check=True)
     require('Inode:' in boot_fit.stdout, 'signed kernel FIT in boot partition')
@@ -172,7 +182,8 @@ else:
         require(entry in extlinux, 'boot configuration entry ' + entry)
 root = out / 'target'
 require((root / 'init').exists(), '/init')
-require((root / 'usr/bin/bridge-daemon').exists(), 'bridge daemon')
+if profile != 'rng-lab':
+    require((root / 'usr/bin/bridge-daemon').exists(), 'bridge daemon')
 cpio = out / 'host/bin/cpio'
 require(cpio.is_file(), 'Buildroot host cpio')
 with subprocess.Popen(['gzip', '-dc', str(images / 'rootfs.cpio.gz')], stdout=subprocess.PIPE) as unpack:
@@ -181,23 +192,53 @@ with subprocess.Popen(['gzip', '-dc', str(images / 'rootfs.cpio.gz')], stdout=su
     unpack.stdout.close()
     require(unpack.wait() == 0, 'readable compressed initramfs')
 members = {name.removeprefix('./').lstrip('/') for name in listing.stdout.splitlines()}
-required_members = {'init', 'usr/bin/bridge-daemon', 'usr/sbin/bridge-gadget',
-                    'usr/sbin/bridge-rt-policy', 'etc/init.d/S03optee-stage',
-                    'etc/init.d/S99bridge'}
-require(required_members <= members, 'bridge daemon, gadget policy and init in CPIO')
+required_members = {'init', 'etc/init.d/S03optee-stage'}
+if profile != 'rng-lab':
+    required_members |= {'usr/bin/bridge-daemon', 'usr/sbin/bridge-gadget',
+                         'usr/sbin/bridge-rt-policy', 'etc/init.d/S99bridge'}
+require(required_members <= members, 'required initramfs programs and init scripts')
 if debug_profile:
-    require({'etc/init.d/S99zzdiag', 'etc/bridge-rt.conf'} <= members,
-            'debug diagnostics and bridge startup configuration')
-    if optee_profile:
-        require({'usr/bin/osumania-optee-test',
-                 'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'} <= members,
-                'OP-TEE smoke client and constrained TA')
-        mode = 'signed-lab' if profile == 'signed-lab' else 'dev'
-        expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
-        description = 'source OP-TEE debug firmware matches selected signed/unsigned profile'
+    require('etc/init.d/S99zzdiag' in members, 'Mac-readable debug diagnostics')
+    if profile == 'rng-lab':
+        for forbidden in ('etc/init.d/S99bridge', 'etc/bridge-rt.conf',
+                          'usr/bin/bridge-daemon', 'usr/bin/osumania-optee-test',
+                          'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta',
+                          'usr/share/osumania/srs-g1-be.bin'):
+            require(forbidden not in members, 'no signing surface in RNG lab: ' + forbidden)
+        require((root / 'etc/optee-runtime-mode').read_text().strip() == 'rng-lab',
+                'explicit laboratory-only marker')
+        core = project / 'sources/optee-os-artifacts/rng-lab/tee.elf'
+        require(core.is_file(), 'isolated OP-TEE core artifact')
+        compiled = core.read_bytes()
+        require(b'BridgeOS-dev-HUK' not in compiled,
+                'no embedded development HUK in laboratory core')
+        expected_firmware = project / 'sources/boot-firmware/out-optee-rng-lab/u-boot-rockchip.bin'
+        description = 'isolated RNG lab firmware matches SD image'
     else:
-        expected_firmware = project / 'sources/boot-firmware/out/u-boot-rockchip.bin'
-        description = 'debug flash image uses known-bootable baseline firmware'
+        require('etc/bridge-rt.conf' in members, 'debug bridge startup configuration')
+        if optee_profile:
+            require({'usr/bin/osumania-optee-test',
+                     'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'} <= members,
+                    'OP-TEE smoke client and constrained TA')
+            mode = 'signed-lab' if profile == 'signed-lab' else 'dev'
+            expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
+            description = 'source OP-TEE debug firmware matches selected signed/unsigned profile'
+            if profile == 'optee-capacity-lab':
+                bank = root / 'usr/share/osumania/srs-g1-be.bin'
+                pinned = locked['device_srs_ceremony']
+                require(bank.is_file() and bank.stat().st_size == pinned['device_point_count'] * 64,
+                        '200000-point ceremony-derived bank installed')
+                with bank.open('rb') as stream:
+                    require(hashlib.file_digest(stream, 'sha256').hexdigest() == pinned['device_bank_sha256'],
+                            'capacity lab SRS matches pinned PSE bank')
+                require('BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO=y' not in build_config,
+                        'capacity lab does not package 260-point development SRS')
+                srs_manifest = json.loads((root / 'usr/share/osumania/srs-manifest.json').read_text())
+                require(srs_manifest['hardwareKey'] is False and srs_manifest['production'] is False,
+                        'capacity lab cannot advertise a hardware key')
+        else:
+            expected_firmware = project / 'sources/boot-firmware/out/u-boot-rockchip.bin'
+            description = 'debug flash image uses known-bootable baseline firmware'
     require(expected_firmware.is_file() and
             hashlib.sha256(firmware.read_bytes()).digest() == hashlib.sha256(expected_firmware.read_bytes()).digest(),
             description)
@@ -262,6 +303,8 @@ files = [images / x for x in ('kernel.config', 'buildroot.config', 'sources.lock
 files.extend(dtbs)
 if profile in ('hardware-root', 'signed-lab'):
     files.append(images / 'kernel.itb')
+if profile == 'signed-lab':
+    files.append(images / 'boot-key-identity.json')
 if debug_profile:
     files.append(images / 'diag.vfat')
 with (images / 'SHA256SUMS').open('w') as sums:

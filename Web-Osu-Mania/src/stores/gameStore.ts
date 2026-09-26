@@ -1,6 +1,6 @@
 import type { PaidAttempt } from "@/lib/sui/paidAttempt";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
-import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
+import { getBundledBeatmapSet, getPracticeBeatmapSet, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
 import { createSelectors } from "@/lib/zustand";
 import type { ReplayData } from "@/osuMania/systems/replayRecorder";
 import { Howler } from "howler";
@@ -61,17 +61,16 @@ const useGameStoreBase = create<GameState>()(
     startReplay: async (replay: ReplayData) => {
 
       try {
-        const beatmapSet = await getBundledBeatmapSet();
-        const beatmap = beatmapSet.beatmaps.find(
-          (entry) =>
-            entry.cs === 4 &&
-            replay.beatmap.hash === entry.hash &&
-            (!("id" in replay.beatmap) ||
-              (replay.beatmap.setId === beatmapSet.id &&
-                replay.beatmap.id === entry.id)),
-        );
+        const match = (set: BeatmapSet) => set.beatmaps.find((entry) =>
+          entry.cs === 4 && replay.beatmap.hash === entry.hash &&
+          (!("id" in replay.beatmap) || (replay.beatmap.setId === set.id && replay.beatmap.id === entry.id)));
+        const practice = !("id" in replay.beatmap) || replay.beatmap.setId === PRACTICE_BEATMAP_SET_ID
+          ? await getPracticeBeatmapSet() : null;
+        const practiceMap = practice && match(practice);
+        const beatmapSet = practiceMap ? practice : await getBundledBeatmapSet();
+        const beatmap = practiceMap || match(beatmapSet);
         if (!beatmap) {
-          toast("Replay does not match the bundled beatmap.");
+          toast("Replay does not match a bundled chart.");
           return;
         }
         set((state) => {

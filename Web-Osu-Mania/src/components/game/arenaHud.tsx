@@ -34,7 +34,7 @@ export default function ArenaHud({
           {arena.pot ?? "-"}
           <span>USDC</span>
         </div>
-        <small>1st place takes the entire pot</small>
+        <small>Top 5 verified players share the pot</small>
       </aside>
       <aside className="arena-game-rankings">
         <h2>Leaderboard</h2>

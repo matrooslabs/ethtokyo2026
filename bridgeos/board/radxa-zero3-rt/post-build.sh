@@ -8,7 +8,7 @@ rm -f "$target/etc/init.d/S01syslogd" "$target/etc/init.d/S02klogd" \
 rm -rf "$target/usr/lib/systemd"
 rm -f "$target/lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta"
 case "${2:-}" in
-optee-debug|optee-runtime|hardware-root|signed-lab)
+optee-debug|optee-capacity-lab|optee-runtime|hardware-root|signed-lab)
     project="$(cd "$(dirname "$0")/../.." && pwd)"
     mode=dev
     if [ "${2:-}" = hardware-root ]; then mode=hardware; fi
@@ -19,7 +19,7 @@ optee-debug|optee-runtime|hardware-root|signed-lab)
     supplicant_init="$target/etc/init.d/S30tee-supplicant"
     test -s "$supplicant_init" || { echo "Missing tee-supplicant init script" >&2; exit 1; }
     sed -i 's|^DAEMON_ARGS=.*|DAEMON_ARGS="-d /dev/teepriv0 -f /run/tee"|' "$supplicant_init"
-    if [ "${2:-}" = optee-debug ] || [ "${2:-}" = signed-lab ]; then
+    if [ "${2:-}" = optee-debug ] || [ "${2:-}" = optee-capacity-lab ] || [ "${2:-}" = signed-lab ]; then
         sed -i 's/^OSUMANIA_SIGNER_BACKEND=.*/OSUMANIA_SIGNER_BACKEND=optee/' \
             "$target/etc/bridge-rt.conf"
         printf '%s\n' optee-source-runtime > "$target/etc/optee-runtime-mode"
@@ -34,6 +34,18 @@ optee-debug|optee-runtime|hardware-root|signed-lab)
         test -s "$srs" || { echo 'Approved SRS artifact missing' >&2; exit 1; }
         install -D -m 0444 "$srs" "$target/usr/share/osumania/srs-g1-be.bin"
     fi
+    if [ "${2:-}" = optee-capacity-lab ]; then
+        : "${OSUMANIA_CAPACITY_SRS_BANK:?capacity lab requires the verified external 200000-point SRS bank}"
+        python3 "$project/scripts/install-capacity-srs.py" "$OSUMANIA_CAPACITY_SRS_BANK" \
+            "$target/usr/share/osumania"
+    fi
+;;
+rng-lab)
+    rm -f "$target/etc/init.d/S99bridge" "$target/etc/bridge-rt.conf" \
+          "$target/usr/bin/osumania-optee-test" \
+          "$target/lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta" \
+          "$target/usr/share/osumania/srs-g1-be.bin"
+    printf '%s\n' 'rng-lab' > "$target/etc/optee-runtime-mode"
 ;;
 *) rm -f "$target/usr/bin/osumania-optee-test" ;;
 esac

@@ -5,8 +5,7 @@ export default function HardwareGate({ hardware }: { hardware: BridgeHardware })
   const { phase, info, status, error, connect, refresh } = hardware;
   return (
     <section aria-label="Controller required" className="arena-hardware-gate" role="status">
-      <h2>Connect the controller</h2>
-      <p>Play requires the approved four-key device.</p>
+      <h2>Controller</h2>
       {phase === 'unsupported' && (
         <p>Use a desktop browser with WebHID over HTTPS.</p>
       )}

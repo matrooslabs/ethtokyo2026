@@ -3,7 +3,7 @@ import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import { parseOsz } from "@/lib/beatmapParser";
-import { getBundledBeatmapFile } from "@/lib/bundledBeatmap";
+import { getBundledBeatmapFile, getPracticeBeatmapFile, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
 import { generateAutoReplay } from "@/lib/replay";
 import { loadAssets } from "@/osuMania/assets";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,7 +52,8 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
 
       let beatmapSetFile: Blob;
       try {
-        beatmapSetFile = await getBundledBeatmapFile();
+        beatmapSetFile = await (beatmapSet.id === PRACTICE_BEATMAP_SET_ID && !paidAttempt
+          ? getPracticeBeatmapFile() : getBundledBeatmapFile());
         setDownloadPercent(100);
       } catch (error) {
         toast("Beatmap Load Error", {
@@ -93,10 +94,8 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
               "Paid entry chart does not match the loaded beatmap.",
             );
           }
-          if (Date.now() / 1000 >= (paidAttempt.dayId + 1) * 86400) {
-            throw new Error(
-              "Paid round has closed. Return to the competition to check settlement.",
-            );
+          if (!Number.isSafeInteger(paidAttempt.scoreDeadlineMs) || Date.now() >= paidAttempt.scoreDeadlineMs) {
+            throw new Error("The six-hour challenge score window has closed. Return to the competition to check settlement.");
           }
         }
 

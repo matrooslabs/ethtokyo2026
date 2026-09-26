@@ -4,14 +4,14 @@ project="$(cd "$(dirname "$0")/.." && pwd)"
 export SOURCE_DATE_EPOCH=1779278600
 mode="${1:-dev}"
 case "$mode" in
-    dev|signed-lab|hardware) ;;
-    *) echo "Usage: $0 [dev|signed-lab|hardware]" >&2; exit 2 ;;
+    dev|rng-lab|signed-lab|hardware) ;;
+    *) echo "Usage: $0 [dev|rng-lab|signed-lab|hardware]" >&2; exit 2 ;;
 esac
 if [ "$mode" = hardware ]; then
-    echo 'REFUSED: hardware-root is gated until reviewed HUK offset, secure RNG and ROM trust anchor provisioning, plus a noninteractive halt-on-boot-failure path; use signed-lab for pre-OTP validation.' >&2
+    echo 'REFUSED: TA-only hardware-key firmware needs an approved, provisioned RK3566 Secure OTP root and qualified Secure World RNG. No OTP provisioning is implemented. ROM enforcement against replacement BL32 is a separate stronger requirement.' >&2
     exit 1
 fi
-if [ "$mode" != dev ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
     : "${BOOT_SIGN_KEY_DIR:?Signed firmware requires an external BOOT_SIGN_KEY_DIR containing boot.key, boot.crt and boot.pubkey}"
     keydir="$(realpath -e "$BOOT_SIGN_KEY_DIR")"
     case "$keydir/" in "$(dirname "$project")/"*)
@@ -40,7 +40,7 @@ else
     "$project/scripts/build-optee.sh" "$mode"
 fi
 firmware="$project/sources/boot-firmware"
-build="$firmware/build"
+build="${FIRMWARE_SOURCE_BUILD_DIR:-$firmware/build}"
 out="$firmware/out-optee-$mode"
 cross="${CROSS_COMPILE64:-$project/output-debug/host/bin/aarch64-buildroot-linux-gnu-}"
 [ -x "${cross}gcc" ] || cross="$project/output/host/bin/aarch64-buildroot-linux-musl-"
@@ -103,7 +103,7 @@ make -C "$uboot" CROSS_COMPILE="$uboot_cross" mrproper
 make -C "$uboot" CROSS_COMPILE="$uboot_cross" radxa-zero-3-rk3566_defconfig
 "$uboot/scripts/config" --file "$uboot/.config" -e SPL_OPTEE_IMAGE \
     --set-val OPTEE_TZDRAM_SIZE 0x02000000
-if [ "$mode" != dev ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
     "$uboot/scripts/config" --file "$uboot/.config" -e BRIDGEOS_SIGNED_BOOT \
         -d LEGACY_IMAGE_FORMAT -d BOOTSTD -d BOOTSTD_FULL \
         -d BOOTMETH_EXTLINUX -d BOOTMETH_EXTLINUX_PXE \
@@ -111,11 +111,12 @@ if [ "$mode" != dev ]; then
         -d BOOTMETH_SCRIPT -d BOOTMETH_DISTRO \
         -d CMD_BOOTI -d CMD_BOOTZ -d CMD_GO -d CMD_ELF -d CMD_SOURCE \
         -d CMD_BOOTEFI -d BOOTM_EFI -d BOOTM_ELF \
+        -e AUTOBOOT_KEYED -d AUTOBOOT_KEYED_CTRLC \
         --set-val BOOTDELAY -2 \
-        --set-str BOOTCOMMAND 'if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi'
+        --set-str BOOTCOMMAND 'if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi; while true; do reset; sleep 1; done'
 fi
 make -C "$uboot" olddefconfig CROSS_COMPILE="$uboot_cross"
-if [ "$mode" != dev ]; then
+if [ "$mode" != dev ] && [ "$mode" != rng-lab ]; then
     for setting in CONFIG_BRIDGEOS_SIGNED_BOOT=y CONFIG_SPL_FIT_SIGNATURE=y CONFIG_FIT_SIGNATURE=y CONFIG_SPL_SHA256=y CONFIG_RSA_VERIFY=y; do
         grep -qx "$setting" "$uboot/.config" || { echo "Signed firmware requires $setting" >&2; exit 1; }
     done
@@ -128,8 +129,10 @@ if [ "$mode" != dev ]; then
         ! grep -qx "$forbidden" "$uboot/.config" || { echo "Unsigned boot path still enabled: $forbidden" >&2; exit 1; }
     done
     grep -qx 'CONFIG_BOOTDELAY=-2' "$uboot/.config" || { echo 'Autoboot must be uninterruptible' >&2; exit 1; }
-    grep -Fqx 'CONFIG_BOOTCOMMAND="if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi"' "$uboot/.config" || {
-        echo 'Signed boot command not selected' >&2; exit 1;
+    grep -qx 'CONFIG_AUTOBOOT_KEYED=y' "$uboot/.config" || { echo 'Ctrl-C must be disabled during signed boot' >&2; exit 1; }
+    ! grep -qx 'CONFIG_AUTOBOOT_KEYED_CTRLC=y' "$uboot/.config" || { echo 'Ctrl-C autoboot escape still enabled' >&2; exit 1; }
+    grep -Fqx 'CONFIG_BOOTCOMMAND="if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi; while true; do reset; sleep 1; done"' "$uboot/.config" || {
+        echo 'Signed boot command does not fail closed' >&2; exit 1;
     }
     # Compile DTBs before binman; the patched U-Boot build rule inserts the
     # kernel verification key in u-boot.dtb, even if make rebuilds that DTB.
@@ -141,7 +144,7 @@ if [ "$mode" != dev ]; then
         echo 'U-Boot control DTB has no required boot key' >&2; exit 1;
     }
 fi
-if [ "$mode" = dev ]; then
+if [ "$mode" = dev ] || [ "$mode" = rng-lab ]; then
     make -C "$uboot" -j"${JOBS:-$(nproc)}" CROSS_COMPILE="$uboot_cross" \
         PYTHON3="$host/bin/python3" BL31="$bl31" TEE="$tee" ROCKCHIP_TPL="$ddr" \
         KBUILD_BUILD_USER=builder KBUILD_BUILD_HOST=build
@@ -242,7 +245,7 @@ PY
 fi
 cp "$bl31" "$out/bl31.elf"
 cp "$tee" "$out/tee-raw.bin"
-if [ "$mode" = dev ]; then
+if [ "$mode" = dev ] || [ "$mode" = rng-lab ]; then
     sha256sum "$out"/u-boot-rockchip.bin "$out"/u-boot.itb "$out"/bl31.elf "$out"/tee-raw.bin > "$out/SHA256SUMS"
 else
     sha256sum "$out"/u-boot-rockchip.bin "$out"/idbloader.img "$out"/u-boot.itb \
