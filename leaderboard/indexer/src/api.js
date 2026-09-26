@@ -76,7 +76,7 @@ export function createApi(indexer, { corsOrigin = '*' } = {}) {
         if (parts[2] === 'attempts') data = list(filterRows([...view.attempts.values()].filter(row => walletMatches(row, wallet))));
         else if (parts[2] === 'history') data = list(filterRows(view.history.filter(row => walletMatches(row, wallet))));
         else if (parts[2] === 'bests') data = list(filterRows([...view.rounds.values()].flatMap(round => round.rankings
-          .filter(row => row.player === wallet).map(row => ({ chartHash: round.chartHash, dayId: round.dayId, ...row })))));
+          .filter(row => row.player === wallet).slice(0, 1).map(row => ({ chartHash: round.chartHash, dayId: round.dayId, ...row })))));
       }
       if (data === undefined) throw new HttpError(404, 'Route not found');
       res.writeHead(200); res.end(json(data));
