@@ -1,3 +1,8 @@
+import {
+  ArcadeMedal,
+  ArcadeCreditLine,
+  ArcadeLobbyBar,
+} from "./arcadeIdentity";
 import MacWindowTitle from "../macWindowTitle";
 import { paidSession } from "@/lib/leaderboard/receipts";
 import RecoveredAttempts from "./recoveredAttempts";
@@ -105,6 +110,7 @@ export default function DailyCompetition({
       : wallNow;
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
+  const playButton = useRef<HTMLButtonElement>(null);
   const [message, setMessage] = useState("");
   const [txHash, setTxHash] = useState<Hex>();
   const [demoAcknowledged, setDemoAcknowledged] = useState(false);
@@ -468,7 +474,7 @@ export default function DailyCompetition({
                     </div>
                     {row.rank === 1 && (
                       <span className="arena-fire">
-                        <Flame size={23} /> ON FIRE
+                        <Flame size={23} /> LEADER
                       </span>
                     )}
                   </div>
@@ -529,6 +535,7 @@ export default function DailyCompetition({
           <ArrowLeft size={16} /> Back to current leaderboard
         </button>
       )}
+      {screen === "home" && <ArcadeLobbyBar />}
       {screen === "home" && (
         <section className="arena-hero">
           <div className="arena-hero-copy">
@@ -539,33 +546,33 @@ export default function DailyCompetition({
               <span>Take the pot.</span>
             </h1>
             <p className="arena-intro">
-              Play for the highest score. Win the entire pot.
+              One daily beatmap. Every entry builds the prize. Set the highest
+              score and take it all.
             </p>
             <div className="arena-play-row">
               <button
+                ref={playButton}
                 className="arena-primary arena-play"
                 onClick={() =>
                   pendingAttempt ? setScreen("setup") : setPaymentOpen(true)
                 }
               >
-                Play Osu! <Play size={25} fill="currentColor" />
+                Play osu! <Play size={25} fill="currentColor" />
               </button>
               <div>
                 <strong>1 USDC per play</strong>
               </div>
             </div>
+            <ArcadeCreditLine />
           </div>
           <aside className="arena-pot">
-            <img
-              className="arena-trophy-art"
-              src={`${import.meta.env.BASE_URL}art/arcade-trophy.webp`}
-              alt=""
-              width="1254"
-              height="1254"
-              fetchPriority="high"
-            />
+            <div className="arena-pot-heading">
+              <span>PRIZE POOL</span>
+              <span aria-hidden="true" />
+            </div>
             <div className="arena-pot-content">
-              <p className="arena-label">CURRENT PRIZE POT</p>
+              <ArcadeMedal />
+              <p className="arena-label">WINNER TAKES ALL</p>
               <div className="arena-pot-value">
                 {pot}
                 <span>USDC</span>
@@ -772,6 +779,15 @@ export default function DailyCompetition({
         <DialogContent
           className="arena-payment"
           aria-describedby="payment-description"
+          onCloseAutoFocus={(event) => {
+            // This controlled dialog is opened outside a Radix DialogTrigger.
+            event.preventDefault();
+            if (!waitingForWallet) {
+              (
+                playButton.current ?? document.getElementById("main-content")
+              )?.focus();
+            }
+          }}
         >
           <MacWindowTitle
             closeLabel="Close payment"

@@ -15,14 +15,14 @@ const WalletProvider = ({ children }: { children: ReactNode }) => (
       <RainbowKitProvider
         theme={{
           lightMode: lightTheme({
-            accentColor: "#b7e65c",
-            accentColorForeground: "#191c16",
+            accentColor: "#aa4823",
+            accentColorForeground: "#faf6ed",
             borderRadius: "none",
             fontStack: "system",
           }),
           darkMode: darkTheme({
-            accentColor: "#b7e65c",
-            accentColorForeground: "#191c16",
+            accentColor: "#e99a73",
+            accentColorForeground: "#29231e",
             borderRadius: "none",
             fontStack: "system",
           }),

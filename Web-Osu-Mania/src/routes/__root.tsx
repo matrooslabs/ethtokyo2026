@@ -15,7 +15,8 @@ import {
 import appCss from "../styles/globals.css?url";
 
 const title = "osu! arena · ETH Tokyo";
-const description = "One beatmap. One top spot. Play osu!mania, compete for the daily leaderboard, and win the USDC prize pot.";
+const description =
+  "One beatmap. One top spot. Play osu!mania, compete for the daily leaderboard, and win the USDC prize pot.";
 const ogImageUrl = `https://webosumania.com/opengraph-image.png`;
 
 export const Route = createRootRoute({
@@ -46,11 +47,6 @@ export const Route = createRootRoute({
       },
     ],
     links: [
-      {
-        rel: "preload",
-        href: `${import.meta.env.BASE_URL}art/arcade-trophy.webp`,
-        as: "image",
-      },
       {
         rel: "preload",
         href: `${import.meta.env.BASE_URL}fonts/Silkscreen-Regular.ttf`,
@@ -93,9 +89,16 @@ function RootLayout() {
       <body className="">
         <TooltipProvider>
           <WalletProvider>
+            <a className="arena-skip" href="#main-content">
+              Skip to content
+            </a>
             <Header />
 
-            <main className="[view-transition-name:main-content]">
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="[view-transition-name:main-content]"
+            >
               <Outlet />
             </main>
 

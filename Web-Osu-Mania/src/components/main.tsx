@@ -1,3 +1,8 @@
+import {
+  ArcadeMedal,
+  ArcadeCreditLine,
+  ArcadeLobbyBar,
+} from "./leaderboard/arcadeIdentity";
 import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { useEffect, useState } from "react";
@@ -19,6 +24,7 @@ export default function Main() {
   if (!beatmapSet || !beatmap)
     return (
       <div className="arena-loading" aria-busy={!error && !beatmapSet}>
+        <ArcadeLobbyBar />
         <section className="arena-hero">
           <div className="arena-hero-copy">
             <p className="arena-eyebrow">ON-CHAIN RHYTHM ARCADE</p>
@@ -28,7 +34,8 @@ export default function Main() {
               <span>Take the pot.</span>
             </h1>
             <p className="arena-intro">
-              Play for the highest score. Win the entire pot.
+              One daily beatmap. Every entry builds the prize. Set the highest
+              score and take it all.
             </p>
             <div className="arena-play-row">
               {error ? (
@@ -45,18 +52,16 @@ export default function Main() {
               )}
               <strong>1 USDC per play</strong>
             </div>
+            <ArcadeCreditLine />
           </div>
           <aside className="arena-pot">
-            <img
-              className="arena-trophy-art"
-              src={`${import.meta.env.BASE_URL}art/arcade-trophy.webp`}
-              alt=""
-              width="1254"
-              height="1254"
-              fetchPriority="high"
-            />
+            <div className="arena-pot-heading">
+              <span>PRIZE POOL</span>
+              <span aria-hidden="true" />
+            </div>
             <div className="arena-pot-content">
-              <p className="arena-label">CURRENT PRIZE POT</p>
+              <ArcadeMedal />
+              <p className="arena-label">WINNER TAKES ALL</p>
               <div className="arena-pot-value">
                 -<span>USDC</span>
               </div>
