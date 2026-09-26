@@ -3,6 +3,11 @@ pragma solidity ^0.8.28;
 
 import {GkrScoreVerifier} from "./GkrScoreVerifier.sol";
 
+interface IDailyScoreReceiver {
+    function registry() external view returns (address);
+    function recordVerifiedScore(bytes32 sessionId, uint32 score) external;
+}
+
 /// @notice Devices, charts, sessions and score recording for OSUMANIA_GKR_V1 (SPEC.md §8).
 /// @dev Session/device semantics follow sp1-scoring's ManiaScoreVerifier; the SP1 proof is replaced
 ///      by a GKR/sumcheck proof checked by `GkrScoreVerifier`. No escrow or payout.
@@ -63,10 +68,13 @@ contract ManiaGkrRegistry {
     address public immutable organizer;
     GkrScoreVerifier public immutable verifier;
     uint256 private nonce;
+    IDailyScoreReceiver public leaderboard;
+    mapping(bytes32 => bool) public paidSessions;
     mapping(address => Device) public devices;
     mapping(bytes32 => Chart) private charts;
     mapping(bytes32 => Session) private sessions;
 
+    event LeaderboardConfigured(address indexed leaderboard);
     event ChartRegistered(bytes32 indexed chartHash, uint64 notes, uint64 components);
     event SessionOpened(bytes32 indexed sessionId, address indexed player, address indexed device, uint8 mode);
     event ScoreAccepted(bytes32 indexed sessionId, address indexed player, uint32 score);
@@ -80,6 +88,27 @@ contract ManiaGkrRegistry {
     modifier onlyOrganizer() {
         require(msg.sender == organizer, "organizer only");
         _;
+    }
+
+    /// @notice One-time wiring after deploying the leaderboard with this registry address.
+    function setLeaderboard(address leaderboard_) external onlyOrganizer {
+        require(address(leaderboard) == address(0), "leaderboard already configured");
+        require(leaderboard_.code.length != 0, "invalid leaderboard");
+        require(IDailyScoreReceiver(leaderboard_).registry() == address(this), "wrong registry");
+        leaderboard = IDailyScoreReceiver(leaderboard_);
+        emit LeaderboardConfigured(leaderboard_);
+    }
+
+    /// @notice Paid attempts always use calldata mode and close at the next UTC midnight.
+    function openPaidSession(bytes32 chartHash, address player, address device, uint64 expiresAt)
+        external returns (bytes32 id)
+    {
+        require(msg.sender == address(leaderboard), "leaderboard only");
+        uint256 dayId = block.timestamp / 1 days;
+        require(expiresAt == (dayId + 1) * 1 days, "invalid paid deadline");
+        bytes32 matchId = keccak256(abi.encode(chartHash, dayId));
+        id = _createSession(matchId, chartHash, player, device, expiresAt, MODE_CALLDATA);
+        paidSessions[id] = true;
     }
 
     function setDevice(address signer, bytes32 bitstreamHash, bool active) external onlyOrganizer {
@@ -108,6 +137,12 @@ contract ManiaGkrRegistry {
         external
         onlyOrganizer
         returns (bytes32 id)
+    {
+        return _createSession(matchId, chartHash, player, device, expiresAt, mode);
+    }
+
+    function _createSession(bytes32 matchId, bytes32 chartHash, address player, address device, uint64 expiresAt, uint8 mode)
+        internal returns (bytes32 id)
     {
         require(block.chainid <= type(uint64).max, "chain id too large");
         require(devices[device].active && player != address(0), "invalid participant");
@@ -206,6 +241,7 @@ contract ManiaGkrRegistry {
         require(s.header.player != address(0) && !s.consumed, "unknown or consumed session");
         require(s.mode == mode, "wrong session mode");
         require(block.timestamp <= s.expiresAt, "session expired");
+        if (paidSessions[id]) require(block.timestamp < s.expiresAt, "paid round closed");
         require(s.header.chainId == block.chainid && s.header.verifier == address(this), "wrong domain");
         Device memory d = devices[s.header.device];
         require(d.active && d.bitstreamHash == s.header.bitstreamHash, "device revoked or changed");
@@ -246,6 +282,9 @@ contract ManiaGkrRegistry {
             s.judgements[i] = uint32(j[i]);
         }
         emit ScoreAccepted(s.header.sessionId, s.header.player, uint32(score));
+        if (paidSessions[s.header.sessionId]) {
+            leaderboard.recordVerifiedScore(s.header.sessionId, uint32(score));
+        }
     }
 
     /// @notice Mode A: the full trace is calldata; anyone may relay.
