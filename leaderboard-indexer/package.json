@@ -1,0 +1,9 @@
+{
+  "name": "daily-leaderboard-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": { "start": "node src/main.js", "test": "node --test", "rebuild": "node src/main.js --rebuild --once", "sync": "node src/main.js --once" },
+  "dependencies": { "viem": "^2.38.0" }
+}
