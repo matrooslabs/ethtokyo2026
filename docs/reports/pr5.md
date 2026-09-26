@@ -42,3 +42,9 @@ The user-provided WalletConnect project ID is in ignored `.env.local`; no signer
 Ignored `.env.local` was restored to the user-selected Sepolia board `0x35319a0232dfe355d1ab26641d0f77482b3ea1dd`, publicnode RPC, local bridge/indexer URLs and the original demo archive. The coordinator restarted the web server without development overrides and started the matching Sepolia bridge/indexer; the registered demo chart reports `ready:true` on chain11155111.
 
 Final read-only live configuration check: the restored client on localhost3015 rendered **Daily prize · Sepolia**, fetched the registered original demo from the live Sepolia bridge, and enabled **Enter daily competition · 1 USDC** after software-demo acknowledgment. No wallet was connected and no transaction was sent in this readiness check.
+
+## WalletConnect follow-up verification
+
+The coordinator reproduced the missing QR as an actual runtime crash: `cuer@0.0.3` calls `qr.encodeQR` with `border:0`, while installed `qr@0.7.0` rejects it. A scoped npm override now pins only cuer’s encoder to compatible `qr@0.5.5`; the lockfile records the exact release.
+
+The real browser dialog now renders the QR without page errors. The screenshot was independently decoded using macOS Vision and matched a WalletConnect v2 URI with IRN relay and pairing key; the raw URI is intentionally omitted. The reusable `tests/browser-qr.mjs` checks the actual QR SVG. Nine focused tests, typecheck and production build pass. This supersedes the earlier unverified QR result; physical phone pairing/signing is still unverified.

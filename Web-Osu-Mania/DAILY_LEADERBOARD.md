@@ -84,3 +84,9 @@ For isolated local integration testing, Vite development mode accepts `VITE_DEVE
 The opt-in browser test is `CHROME_EXECUTABLE=/path/to/chrome node tests/browser-local.mjs`. It requires the local 31337 deployment manifest, the running bridge on 8788 configured for `tests/fixtures/daily-demo.osu`, and the dev client on 3015. It refuses non-loopback RPC and non-31337 chain IDs, mints local test USDC, injects an unlocked local test wallet, completes actual gameplay, and submits that game's recorded replay to the real prover. It does not generate a synthetic replay or bypass the entry UI. It writes screenshots and replay evidence under `/tmp`. The test intentionally leaves the indexer unconfigured.
 
 Proof recovery checks on-chain session consumption first. A missing bridge job can resume the same paid session and saved replay once; an already accepted session finishes without another submission. A terminal job can only offer an explicit retry when the bridge marks it `retryable:true` (no broadcast transaction); retries with an existing transaction hash are prohibited by the bridge. The bridge persists submitted transaction checkpoints and reconciles them after restart.
+
+### WalletConnect QR compatibility
+
+`cuer` currently requests a borderless matrix (`border: 0`), but its broad `qr: ~0` dependency permits encoder releases that reject that option and crash the dialog. The scoped npm override pins `cuer` → `qr` to 0.5.5. Keep it until the renderer supports newer encoders; the QR regression test exercises the actual renderer entry point.
+
+With a project ID configured and the local server running, run `CHROME_EXECUTABLE=/path/to/chrome node tests/browser-qr.mjs` to check the rendered QR without pairing or signing. A real screenshot was independently decoded as a WalletConnect v2 URI. Physical phone pairing remains a separate check. Do not commit pairing URIs or QR screenshots.
