@@ -21,7 +21,7 @@ const arg = (name, dflt) => {
   return i >= 0 ? process.argv[i + 1] : dflt;
 };
 const ROOT = resolve(import.meta.dirname, '..');
-const BIN = join(ROOT, 'target/release/mania-gkr-sui');
+const BIN = join(ROOT, '../target/release/mania-gkr-sui');
 const SRS = resolve(arg('--srs', join(ROOT, 'artifacts/dev-srs-24.bin')));
 const CASE = arg('--case', 'bench3000');
 const MODES = arg('--modes', 'a,b').split(',');

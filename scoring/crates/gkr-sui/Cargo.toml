@@ -1,0 +1,32 @@
+[package]
+name = "mania-gkr-sui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sumcheck/GKR + Zeromorph (BLS12-381) proofs for OSUMANIA_ONCHAIN_RULESET_V1, verified on Sui"
+
+[lib]
+name = "mania_gkr_sui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mania-gkr-sui"
+path = "src/bin/mania-gkr-sui.rs"
+
+[dependencies]
+halo2curves.workspace = true
+rayon.workspace = true
+tiny-keccak.workspace = true
+sha2.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+k256.workspace = true
+mania-scoring-core.workspace = true
+
+[dev-dependencies]
+# Reference ZCash serialization (the format Sui's bls12381 natives use) for cross-checks.
+bls12_381.workspace = true

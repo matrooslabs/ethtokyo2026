@@ -1,7 +1,7 @@
 use mania_scoring_core::*;
 
 fn demo() -> PlayInput {
-    serde_json::from_str(include_str!("../../fixtures/demo.json")).unwrap()
+    serde_json::from_str(include_str!("../../../fixtures/demo.json")).unwrap()
 }
 
 // Resealing is allowed ONLY in synthetic tests; a real device signature would no longer match.
@@ -103,7 +103,7 @@ fn extra_edges_cannot_exceed_one_million_and_a_great_lowers_score() {
 
 #[test]
 fn perfect_fixture_is_one_million() {
-    let p: PlayInput = serde_json::from_str(include_str!("../../fixtures/perfect.json")).unwrap();
+    let p: PlayInput = serde_json::from_str(include_str!("../../../fixtures/perfect.json")).unwrap();
     let output = evaluate(&p).unwrap();
     assert_eq!(output.score, 1_000_000);
     assert_eq!(output.judgements, [5, 0, 0, 0, 0, 0]);
@@ -135,7 +135,7 @@ fn cross_language_golden_vector() {
     let p = demo();
     let actual = evaluate(&p).unwrap();
     let expected: serde_json::Value =
-        serde_json::from_str(include_str!("../../fixtures/demo.expected.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/demo.expected.json")).unwrap();
     let result: PublicValues = serde_json::from_value(expected["result"].clone()).unwrap();
     assert_eq!(actual, result);
     assert_eq!(actual.score, 987_500);
@@ -152,7 +152,7 @@ fn cross_language_golden_vector() {
 #[test]
 fn python_hash_chain_vectors_cover_empty_full_and_partial_chunks() {
     let vectors: std::collections::BTreeMap<String, Hash> =
-        serde_json::from_str(include_str!("../../fixtures/trace-vectors.json")).unwrap();
+        serde_json::from_str(include_str!("../../../fixtures/trace-vectors.json")).unwrap();
     let events: Vec<InputEvent> = (0..65)
         .map(|i| InputEvent {
             sequence: i,

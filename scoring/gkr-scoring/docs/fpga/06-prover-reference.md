@@ -83,7 +83,7 @@ squeeze()    : state = keccak256(state); challenge = integer_BE(state) mod r
 
 Chart registration은 별도 `OSUMANIA_GKR_CHART_V1` domain을 사용한다.
 
-주요 challenge/message 순서는 다음과 같다. 실제 구현을 이식할 때는 [prover](../../engine/src/scoring/prover.rs), [logup_gkr](../../engine/src/logup_gkr.rs), [zeromorph](../../engine/src/zeromorph.rs)와 verifier의 호출 순서를 그대로 대조한다.
+주요 challenge/message 순서는 다음과 같다. 실제 구현을 이식할 때는 [prover](../../../crates/gkr-evm/src/scoring/prover.rs), [logup_gkr](../../../crates/gkr-evm/src/logup_gkr.rs), [zeromorph](../../../crates/gkr-evm/src/zeromorph.rs)와 verifier의 호출 순서를 그대로 대조한다.
 
 | 단계 | 메시지와 challenge |
 |---|---|

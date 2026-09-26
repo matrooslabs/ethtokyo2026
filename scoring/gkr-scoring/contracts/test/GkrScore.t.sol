@@ -260,7 +260,7 @@ contract GkrScoreTest {
     function _proveSession(bytes32 id, string memory fixture, string memory mode) internal returns (uint256[] memory out) {
         ManiaGkrRegistry.Session memory s = registry.getSession(id);
         string[] memory cmd = new string[](10);
-        cmd[0] = "../target/release/mania-gkr";
+        cmd[0] = "../../target/release/mania-gkr";
         cmd[1] = "prove-session";
         cmd[2] = "--srs";
         cmd[3] = "../artifacts/dev-srs-22.bin";

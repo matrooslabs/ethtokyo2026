@@ -2,7 +2,7 @@
 
 이 문서의 **코드 요구사항**은 현재 Rust/Solidity와 일치해야 한다. **설계 제안**은 원본 코드에 구현되지 않은 장치 동작이다. transport framing은 [03](03-integration.md)에서 별도로 다룬다.
 
-근거: `engine/src/scoring/session.rs`, `api.rs`, `witness.rs::trace_rowmajor`, `field.rs`, `contracts/src/ManiaGkrRegistry.sol`. V1 공통 형식은 현재 빌드 의존성인 `mania-scoring-core`에서 가져온다.
+근거: `../crates/gkr-evm/src/scoring/session.rs`, `api.rs`, `witness.rs::trace_rowmajor`, `field.rs`, `contracts/src/ManiaGkrRegistry.sol`. V1 공통 형식은 현재 빌드 의존성인 `mania-scoring-core`에서 가져온다.
 
 ## 1. 입력 단위와 범위
 

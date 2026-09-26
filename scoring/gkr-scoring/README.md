@@ -1,12 +1,14 @@
 # GKR/sumcheck osu!mania scoring proofs
 
+Rust crates are members of the shared [scoring workspace](../README.md). Run the commands below from `scoring/gkr-scoring/`; Cargo discovers `scoring/Cargo.toml`, and binaries are written to `scoring/target/`.
+
 FPGA 입력 장치·모드 B commitment 구현은 [FPGA handoff 자료](docs/fpga/README.md)를 참고하세요. 바이트 규격, SRS ROM, 장치/sidecar 경계, 검증 벡터와 인수 기준을 포함합니다.
 
-`../core`의 **공통 채점 함수**(`OSUMANIA_ONCHAIN_RULESET_V1` = `core::evaluate`)를
+`../crates/scoring-core`의 **공통 채점 함수**(`OSUMANIA_ONCHAIN_RULESET_V1` = `core::evaluate`)를
 SP1 zkVM 대신 **채점 전용 sumcheck/GKR 증명 시스템**으로 증명하고, Solidity에서 직접 검증하는
 프로토타입입니다. SP1의 느린 proof 생성을 줄이는 것이 목표였습니다.
 
-The SP1 implementation has been removed. SP1 timing/size comparisons below are historical measurements, not an active build or runtime dependency. Shared semantics and fixtures now live in `../core` and `../fixtures`.
+The SP1 implementation has been removed. SP1 timing/size comparisons below are historical measurements, not an active build or runtime dependency. Shared semantics and fixtures now live in `../crates/scoring-core` and `../fixtures`.
 
 | 노트 / 이벤트 | **GKR prove (EVM 제출 가능)** | SP1 core prove (EVM 불가) | SP1 Groth16 (EVM 제출 가능) |
 |---|---:|---:|---:|
@@ -93,22 +95,22 @@ PSE Perpetual Powers of Tau(`ppot_0080_*.ptau`, 기여자 80명)로 SRS를 만�
 
 | 경로 | 내용 |
 |---|---|
-| `engine/` | Rust crate `mania-gkr`: field/transcript/MLE, logUp-GKR, Zeromorph KZG, 채점 관계식, witness, prover, native verifier, CLI |
-| `prove-server/` | 단일 binary HTTP 서버: play JSON을 보내면 GKR proof를 JSON으로 반환 ([문서](prove-server/README.md)) |
+| `../crates/gkr-evm/` | Rust crate `mania-gkr`: field/transcript/MLE, logUp-GKR, Zeromorph KZG, 채점 관계식, witness, prover, native verifier, CLI |
+| `../crates/prove-server-evm/` | 단일 binary HTTP 서버: play JSON을 보내면 GKR proof를 JSON으로 반환 ([문서](../crates/prove-server-evm/README.md)) |
 | `contracts/` | `GkrScoreVerifier`(핵심 검증), `GkrRelation`(제약식 평가, EIP-170 때문에 분리), `ManiaGkrRegistry`(장치·채보·세션·제출), Foundry 테스트 |
 | `gkr/` | `swjng/gkr` fork: 보안 수정, `patches/`, 재현 스크립트, baseline. 이 workspace에서 제외된 독립 crate입니다. |
 | `artifacts/` (gitignore) | 개발용 SRS, Foundry fixture, 벤치마크 원본(`artifacts/benchmark/*.json`) |
 
 ```sh
 cd gkr-scoring
-cargo test --release            # 단위, 차등, 변조, 악성 witness 테스트
-cargo build --release
-./target/release/mania-gkr srs --smax 22 --out artifacts/dev-srs-22.bin      # INSECURE 개발용, 약 5초, 268 MB
-./target/release/mania-gkr export-forge --srs artifacts/dev-srs-22.bin --out artifacts/forge
+cargo test --release --locked -p mania-gkr -p mania-gkr-prove-server            # 단위, 차등, 변조, 악성 witness 테스트
+cargo build --release --locked -p mania-gkr -p mania-gkr-prove-server
+../target/release/mania-gkr srs --smax 22 --out artifacts/dev-srs-22.bin      # INSECURE 개발용, 약 5초, 268 MB
+../target/release/mania-gkr export-forge --srs artifacts/dev-srs-22.bin --out artifacts/forge
 (cd contracts && forge test -vv)                                             # 온체인 검증, 변조, FFI end-to-end, gas
-./target/release/mania-gkr bench --srs artifacts/dev-srs-22.bin --cases 500,1500,3000,3000ln,10000 --reps 5 \
+../target/release/mania-gkr bench --srs artifacts/dev-srs-22.bin --cases 500,1500,3000,3000ln,10000 --reps 5 \
     --out artifacts/benchmark/summary.json
-./target/release/mania-gkr prove --srs artifacts/dev-srs-22.bin --input ../fixtures/demo.json --mode a
+../target/release/mania-gkr prove --srs artifacts/dev-srs-22.bin --input ../fixtures/demo.json --mode a
 ```
 
 `prove-session`은 컨트랙트가 발급한 세션 header(`abi.encode(Header)`)로 proof를 만듭니다.
@@ -116,7 +118,7 @@ Foundry end-to-end 테스트가 이 명령을 FFI로 호출하고, 운영에서�
 
 ## 테스트 결과
 
-- **Rust** (`cargo test --release`): 단위 17개와 통합 9개가 통과했습니다. 실제 ceremony `.ptau` 로드 테스트는 `MGKR_PTAU`를 설정하면 실행되고, 이번에 실행해 통과했습니다.
+- **Rust** (`cargo test --release --locked -p mania-gkr -p mania-gkr-prove-server`): 단위 17개와 통합 9개가 통과했습니다. 실제 ceremony `.ptau` 로드 테스트는 `MGKR_PTAU`를 설정하면 실행되고, 이번에 실행해 통과했습니다.
   - 무작위 3,000개 입력에서 timeline 카운트와 유효성 판정이 `core::evaluate`와 전부 일치했습니다.
   - 모든 honest witness에서 모든 행의 모든 제약식이 0이었고, logUp 합도 0이었습니다.
   - 약 50개 입력은 두 모드 모두 prove→verify까지 수행했습니다.
@@ -212,7 +214,7 @@ patch는 `gkr/patches/0001–0012`에 있고(`git am`으로 재현 가능), 결�
 fork는 보안을 수정한 baseline이자 참조 구현으로 남겨 두었습니다.
 
 **라이선스 주의.** upstream에는 **LICENSE 파일이 없습니다.** fork를 공개하거나 재배포하려면 작성자의 허락이 필요합니다.
-`engine/`에는 upstream 코드를 복사하지 않았습니다.
+`../crates/gkr-evm/`에는 upstream 코드를 복사하지 않았습니다.
 
 ## 한계와 남은 일
 

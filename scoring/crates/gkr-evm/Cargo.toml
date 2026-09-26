@@ -1,0 +1,27 @@
+[package]
+name = "mania-gkr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sumcheck/GKR + Zeromorph proofs for OSUMANIA_ONCHAIN_RULESET_V1 scoring"
+
+[lib]
+name = "mania_gkr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mania-gkr"
+path = "src/bin/mania-gkr.rs"
+
+[dependencies]
+halo2curves.workspace = true
+rayon.workspace = true
+tiny-keccak.workspace = true
+sha2.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+mania-scoring-core.workspace = true
