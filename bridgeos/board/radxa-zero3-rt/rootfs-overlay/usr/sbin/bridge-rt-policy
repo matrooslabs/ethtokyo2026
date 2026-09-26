@@ -1,0 +1,182 @@
+#!/bin/sh
+# Pin only IRQs discoverable through the USB host and gadget sysfs device trees.
+# Never use a guessed /proc/interrupts line number as an IRQ number.
+set -eu
+[ -r /etc/bridge-rt.conf ] && . /etc/bridge-rt.conf
+HOST_CPU=${BRIDGE_HOST_IRQ_CPU:-1}
+GADGET_CPU=${BRIDGE_GADGET_IRQ_CPU:-3}
+DAEMON_CPU=${BRIDGE_RT_CPU:-2}
+for CPU in "$HOST_CPU" "$GADGET_CPU" "$DAEMON_CPU"; do
+    case "$CPU" in ''|*[!0-9]*) echo "bridge-rt-policy: invalid CPU $CPU" >&2; exit 1 ;; esac
+    if [ ! -d "/sys/devices/system/cpu/cpu$CPU" ] ||
+       { [ -r "/sys/devices/system/cpu/cpu$CPU/online" ] &&
+         [ "$(cat "/sys/devices/system/cpu/cpu$CPU/online")" != 1 ]; }; then
+        echo "bridge-rt-policy: CPU $CPU is not online" >&2
+        exit 1
+    fi
+done
+in_cpu_list() {
+    list=$1 wanted=$2
+    oldIFS=$IFS
+    IFS=,
+    for piece in $list; do
+        case "$piece" in
+            *-*) lo=${piece%-*}; hi=${piece#*-} ;;
+            *) lo=$piece; hi=$piece ;;
+        esac
+        if [ "$wanted" -ge "$lo" ] && [ "$wanted" -le "$hi" ]; then
+            IFS=$oldIFS
+            return 0
+        fi
+    done
+    IFS=$oldIFS
+    return 1
+}
+seen=' '
+host_seen=' '
+gadget_seen=' '
+host_found=0
+gadget_found=0
+report_irq_thread() {
+    match=0
+    for commfile in /proc/[0-9]*/task/[0-9]*/comm; do
+        [ -r "$commfile" ] || continue
+        IFS= read -r name < "$commfile" || continue
+        case "$name" in "irq/$irq-"*)
+            thread=${commfile%/comm}
+            if [ -r "$thread/sched" ]; then
+                echo "bridge-rt-policy: IRQ $irq thread ${thread##*/} ($name) scheduler readback:" >&2
+                sed -n '/^policy /p; /^prio /p' "$thread/sched" >&2 || true
+                match=1
+            fi ;;
+        esac
+    done
+    [ "$match" -eq 1 ] || echo "bridge-rt-policy: WARNING no IRQ $irq thread observed; RT priority unverified" >&2
+}
+add_irq() {
+    irq=$1
+    case "$irq" in ''|*[!0-9]*) echo "bridge-rt-policy: invalid $ROLE IRQ $irq" >&2; exit 1 ;; esac
+    if [ "$ROLE" = host ]; then
+        case "$host_seen" in *" $irq "*) return 0 ;; esac
+        host_seen="$host_seen$irq "
+    else
+        case "$gadget_seen" in *" $irq "*) return 0 ;; esac
+        gadget_seen="$gadget_seen$irq "
+    fi
+    case "$seen" in *" $irq "*)
+        echo "bridge-rt-policy: IRQ $irq shared by host and gadget; cannot pin to both CPU $HOST_CPU and CPU $GADGET_CPU" >&2
+        exit 1 ;;
+    esac
+    if [ ! -r "/proc/irq/$irq/smp_affinity_list" ] ||
+       [ ! -r "/proc/irq/$irq/effective_affinity_list" ]; then
+        echo "bridge-rt-policy: IRQ $irq lacks readable affinity and effective mask" >&2
+        exit 1
+    fi
+    seen="$seen$irq "
+    if ! printf '%s\n' "$TARGET_CPU" > "/proc/irq/$irq/smp_affinity_list"; then
+        echo "bridge-rt-policy: cannot set IRQ $irq affinity" >&2
+        exit 1
+    fi
+    effective=$(cat "/proc/irq/$irq/effective_affinity_list")
+    if ! in_cpu_list "$effective" "$TARGET_CPU"; then
+        echo "bridge-rt-policy: IRQ $irq effective affinity $effective excludes CPU $TARGET_CPU" >&2
+        exit 1
+    fi
+    if [ "$ROLE" = host ]; then host_found=$((host_found + 1));
+    else gadget_found=$((gadget_found + 1)); fi
+    echo "bridge-rt-policy: $ROLE IRQ $irq effective CPU list $effective" >&2
+    report_irq_thread
+}
+walk_irqs() {
+    path=$(readlink -f "$1") || return
+    while [ "$path" != /sys ] && [ "$path" != / ]; do
+        if [ -r "$path/irq" ]; then
+            add_irq "$(cat "$path/irq")"
+        fi
+        for entry in "$path"/msi_irqs/*; do
+            if [ -e "$entry" ]; then add_irq "${entry##*/}"; fi
+        done
+        path=${path%/*}
+    done
+}
+# Some platform devices do not expose a sysfs irq attribute. Match the
+# live /proc/interrupts label to the enumerated controller, never its IRQ number.
+lookup_irq_label() {
+    expected=$1
+    matched=
+    while IFS= read -r entry; do
+        case " $entry " in *" $expected "*)
+            number=${entry%%:*}
+            number=${number##* }
+            case "$number" in ''|*[!0-9]*) continue ;; esac
+            if [ -n "$matched" ] && [ "$matched" != "$number" ]; then
+                echo "bridge-rt-policy: ambiguous $expected IRQs $matched/$number" >&2
+                exit 1
+            fi
+            matched=$number ;;
+        esac
+    done < /proc/interrupts
+    [ -z "$matched" ] || add_irq "$matched"
+}
+ROLE=host
+TARGET_CPU=$HOST_CPU
+if [ -n "${BRIDGE_HOST_IRQS:-}" ]; then
+    for irq in $BRIDGE_HOST_IRQS; do add_irq "$irq"; done
+else
+    for host in /sys/class/usb_host/host*/device; do
+        if [ -e "$host" ]; then walk_irqs "$host"; fi
+    done
+fi
+if [ "$host_found" -eq 0 ]; then
+    # This ZERO 3W has one enabled xHCI host controller. The class device
+    # lacks a sysfs irq file on the measured kernel; use its unique live label.
+    host_irq=
+    while IFS= read -r entry; do
+        case " $entry " in *" xhci-hcd:usb"*)
+            number=${entry%%:*}
+            number=${number##* }
+            case "$number" in ''|*[!0-9]*) continue ;; esac
+            if [ -n "$host_irq" ] && [ "$host_irq" != "$number" ]; then
+                echo "bridge-rt-policy: multiple xHCI IRQs $host_irq/$number; identify keyboard controller first" >&2
+                exit 1
+            fi
+            host_irq=$number ;;
+        esac
+    done < /proc/interrupts
+    [ -z "$host_irq" ] || add_irq "$host_irq"
+fi
+ROLE=gadget
+TARGET_CPU=$GADGET_CPU
+if [ -n "${BRIDGE_GADGET_IRQS:-}" ]; then
+    for irq in $BRIDGE_GADGET_IRQS; do add_irq "$irq"; done
+else
+    for udc in /sys/class/udc/*/device; do
+        if [ -e "$udc" ]; then walk_irqs "$udc"; fi
+    done
+fi
+if [ "$gadget_found" -eq 0 ]; then
+    for udc in /sys/class/udc/*; do
+        [ -e "$udc" ] || continue
+        case "${udc##*/}" in fcc00000.usb) lookup_irq_label dwc3 ;; esac
+    done
+fi
+if [ "$host_found" -eq 0 ] || [ "$gadget_found" -eq 0 ]; then
+    echo "bridge-rt-policy: missing verified host/gadget IRQ (host=$host_found gadget=$gadget_found); inspect /proc/interrupts and provide BRIDGE_HOST_IRQS/BRIDGE_GADGET_IRQS only after hardware identification" >&2
+    exit 1
+fi
+policies=0
+for governor in /sys/devices/system/cpu/cpufreq/policy*/scaling_governor; do
+    [ -e "$governor" ] || continue
+    policies=$((policies + 1))
+    if ! printf '%s\n' performance > "$governor"; then
+        echo "bridge-rt-policy: cannot select performance at $governor" >&2
+        exit 1
+    fi
+    actual=$(cat "$governor")
+    if [ "$actual" != performance ]; then
+        echo "bridge-rt-policy: governor readback is $actual, not performance" >&2
+        exit 1
+    fi
+done
+[ "$policies" -gt 0 ] || echo 'bridge-rt-policy: WARNING cpufreq governor not exposed' >&2
+echo "bridge-rt-policy: verified $host_found host + $gadget_found gadget IRQs; $policies cpufreq policies" >&2

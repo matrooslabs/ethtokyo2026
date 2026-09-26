@@ -1,0 +1,115 @@
+#!/bin/sh
+# Debug only: bounded post-activity snapshot on a Mac-readable FAT partition.
+set -eu
+[ "${1:-}" = start ] || exit 0
+sleep 60
+want=d11a6e31-e257-5e9d-9ae3-c3744136f1ee
+device=
+for entry in /sys/class/block/*/uevent; do
+    [ -r "$entry" ] || continue
+    while IFS= read -r line; do
+        if [ "$line" = "PARTUUID=$want" ]; then
+            block=${entry%/uevent}
+            device=/dev/${block##*/}
+            break
+        fi
+    done < "$entry"
+    [ -z "$device" ] || break
+done
+if [ -z "$device" ]; then
+    echo 'RTDIAG partition not found by PARTUUID' > /dev/console
+    exit 1
+fi
+if [ -r /run/bridge-daemon.pid ]; then
+    daemon_pid=$(cat /run/bridge-daemon.pid)
+    if kill -0 "$daemon_pid" 2>/dev/null; then
+        kill -USR1 "$daemon_pid" 2>/dev/null || true
+        sleep 1
+    fi
+fi
+mode=$(cat /etc/optee-runtime-mode 2>/dev/null || echo unknown)
+run_optee_smoke=1
+if [ "$mode" = optee-source-runtime ] &&
+   ! grep -q 'OP-TEE signer unavailable' /run/bridge-startup.log 2>/dev/null; then
+    run_optee_smoke=0
+fi
+if [ -x /usr/bin/osumania-optee-test ] && [ "$run_optee_smoke" -eq 1 ]; then
+    echo "image_mode=$mode" > /run/optee-test.txt
+    if /usr/bin/osumania-optee-test >> /run/optee-test.txt 2>&1; then
+        echo 'exit=0' >> /run/optee-test.txt
+    else
+        status=$?
+        echo "exit=$status" >> /run/optee-test.txt
+    fi
+else
+    {
+        echo "image_mode=$mode"
+        echo 'standalone_smoke=skipped-active-bridge-owns-TA'
+    } > /run/optee-test.txt
+fi
+mkdir -p /run/rt-diag
+mount -t vfat -o sync "$device" /run/rt-diag
+{
+    echo 'ZERO 3W USB diagnosis; debug image only'
+    echo 'User-supplied USB identity: d86a:1000'
+    date -u
+    uname -a
+    echo '--- cmdline ---'; cat /proc/cmdline
+    echo '--- board ---'; tr -d '\000' < /proc/device-tree/model; echo
+    echo '--- OP-TEE preserved/live stage markers ---'
+    printf 'last='; devmem 0xfdc20228 32 2>&1 || true
+    printf 'live='; devmem 0xfdc2022c 32 2>&1 || true
+    echo '--- UDC controllers ---'
+    for udc in /sys/class/udc/*; do
+        [ -d "$udc" ] || continue
+        echo "${udc##*/}"
+        for key in state current_speed maximum_speed; do
+            [ ! -r "$udc/$key" ] || { printf '%s=' "$key"; cat "$udc/$key"; }
+        done
+    done
+    echo '--- USB-C extcon / VBUS ---'
+    for state in /sys/class/extcon/extcon*/state; do
+        [ ! -r "$state" ] || { echo "$state"; cat "$state"; }
+    done
+    for online in /sys/class/power_supply/*/online; do
+        [ ! -r "$online" ] || { echo "$online"; cat "$online"; }
+    done
+    echo '--- gadget binding ---'
+    gadget=/sys/kernel/config/usb_gadget/bridgeos
+    [ ! -r "$gadget/UDC" ] || { printf 'UDC='; cat "$gadget/UDC"; }
+    [ ! -r "$gadget/idVendor" ] || { printf 'idVendor='; cat "$gadget/idVendor"; }
+    [ ! -r "$gadget/idProduct" ] || { printf 'idProduct='; cat "$gadget/idProduct"; }
+    for fn in "$gadget"/configs/c.1/hid.usb*; do
+        [ ! -L "$fn" ] || echo "HID function=${fn##*/}"
+    done
+    for hid in "$gadget"/functions/hid.usb*; do
+        [ ! -r "$hid/interval" ] || { printf '%s interval=' "${hid##*/}"; cat "$hid/interval"; }
+    done
+    echo '--- gadget nodes ---'
+    for node in /dev/hidg0 /dev/hidg1; do
+        if [ -c "$node" ]; then echo "$node present"; else echo "$node MISSING"; fi
+    done
+    echo '--- bridge daemon ---'
+    if [ -r /run/bridge-daemon.pid ]; then
+        pid=$(cat /run/bridge-daemon.pid)
+        echo "pid=$pid"
+        if [ -r "/proc/$pid/status" ]; then
+            sed -n '/^Name:/p; /^State:/p; /^VmLck:/p; /^Cpus_allowed_list:/p' "/proc/$pid/status"
+        else
+            echo 'pid file present but process exited'
+        fi
+    else
+        echo 'daemon did not start'
+    fi
+    echo '--- input nodes ---'
+    for input in /sys/class/input/event*/device/name; do
+        [ ! -r "$input" ] || { echo "$input"; cat "$input"; }
+    done
+    echo '--- interrupts ---'; cat /proc/interrupts
+} > /run/rt-diag/STATUS.TXT
+[ ! -r /run/bridge-startup.log ] || cp /run/bridge-startup.log /run/rt-diag/STARTUP.TXT
+[ ! -r /run/optee-test.txt ] || cp /run/optee-test.txt /run/rt-diag/OPTEE.TXT
+[ ! -r /run/bridge-daemon.stats ] || cp /run/bridge-daemon.stats /run/rt-diag/COUNTERS.TXT
+dmesg > /run/rt-diag/DMESG.TXT 2>&1 || true
+sync
+umount /run/rt-diag

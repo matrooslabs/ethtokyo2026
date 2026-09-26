@@ -1,0 +1,38 @@
+# Radxa linux-6.18.2 arm64 defconfig + fixed PREEMPT_RT model.
+CONFIG_EXPERT=y
+CONFIG_PREEMPT_RT=y
+# CONFIG_PREEMPT_DYNAMIC is not set
+CONFIG_HIGH_RES_TIMERS=y
+CONFIG_HZ_1000=y
+CONFIG_CPU_ISOLATION=y
+
+# The ZERO 3W USB-C data port is DWC3 peripheral; its other DWC3 stays host.
+CONFIG_USB_DWC3=y
+CONFIG_USB_DWC3_DUAL_ROLE=y
+CONFIG_USB_GADGET=y
+CONFIG_USB_XHCI_HCD=y
+CONFIG_PHY_ROCKCHIP_INNO_USB2=y
+CONFIG_EXTCON=y
+CONFIG_PHY_ROCKCHIP_NANENG_COMBO_PHY=y
+CONFIG_USB_CONFIGFS=y
+CONFIG_USB_CONFIGFS_F_HID=y
+
+# OP-TEE BL32 uses the SMC conduit and tee-supplicant for user TAs.
+CONFIG_TEE=y
+CONFIG_OPTEE=y
+CONFIG_ROCKCHIP_THERMAL=y
+
+# Two ConfigFS HID functions on gadget; real HID inputs on the host port.
+CONFIG_HIDRAW=y
+CONFIG_HID=y
+CONFIG_USB_HID=y
+CONFIG_INPUT_EVDEV=y
+
+# This is a headless wired USB bridge; retain printk/serial console for bring-up.
+# CONFIG_WLAN is not set
+# CONFIG_BT is not set
+# CONFIG_MEDIA_SUPPORT is not set
+# CONFIG_DRM is not set
+# CONFIG_SOUND is not set
+# CONFIG_SND is not set
+# CONFIG_DEBUG_FS is not set

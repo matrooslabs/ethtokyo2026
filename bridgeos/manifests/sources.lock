@@ -1,0 +1,15 @@
+{
+  "buildroot": {"repository": "https://github.com/buildroot/buildroot.git", "tag": "2026.02.2", "commit": "71d1dddae12e7cbf322d96864d7757f459801f47"},
+  "kernel": {"repository": "https://github.com/radxa/kernel.git", "branch_at_selection": "linux-6.18.2", "commit": "559f4f921a01e5358602153364c618fe2a3e431e"},
+  "boot_firmware": {"repository": "https://github.com/Warfront1/radxa-zero-3-boot-firmware.git", "commit": "50a0d9ca8dc5bb42b616cd544a40301bb8fe63eb"},
+  "u_boot": {"repository": "https://github.com/u-boot/u-boot.git", "tag": "v2026.07", "commit": "ece349ade2973e220f524ce59e59711cc919263f"},
+  "tf_a": {"repository": "https://git.trustedfirmware.org/TF-A/trusted-firmware-a.git", "tag": "lts-v2.14.6", "commit": "8fe2e465a435eeaabba26b8e894e6b83858a346d"},
+  "rkbin": {"repository": "https://github.com/rockchip-linux/rkbin.git", "commit": "ecb4fcbe954edf38b3ae037d5de6d9f5bccf81f4", "ddr_blob": "bin/rk35/rk3566_ddr_1056MHz_v1.25.bin", "ddr_blob_sha256": "c2a1b37673bf03ed338bc39efbe942136459cb3621dad09351144d744d78db26", "diagnostic_bl32": "bin/rk35/rk3568_bl32_v2.16.bin", "diagnostic_bl32_sha256": "69cf1dc21ac0bd1e4a4eec93ee35eea204f117b2168591226c0d112983e06992", "diagnostic_only": true},
+  "toolchain": {"buildroot_gcc": "14.3.0", "production_libc": "musl", "debug_libc": "glibc", "target": "aarch64"},
+  "usb_gadget": {"vid": "0xd86a", "pid": "0x1000", "origin": "user-supplied; assignment not independently verified"},
+  "optee_os": {"repository": "https://github.com/OP-TEE/optee_os.git", "tag": "4.9.0", "commit": "c2b0684fcd89929976a8726e6e3af922b48dd2c7", "rk3568_platform": "project patch board/radxa-zero3-rt/patches/optee-os/0001-plat-rockchip-add-rk3568.patch"},
+  "optee_client": {"repository": "https://github.com/OP-TEE/optee_client.git", "tag": "4.9.0", "commit": "9f5e90918093c1d1cd264d8149081b64ab7ba672"},
+  "micro_ecc": {"repository": "https://github.com/kmackay/micro-ecc.git", "commit": "541b3a78026420a3e369c4c9281c396b5e531113", "license": "BSD-2-Clause", "local_change": "recoverable low-s deterministic signature extension"},
+  "development_srs": {"point_count": 260, "max_events": 65, "sha256": "9429d8e688b4879bcab8f84a7f8574d682277bcb6021841cca060ff969e9c2d7", "production": false},
+  "development_huk": {"value_sha256": "e46778a65248fb9a61b7d5ea4681f3a306e030a46173b5079ada1bf2e8af83b3", "purpose": "development REE-FS key manager only", "production": false}
+}

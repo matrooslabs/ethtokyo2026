@@ -1,0 +1,69 @@
+#!/bin/sh
+# Configure exactly two HID interfaces; never bind with an unowned USB VID/PID.
+set -eu
+[ -r /etc/bridge-gadget.conf ] && . /etc/bridge-gadget.conf
+valid_id() {
+    case "$1" in
+        0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+: "${BRIDGE_USB_VID:=}"
+: "${BRIDGE_USB_PID:=}"
+if ! valid_id "$BRIDGE_USB_VID" || ! valid_id "$BRIDGE_USB_PID" ||
+   [ "$BRIDGE_USB_VID" = 0x0000 ] || [ "$BRIDGE_USB_PID" = 0x0000 ]; then
+    echo 'bridge-gadget: set assigned BRIDGE_USB_VID and BRIDGE_USB_PID (0xNNNN) in /etc/bridge-gadget.conf' >&2
+    exit 1
+fi
+
+mountpoint -q /sys/kernel/config 2>/dev/null || mount -t configfs none /sys/kernel/config
+G=/sys/kernel/config/usb_gadget/bridgeos
+mkdir -p "$G/strings/0x409" "$G/configs/c.1/strings/0x409" "$G/functions/hid.usb0" "$G/functions/hid.usb1"
+# ConfigFS attributes report a nonzero inode size even when their value is empty.
+# Only a nonempty controller name means this gadget is already bound.
+if [ -n "$(cat "$G/UDC")" ]; then
+    echo 'bridge-gadget: already bound' >&2
+    exit 0
+fi
+printf '%s' "$BRIDGE_USB_VID" > "$G/idVendor"
+printf '%s' "$BRIDGE_USB_PID" > "$G/idProduct"
+printf '%s' 0x0200 > "$G/bcdUSB"
+printf '%s' 0x0100 > "$G/bcdDevice"
+# Device class 0 delegates classification to the two HID interfaces below.
+printf '%s' 0 > "$G/bDeviceClass"
+printf '%s' 0 > "$G/bDeviceSubClass"
+printf '%s' 0 > "$G/bDeviceProtocol"
+printf '%s' "${BRIDGE_USB_SERIAL:-BridgeOS-dev}" > "$G/strings/0x409/serialnumber"
+printf '%s' "${BRIDGE_USB_MANUFACTURER:-BridgeOS}" > "$G/strings/0x409/manufacturer"
+printf '%s' "${BRIDGE_USB_PRODUCT:-Zero3 HID bridge}" > "$G/strings/0x409/product"
+printf '%s' 'HID keyboard and framed vendor channel' > "$G/configs/c.1/strings/0x409/configuration"
+printf '%s' 120 > "$G/configs/c.1/MaxPower"  # mA; set to the measured board requirement if higher
+K="$G/functions/hid.usb0"
+printf '%s' 1 > "$K/subclass" # boot interface
+printf '%s' 1 > "$K/protocol" # keyboard
+printf '%s' 8 > "$K/report_length"
+printf '%b' '\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x26\xff\x00\x05\x07\x19\x00\x29\xff\x81\x00\xc0' > "$K/report_desc"
+V="$G/functions/hid.usb1"
+printf '%s' 0 > "$V/subclass"
+printf '%s' 0 > "$V/protocol"
+printf '%s' 64 > "$V/report_length"
+# Usage Page 0xFF60, Usage 0x01, no Report ID, fixed 64-byte Input/Output.
+printf '%b' '\x06\x60\xff\x09\x01\xa1\x01\x15\x00\x26\xff\x00\x75\x08\x95\x40\x81\x02\x95\x40\x91\x02\xc0' > "$V/report_desc"
+[ -L "$G/configs/c.1/hid.usb0" ] || ln -s "$K" "$G/configs/c.1/hid.usb0"
+[ -L "$G/configs/c.1/hid.usb1" ] || ln -s "$V" "$G/configs/c.1/hid.usb1"
+# Device-tree USB2 OTG (peripheral) should expose exactly one UDC.
+UDC=${BRIDGE_UDC:-}
+if [ -z "$UDC" ]; then
+    set -- /sys/class/udc/*
+    if [ "$#" -ne 1 ] || [ ! -e "$1" ]; then
+        echo 'bridge-gadget: expected one UDC; set BRIDGE_UDC explicitly if multiple' >&2
+        exit 1
+    fi
+    UDC=${1##*/}
+fi
+if [ ! -e "/sys/class/udc/$UDC" ]; then
+    echo "bridge-gadget: missing UDC $UDC" >&2
+    exit 1
+fi
+printf '%s' "$UDC" > "$G/UDC"
+echo "bridge-gadget: bound $UDC with keyboard + vendor HID" >&2
