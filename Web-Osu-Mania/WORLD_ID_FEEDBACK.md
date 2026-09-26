@@ -1,3 +1,5 @@
+> Archived: the challenge no longer uses World ID. Claims are registered directly by Sui wallets.
+
 # World IDKit debrief — ETHGlobal Tokyo 2026
 
 **Trust moment:** A ranked wallet requests one of the pooled USDC prize shares. Paying and playing require no World ID. Before claim registration, the app proves the claimant is one unique person; the same person cannot collect again through another high-scoring wallet.

@@ -35,7 +35,7 @@ function HowToPlayPage() {
       <section id="results" className="arena-guide scroll-mt-20">
         <h2>Claim</h2>
         <p>Easy and Hard each have their own prize pool. The top five eligible claims on each chart split that chart’s pool 40/20/20/10/10%.</p>
-        <p>After scoring closes, use World ID for one claim per person across both charts. Missing shares return only to buyers of that chart.</p>
+        <p>After scoring closes, sign with your Sui wallet to register one claim across both charts. Missing shares return only to buyers of that chart.</p>
       </section>
     </DocsLayout>
   );

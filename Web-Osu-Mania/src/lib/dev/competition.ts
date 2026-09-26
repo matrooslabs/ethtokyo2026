@@ -43,7 +43,6 @@ export type DevState = {
   /** Original unallocated prize shares before purchaser refunds, by chart. */
   refundPools: Record<DevDifficulty, number>;
   /** Local identity keys used only to prevent a second simulated claim. */
-  humanClaims: Record<string, string>;
   /** Spent run identifiers; an aborted run cannot be resumed or replayed. */
   runIds: string[];
 };
@@ -103,7 +102,7 @@ export function initialState(nowMs: number): DevState {
   return {
     id: null, nowMs, startedAtMs: null, scoreDeadlineMs: null, claimDeadlineMs: null,
     pots: { Easy: 0, Hard: 0 }, players, run: null, settled: false, scoreOrder: 0,
-    originalPots: { Easy: 0, Hard: 0 }, refundPools: { Easy: 0, Hard: 0 }, humanClaims: {}, runIds: [],
+    originalPots: { Easy: 0, Hard: 0 }, refundPools: { Easy: 0, Hard: 0 }, runIds: [],
   };
 }
 
@@ -199,7 +198,7 @@ export function rankings(state: DevState, difficulty: DevDifficulty): DevRanking
   return entries;
 }
 
-export function claimPrize(state: DevState, wallet: string, difficulty: DevDifficulty, humanId: string): DevState {
+export function claimPrize(state: DevState, wallet: string, difficulty: DevDifficulty): DevState {
   requireChallenge(state);
   requireDifficulty(difficulty);
   if (state.scoreDeadlineMs === null || state.claimDeadlineMs === null ||
@@ -208,12 +207,10 @@ export function claimPrize(state: DevState, wallet: string, difficulty: DevDiffi
   }
   const player = playerFor(state, wallet);
   if (!player.best[difficulty]) throw new Error("A recorded simulated score is required on the selected chart.");
+  if (player.claim === difficulty) return state;
   if (player.claim !== null) throw new Error("This simulated wallet has already claimed a chart.");
-  if (!humanId.trim()) throw new Error("Provide a simulated human ID to claim.");
-  if (Object.hasOwn(state.humanClaims, `id:${humanId}`)) throw new Error("This simulated human has already claimed a chart.");
   const next = copy(state);
   next.players[wallet].claim = difficulty;
-  next.humanClaims[`id:${humanId}`] = wallet;
   return next;
 }
 

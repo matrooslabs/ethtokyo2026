@@ -7,7 +7,7 @@
 // node deploy_forest_challenge.mjs --resume --srs /approved/bls12-381-srs.bin --out ./forest-deployment
 // node deploy_forest_challenge.mjs --activate --out ./forest-deployment \
 //   --start-at 2026-09-27T12:00:00Z --device-pubkey 0x<33-byte-compressed-secp256k1> \
-//   --bitstream-hash 0x<32-byte-real-image-hash> --identity-attestor 0x<Sui-wallet>
+//   --bitstream-hash 0x<32-byte-real-image-hash>
 // Optional SUI_ORGANIZER_PRIVATE_KEY overrides the active `sui client` keystore key.
 // Development SRS/software signers NEVER imply mainnet eligibility or real hardware.
 import { execFileSync } from 'node:child_process';
@@ -21,7 +21,6 @@ import { bcs } from '@mysten/sui/bcs';
 import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
-import { isValidSuiAddress } from '@mysten/sui/utils';
 import { extractForest, prepareForest, publicManifest } from './forest_charts.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -411,12 +410,10 @@ if (insecureSrs && !insecureDemo) {
 const roundDate = new Date(startAtMs).toISOString().slice(0, 10);
 const devicePubkey = bytes(required('--device-pubkey'), 33, 'device pubkey');
 const bitstreamHash = bytes(required('--bitstream-hash'), 32, 'bitstream hash');
-const attestor = required('--identity-attestor');
 const claimWindowMs = BigInt(optional('--claim-window-ms', '86400000'));
 if (BigInt(startAtMs) + 21_600_000n + claimWindowMs > 2n ** 64n - 1n) {
   throw new Error('--claim-window-ms must leave room for scheduled scoring and claiming deadlines');
 }
-if (!isValidSuiAddress(attestor)) throw new Error('--identity-attestor must be a Sui wallet address');
 if (claimWindowMs <= 0n) {
   throw new Error('--claim-window-ms must be a positive u64');
 }
@@ -435,9 +432,10 @@ if (!coinMetadata || coinMetadata.decimals !== 6 || coinMetadata.symbol !== 'USD
 }
 const { function: createAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'create' });
 const { function: buyAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'buy_plays' });
-if (createAbi.parameters.length !== 11 || createAbi.parameters[8].body.$kind !== 'u64' ||
+const { function: claimAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'register_claim' });
+if (createAbi.returns.length !== 0 || claimAbi.parameters.length !== 4 || claimAbi.parameters[1].body.$kind !== 'u8' || createAbi.parameters.length !== 11 || createAbi.parameters[8].body.$kind !== 'u64' ||
     buyAbi.parameters.length !== 5 || buyAbi.parameters[2].body.$kind !== 'u8') {
-  throw new Error('Published competition package has the old shared-pot ABI; prepare and activate a new difficulty-isolated package. No device or Challenge was created by this invocation.');
+  throw new Error('Published competition package has the incompatible ABI; prepare and activate a new wallet-claim package. No device or Challenge was created by this invocation.');
 }
 
 const published = await confirmed(manifest.packagePublishTx);
@@ -464,7 +462,7 @@ for (const key of ['easy', 'hard']) {
 if (resumingDevice) {
   if (!manifest.deviceRegistrationTx || manifest.scheduledStartAtMs !== String(startAtMs) ||
       manifest.deviceAddress !== deviceAddress || manifest.devicePubkey !== hex(devicePubkey) ||
-      manifest.bitstreamHash !== hex(bitstreamHash) || manifest.identityAttestor !== attestor ||
+      manifest.bitstreamHash !== hex(bitstreamHash) ||
       manifest.insecureDemo !== insecureDemo) {
     throw new Error('Registered device checkpoint differs from the requested activation; do not create a second round');
   }
@@ -485,7 +483,6 @@ manifest.deviceProvisioning = insecureDemo
   ? 'INSECURE DEMO: extractable SD-image signing key; bitstream hash is a build marker, not FPGA attestation; signature-only test did not verify commitment'
   : 'OPERATOR-SUPPLIED PUBLIC KEY ONLY; no board attestation or hardware score is implied';
 manifest.insecureDemo = insecureDemo;
-manifest.identityAttestor = attestor;
 // Register the device with &mut Registry, then use &Registry immutably for
 // Challenge creation in a separate transaction. Checkpoint each confirmed digest.
 if (!resumingDevice) {
@@ -503,7 +500,7 @@ if (!resumingDevice) {
 tx = new Transaction();
 
 // Schedule scoring from the immutable requested UTC start, not the creation transaction time.
-const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArguments: [USDC], arguments: [
+tx.moveCall({ target: fn('competition', 'create'), typeArguments: [USDC], arguments: [
   tx.sharedObjectRef({ objectId: manifest.registryId, initialSharedVersion: verifiedRegistry.owner.Shared.initialSharedVersion, mutable: false }), tx.object(manifest.organizerCapId),
   tx.pure.vector('u8', new TextEncoder().encode(roundDate)),
   tx.pure.vector('u8', sha256(`versu:${roundDate}`)),
@@ -512,10 +509,8 @@ const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArgum
   tx.pure.vector('u8', bytes(deviceAddress, 20, 'device address')),
   tx.pure.u64(startAtMs), tx.pure.u64(claimWindowMs), tx.object.clock(),
 ] });
-tx.transferObjects([identityCap], attestor);
 res = await execute('schedule Forest Challenge<CircleUSDC>', tx, ensureScheduledStart);
 manifest.challengeId = created(res, '::competition::Challenge<'+USDC+'>');
-manifest.identityCapId = created(res, '::competition::IdentityCap');
 const event = challengeCreated.parse(emitted(res, '::competition::ChallengeCreated'));
 if (event.challenge !== manifest.challengeId || event.registry !== manifest.registryId ||
     Buffer.from(event.round_date).toString('utf8') !== roundDate ||
@@ -532,7 +527,6 @@ manifest.startedAtMs = event.started_at_ms;
 manifest.scoreDeadlineMs = event.score_deadline_ms;
 manifest.claimDeadlineMs = event.claim_deadline_ms;
 manifest.challengeCreationTx = res.digest;
-manifest.worldIdentityConfiguration = { [manifest.challengeId]: { identityCapId: manifest.identityCapId } };
 manifest.browserConfiguration = {
   VITE_SUI_PACKAGE_ID: manifest.packageId,
   VITE_SUI_REGISTRY_ID: manifest.registryId,

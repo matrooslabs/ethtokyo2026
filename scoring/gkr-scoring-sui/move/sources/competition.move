@@ -1,8 +1,7 @@
 /// One six-hour hardware challenge with independent Easy and Hard USDC pools.
 /// Coin<T> must be instantiated with the canonical six-decimal Circle USDC type:
 /// exactly 1_000_000 units buys three nontransferable wallet starts on the
-/// selected chart. World ID is checked only for claims; the IdentityCap operator
-/// verifies the round-scoped World proof and wallet before registering one.
+/// selected chart. Players register their own claims with their Sui wallet.
 module mania_gkr::competition;
 
 use mania_gkr::registry::{Self, OrganizerCap, Registry, Session};
@@ -22,7 +21,7 @@ const EASY: u8 = 0;
 const HARD: u8 = 1;
 
 const EConfig: u64 = 0;
-const EIdentity: u64 = 1;
+const EClaim: u64 = 1;
 const ENotBuyer: u64 = 2;
 const EPrice: u64 = 3;
 const EClosed: u64 = 4;
@@ -51,7 +50,6 @@ public struct Challenge<phantom T> has key {
     buyers: Table<address, Buyer>,
     attempts: Table<ID, Attempt>,
     claims: Table<address, ClaimBinding>,
-    nullifiers: Table<vector<u8>, address>,
     easy_top: vector<RankedClaim>,
     hard_top: vector<RankedClaim>,
     score_order: u64,
@@ -64,12 +62,6 @@ public struct Challenge<phantom T> has key {
     easy_refund_pool: u64,
     hard_refund_pool: u64,
     settled: bool,
-}
-
-/// Owned by the trusted off-chain World ID + wallet signature verification service.
-public struct IdentityCap has key, store {
-    id: UID,
-    challenge: ID,
 }
 
 public struct Best has copy, drop, store {
@@ -96,7 +88,6 @@ public struct Attempt has store {
 }
 
 public struct ClaimBinding has store {
-    nullifier: vector<u8>,
     difficulty: u8,
 }
 
@@ -148,7 +139,6 @@ public struct ClaimRegistered has copy, drop {
     challenge: ID,
     wallet: address,
     difficulty: u8,
-    nullifier: vector<u8>,
     session: ID,
     score: u64,
     provisional_rank: u64,
@@ -219,7 +209,7 @@ public fun create<T>(
     claim_window_ms: u64,
     clock: &Clock,
     ctx: &mut TxContext,
-): IdentityCap {
+) {
     registry::assert_organizer(reg, organizer);
     assert!(valid_date(&round_date) &&
         easy_chart_hash.length() == 32 && hard_chart_hash.length() == 32 &&
@@ -246,18 +236,17 @@ public fun create<T>(
         started_at_ms, score_deadline_ms, claim_window_ms, claim_deadline_ms,
         easy_pot: balance::zero(), hard_pot: balance::zero(),
         buyers: table::new(ctx), attempts: table::new(ctx),
-        claims: table::new(ctx), nullifiers: table::new(ctx),
+        claims: table::new(ctx),
         easy_top: vector[], hard_top: vector[], score_order: 0,
         easy_total_purchases: 0, hard_total_purchases: 0,
         easy_refund_purchases_remaining: 0, hard_refund_purchases_remaining: 0,
         easy_original_pot: 0, hard_original_pot: 0,
         easy_refund_pool: 0, hard_refund_pool: 0, settled: false,
     });
-    IdentityCap { id: object::new(ctx), challenge }
 }
 
 /// Exactly one canonical six-decimal USDC buys three plays on the selected chart.
-/// No World identity or organizer relay is needed to buy an entry.
+/// Players buy directly with their wallet.
 public fun buy_plays<T>(
     c: &mut Challenge<T>, payment: Coin<T>, difficulty: u8, clock: &Clock, ctx: &TxContext,
 ) {
@@ -365,7 +354,7 @@ fun outranks(a: &RankedClaim, b: &RankedClaim): bool {
 }
 
 /// Constant-size insertion into one chart's provisional top five; every wallet
-/// can register only ONCE across both charts and every nullifier only once overall.
+/// can register only ONCE across both charts.
 fun insert_rank(top: &mut vector<RankedClaim>, candidate: RankedClaim): u64 {
     let mut updated = vector[];
     let mut inserted = false;
@@ -390,19 +379,16 @@ fun insert_rank(top: &mut vector<RankedClaim>, candidate: RankedClaim): u64 {
     rank
 }
 
-/// The service verifies World PoH and wallet signature OFF-chain after the six-hour
-/// game ends. The nullifier must be round-scoped, 32 bytes, and never raw World ID.
-/// No caller supplies a score: the highest native recorded score of the selected
-/// difficulty is used. Claim arrival order never changes tie precedence.
+/// A wallet registers its own highest native score after gameplay ends.
+/// One selected difficulty per wallet; repeated identical claims are idempotent.
+/// Claim arrival order never changes score tie precedence.
 public fun register_claim<T>(
     c: &mut Challenge<T>,
-    cap: &IdentityCap,
-    wallet: address,
     difficulty: u8,
-    nullifier: vector<u8>,
     clock: &Clock,
+    ctx: &TxContext,
 ) {
-    assert!(cap.challenge == object::id(c) && nullifier.length() == 32, EIdentity);
+    let wallet = ctx.sender();
     assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     let now = clock.timestamp_ms();
     assert!(now >= c.score_deadline_ms && now < c.claim_deadline_ms, EClosed);
@@ -411,23 +397,19 @@ public fun register_claim<T>(
     let best = if (difficulty == EASY) &buyer.best_easy else &buyer.best_hard;
     assert!(best.is_some(), EScore);
     if (c.claims.contains(wallet)) {
-        let prior = c.claims.borrow(wallet);
-        assert!(prior.nullifier == nullifier && prior.difficulty == difficulty &&
-            c.nullifiers.contains(nullifier) && c.nullifiers[nullifier] == wallet, EIdentity);
+        assert!(c.claims.borrow(wallet).difficulty == difficulty, EClaim);
         return
     };
-    assert!(!c.nullifiers.contains(nullifier), EIdentity);
     let score = *best.borrow();
     let candidate = RankedClaim {
         wallet, session: score.session, score: score.score, order: score.order,
     };
-    c.claims.add(wallet, ClaimBinding { nullifier, difficulty });
-    c.nullifiers.add(nullifier, wallet);
+    c.claims.add(wallet, ClaimBinding { difficulty });
     let provisional_rank = if (difficulty == EASY) {
         insert_rank(&mut c.easy_top, candidate)
     } else insert_rank(&mut c.hard_top, candidate);
     event::emit(ClaimRegistered {
-        challenge: object::id(c), wallet, difficulty, nullifier,
+        challenge: object::id(c), wallet, difficulty,
         session: candidate.session, score: candidate.score, provisional_rank,
     });
 }

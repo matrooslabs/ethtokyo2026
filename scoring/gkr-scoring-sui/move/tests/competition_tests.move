@@ -1,7 +1,7 @@
 #[test_only]
 module mania_gkr::competition_tests;
 
-use mania_gkr::competition::{Self, Challenge, IdentityCap};
+use mania_gkr::competition::{Self, Challenge};
 use mania_gkr::fixtures;
 use mania_gkr::registry::{Self, OrganizerCap, Registry, Session};
 use mania_gkr::test_util::{clock_at, finish, setup_registry};
@@ -24,7 +24,7 @@ const CLAIM_END: u64 = GAME_END + 900_000;
 const FUTURE_START: u64 = 60_001;
 const FUTURE_END: u64 = FUTURE_START + 21_600_000;
 
-fun setup_at(start_at_ms: u64): (Scenario, OrganizerCap, IdentityCap, Clock) {
+fun setup_at(start_at_ms: u64): (Scenario, OrganizerCap, Clock) {
     let easy = fixtures::case_demo_a();
     let hard = fixtures::case_random0_a();
     let (mut sc, org) = setup_registry(&easy, vector[], vector[]);
@@ -33,21 +33,28 @@ fun setup_at(start_at_ms: u64): (Scenario, OrganizerCap, IdentityCap, Clock) {
         hard.chart_commitment(), hard.m(), hard.bits(), hard.components(), hard.max_end(),
     ));
     let clk = clock_at(&mut sc, 1);
-    let cap = competition::create<SUI>(
+    competition::create<SUI>(
         &reg, &org, b"2026-09-27", sha2_256(b"versu:2026-09-27"),
         easy.chart_hash(), hard.chart_hash(), fixtures::device_address(), start_at_ms,
         900_000, &clk, sc.ctx(),
     );
     ts::return_shared(reg);
     sc.next_tx(ORGANIZER);
-    (sc, org, cap, clk)
+    (sc, org, clk)
 }
 
-fun setup(): (Scenario, OrganizerCap, IdentityCap, Clock) { setup_at(1) }
+fun setup(): (Scenario, OrganizerCap, Clock) { setup_at(1) }
 
-fun finish_challenge(sc: Scenario, org: OrganizerCap, cap: IdentityCap, clk: Clock) {
-    transfer::public_transfer(cap, ORGANIZER);
+fun finish_challenge(sc: Scenario, org: OrganizerCap, clk: Clock) {
     finish(sc, org, clk);
+}
+
+fun claim(sc: &mut Scenario, c: Challenge<SUI>, wallet: address, difficulty: u8, clk: &Clock): Challenge<SUI> {
+    ts::return_shared(c);
+    sc.next_tx(wallet);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    competition::register_claim(&mut c, difficulty, clk, sc.ctx());
+    c
 }
 
 fun buy(sc: &mut Scenario, wallet: address, difficulty: u8, clk: &Clock) {
@@ -82,7 +89,7 @@ fun verified_score(sc: &mut Scenario, wallet: address, difficulty: u8, score: u6
 
 #[test]
 fun one_wallet_buys_independent_plays_and_both_charts_are_bound() {
-    let (mut sc, org, cap, mut clk) = setup();
+    let (mut sc, org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, ONE, 1, &clk);
     let easy_sid = verified_score(&mut sc, ONE, 0, 0, &clk);
@@ -118,12 +125,12 @@ fun one_wallet_buys_independent_plays_and_both_charts_are_bound() {
     assert!(competition::pot_value(&c, 0) == 0);
     assert!(competition::pot_value(&c, 1) == 0);
     ts::return_shared(c);
-    finish_challenge(sc, org, cap, clk);
+    finish_challenge(sc, org, clk);
 }
 
 #[test, expected_failure(abort_code = competition::ENoPlays)]
 fun easy_credits_cannot_start_hard_session() {
-    let (mut sc, _org, _cap, clk) = setup();
+    let (mut sc, _org, clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     sc.next_tx(ONE);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -134,7 +141,7 @@ fun easy_credits_cannot_start_hard_session() {
 
 #[test, expected_failure(abort_code = competition::ENoPlays)]
 fun hard_credits_cannot_start_easy_session() {
-    let (mut sc, _org, _cap, clk) = setup();
+    let (mut sc, _org, clk) = setup();
     buy(&mut sc, ONE, 1, &clk);
     sc.next_tx(ONE);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -145,7 +152,7 @@ fun hard_credits_cannot_start_easy_session() {
 
 #[test, expected_failure(abort_code = competition::ERefund)]
 fun easy_purchaser_cannot_refund_hard_pool() {
-    let (mut sc, _org, _cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, TWO, 1, &clk);
     clk.set_for_testing(CLAIM_END);
@@ -159,19 +166,19 @@ fun easy_purchaser_cannot_refund_hard_pool() {
 
 #[test, expected_failure(abort_code = competition::EConfig)]
 fun cannot_schedule_start_in_the_past() {
-    let (mut sc, org, _cap, clk) = setup();
+    let (mut sc, org, clk) = setup();
     let reg = sc.take_shared<Registry>();
-    transfer::public_transfer(competition::create<SUI>(
+    competition::create<SUI>(
         &reg, &org, b"2026-09-27", sha2_256(b"versu:2026-09-27"),
         fixtures::case_demo_a().chart_hash(), fixtures::case_random0_a().chart_hash(),
         fixtures::device_address(), 0, 900_000, &clk, sc.ctx(),
-    ), ORGANIZER);
+    );
     abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun future_start_rejects_purchase_before_start() {
-    let (mut sc, _org, _cap, clk) = setup_at(FUTURE_START);
+    let (mut sc, _org, clk) = setup_at(FUTURE_START);
     let mut c = sc.take_shared<Challenge<SUI>>();
     competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), 0, &clk, sc.ctx());
     abort 0
@@ -179,7 +186,7 @@ fun future_start_rejects_purchase_before_start() {
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun future_start_rejects_paid_session_before_start() {
-    let (mut sc, _org, _cap, clk) = setup_at(FUTURE_START);
+    let (mut sc, _org, clk) = setup_at(FUTURE_START);
     let mut c = sc.take_shared<Challenge<SUI>>();
     let reg = sc.take_shared<Registry>();
     competition::start_paid(&mut c, &reg, 0, &clk, sc.ctx());
@@ -188,7 +195,7 @@ fun future_start_rejects_paid_session_before_start() {
 
 #[test]
 fun scheduled_start_and_last_millisecond_accept_scores_and_cutoff_opens_claims() {
-    let (mut sc, org, cap, mut clk) = setup_at(FUTURE_START);
+    let (mut sc, org, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
     buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
@@ -210,28 +217,28 @@ fun scheduled_start_and_last_millisecond_accept_scores_and_cutoff_opens_claims()
     sc.next_tx(ORGANIZER);
     clk.set_for_testing(FUTURE_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"scheduled-human"), &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
     assert!(competition::claim_registered(&c, ONE));
     assert!(competition::ranked_wallet(&c, 0, 1) == ONE);
     ts::return_shared(c);
-    finish_challenge(sc, org, cap, clk);
+    finish_challenge(sc, org, clk);
 }
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun scheduled_claim_cannot_open_before_exact_cutoff() {
-    let (mut sc, _org, cap, mut clk) = setup_at(FUTURE_START);
+    let (mut sc, _org, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
     buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
     clk.set_for_testing(FUTURE_END - 1);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"scheduled-human"), &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
     abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun scheduled_score_rejects_exact_cutoff() {
-    let (mut sc, _org, _cap, mut clk) = setup_at(FUTURE_START);
+    let (mut sc, _org, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
     buy(&mut sc, ONE, 0, &clk);
     sc.next_tx(ONE);
@@ -251,7 +258,7 @@ fun scheduled_score_rejects_exact_cutoff() {
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun six_hour_entry_cutoff_cannot_be_shortened() {
-    let (mut sc, _org, _cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
     competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), 0, &clk, sc.ctx());
@@ -260,7 +267,7 @@ fun six_hour_entry_cutoff_cannot_be_shortened() {
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun six_hour_start_cutoff_is_exact() {
-    let (mut sc, _org, _cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -271,19 +278,19 @@ fun six_hour_start_cutoff_is_exact() {
 
 #[test, expected_failure(abort_code = competition::EConfig)]
 fun tiny_claim_window_is_rejected() {
-    let (mut sc, org, _cap, clk) = setup();
+    let (mut sc, org, clk) = setup();
     let reg = sc.take_shared<Registry>();
-    transfer::public_transfer(competition::create<SUI>(
+    competition::create<SUI>(
         &reg, &org, b"2026-09-27", sha2_256(b"versu:2026-09-27"),
         fixtures::case_demo_a().chart_hash(), fixtures::case_random0_a().chart_hash(),
         fixtures::device_address(), 1, 1, &clk, sc.ctx(),
-    ), ORGANIZER);
+    );
     abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EPrice)]
 fun wrong_coin_amount_rejected() {
-    let (mut sc, _org, _cap, clk) = setup();
+    let (mut sc, _org, clk) = setup();
     let mut c = sc.take_shared<Challenge<SUI>>();
     competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(999_999, sc.ctx()), 0, &clk, sc.ctx());
     abort 0
@@ -291,55 +298,52 @@ fun wrong_coin_amount_rejected() {
 
 #[test, expected_failure(abort_code = competition::EScore)]
 fun claim_requires_native_score_on_selected_difficulty() {
-    let (mut sc, _org, cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 100, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, ONE, 1, sha2_256(b"human-1"), &clk);
+    c = claim(&mut sc, c, ONE, 1, &clk);
     abort 0
 }
 
-#[test, expected_failure(abort_code = competition::EIdentity)]
-fun same_person_cannot_claim_easy_and_hard_from_two_wallets() {
-    let (mut sc, _org, cap, mut clk) = setup();
+#[test, expected_failure(abort_code = competition::EScore)]
+fun another_wallet_cannot_claim_a_players_score() {
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
-    buy(&mut sc, TWO, 1, &clk);
     verified_score(&mut sc, ONE, 0, 20, &clk);
-    verified_score(&mut sc, TWO, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
-    let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"same-human"), &clk);
-    competition::register_claim(&mut c, &cap, TWO, 1, sha2_256(b"same-human"), &clk);
+    let c = sc.take_shared<Challenge<SUI>>();
+    let _c = claim(&mut sc, c, TWO, 0, &clk);
     abort 0
 }
 
-#[test, expected_failure(abort_code = competition::EIdentity)]
+#[test, expected_failure(abort_code = competition::EClaim)]
 fun one_wallet_cannot_claim_both_prize_slices() {
-    let (mut sc, _org, cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, ONE, 1, &clk);
     verified_score(&mut sc, ONE, 0, 20, &clk);
     verified_score(&mut sc, ONE, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"human"), &clk);
-    competition::register_claim(&mut c, &cap, ONE, 1, sha2_256(b"human"), &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
+    c = claim(&mut sc, c, ONE, 1, &clk);
     abort 0
 }
 
 #[test]
 fun claim_order_cannot_sweep_other_people_and_missing_shares_refund() {
-    let (mut sc, org, cap, mut clk) = setup();
+    let (mut sc, org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, TWO, 1, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
     verified_score(&mut sc, TWO, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, TWO, 1, sha2_256(b"hard-person"), &clk);
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"easy-person"), &clk);
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"easy-person"), &clk);
+    c = claim(&mut sc, c, TWO, 1, &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
     assert!(competition::ranked_wallet(&c, 0, 1) == ONE);
     assert!(competition::ranked_wallet(&c, 1, 1) == TWO);
     assert!(competition::pot_value(&c, 0) == 1_000_000);
@@ -354,32 +358,31 @@ fun claim_order_cannot_sweep_other_people_and_missing_shares_refund() {
     competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
     assert!(competition::pot_value(&c, 0) == 0);
     ts::return_shared(c);
-    finish_challenge(sc, org, cap, clk);
+    finish_challenge(sc, org, clk);
 }
 
 #[test]
 fun earliest_high_score_beats_late_claims_within_difficulty() {
-    let (mut sc, org, cap, mut clk) = setup();
+    let (mut sc, org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, TWO, 0, &clk);
     verified_score(&mut sc, ONE, 0, 80, &clk);
     verified_score(&mut sc, TWO, 0, 80, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::register_claim(&mut c, &cap, TWO, 0, sha2_256(b"human-2"), &clk);
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"human-1"), &clk);
+    c = claim(&mut sc, c, TWO, 0, &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
     assert!(competition::ranked_wallet(&c, 0, 1) == ONE);
     assert!(competition::ranked_wallet(&c, 0, 2) == TWO);
     ts::return_shared(c);
-    finish_challenge(sc, org, cap, clk);
+    finish_challenge(sc, org, clk);
 }
 
-/// One isolated Sui round with test-only accepted hardware scores and mock human
-/// identities. Independent credits, chart ranks, settlement and refunds run in
+/// One isolated Sui round with test-only accepted hardware scores and wallet claims. Independent credits, chart ranks, settlement and refunds run in
 /// the actual vault code; SUI stands in for unavailable Circle testnet USDC.
 #[test]
 fun six_wallet_round_refunds_unclaimed_shares_per_difficulty() {
-    let (mut sc, org, cap, mut clk) = setup();
+    let (mut sc, org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     buy(&mut sc, ONE, 1, &clk);
     buy(&mut sc, TWO, 0, &clk);
@@ -392,7 +395,7 @@ fun six_wallet_round_refunds_unclaimed_shares_per_difficulty() {
     verified_score(&mut sc, ONE, 1, 80, &clk);
     verified_score(&mut sc, TWO, 0, 70, &clk);
     verified_score(&mut sc, THREE, 0, 60, &clk);
-    verified_score(&mut sc, FOUR, 0, 100, &clk); // higher score, no human claim
+    verified_score(&mut sc, FOUR, 0, 100, &clk); // higher score, no wallet claim
     verified_score(&mut sc, FIVE, 1, 80, &clk);
     clk.set_for_testing(GAME_END - 2); // registry needs expiry > now; vault stops at GAME_END
     verified_score(&mut sc, SIX, 1, 60, &clk);
@@ -404,11 +407,11 @@ fun six_wallet_round_refunds_unclaimed_shares_per_difficulty() {
     assert!(competition::remaining_plays(&c, ONE, 1) == 2);
     assert!(competition::remaining_plays(&c, SIX, 1) == 2);
     clk.set_for_testing(GAME_END);
-    competition::register_claim(&mut c, &cap, SIX, 1, sha2_256(b"human-six"), &clk);
-    competition::register_claim(&mut c, &cap, THREE, 0, sha2_256(b"human-three"), &clk);
-    competition::register_claim(&mut c, &cap, FIVE, 1, sha2_256(b"human-five"), &clk);
-    competition::register_claim(&mut c, &cap, TWO, 0, sha2_256(b"human-two"), &clk);
-    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"human-one"), &clk);
+    c = claim(&mut sc, c, SIX, 1, &clk);
+    c = claim(&mut sc, c, THREE, 0, &clk);
+    c = claim(&mut sc, c, FIVE, 1, &clk);
+    c = claim(&mut sc, c, TWO, 0, &clk);
+    c = claim(&mut sc, c, ONE, 0, &clk);
     assert!(competition::ranked_wallet(&c, 0, 1) == ONE);
     assert!(competition::ranked_wallet(&c, 0, 2) == TWO);
     assert!(competition::ranked_wallet(&c, 0, 3) == THREE);
@@ -436,12 +439,12 @@ fun six_wallet_round_refunds_unclaimed_shares_per_difficulty() {
     assert!(competition::pot_value(&c, 0) == 0);
     assert!(competition::pot_value(&c, 1) == 0);
     ts::return_shared(c);
-    finish_challenge(sc, org, cap, clk);
+    finish_challenge(sc, org, clk);
 }
 
 #[test, expected_failure(abort_code = competition::EScore)]
 fun recorded_session_cannot_be_replayed() {
-    let (mut sc, _org, _cap, clk) = setup();
+    let (mut sc, _org, clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     let sid = verified_score(&mut sc, ONE, 0, 0, &clk);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -452,7 +455,7 @@ fun recorded_session_cannot_be_replayed() {
 
 #[test, expected_failure(abort_code = competition::ERefund)]
 fun refund_once_only() {
-    let (mut sc, _org, _cap, mut clk) = setup();
+    let (mut sc, _org, mut clk) = setup();
     buy(&mut sc, ONE, 0, &clk);
     clk.set_for_testing(CLAIM_END);
     let mut c = sc.take_shared<Challenge<SUI>>();

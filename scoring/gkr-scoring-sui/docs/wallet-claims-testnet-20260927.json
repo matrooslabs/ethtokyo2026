@@ -1,0 +1,69 @@
+{
+  "network": "testnet",
+  "packageId": "0x08232a7e6c08dce4bf52508f53eba6fd16dd24063fdfcc305eb955270217ce5e",
+  "registryId": "0x08c5906005e6d2e030b224d724368c1c68f89b4deba6c81e1d62d42147610bc4",
+  "challengeId": "0xadc2d90a9561fbcc857100ab25417906121e99c2eb01ced08c91cba55a49b1d9",
+  "organizer": "0x80e494b3da788a12d15417b3f97be72ebc3d772d332e972070d2abc741bd35fa",
+  "claimAuthorization": "Transaction sender; one difficulty per wallet; no World ID",
+  "devicePubkey": "0x03a0e079763a09e6889fc1d0517d17f7b17a270d81b447a3cafd8b137fe7fe433c",
+  "deviceAddress": "0x1e2dabc75362bef35d84b85a7b3138706e229b10",
+  "bitstreamHash": "0xbd054874a86b6fc53209d3e47f4f793f9a18845cfd8eae25c321965c4360d115",
+  "insecureDemo": true,
+  "srsId": "0xcd199354a4ea127f32c21fc6f56863a42af6df3133bef40702f8d9d0a1326a84",
+  "srsSecurity": "INSECURE DEVELOPMENT SRS: NOT MAINNET ELIGIBLE",
+  "startedAt": "2026-09-26T22:57:04.609Z",
+  "scoreDeadline": "2026-09-27T04:57:04.609Z",
+  "claimDeadline": "2026-09-28T04:57:04.609Z",
+  "transactions": [
+    {
+      "step": "publish native GKR package",
+      "digest": "8f8zhmnneJ9m76GCvsk67q2PaS8UNJdyEuRH1VZ6K3AP"
+    },
+    {
+      "step": "create shared native registry",
+      "digest": "4ifZZZ2iN2gph3C8o48jHd7yDqwbi4uQ5HuS9CPqwayP"
+    },
+    {
+      "step": "easy chart upload 0",
+      "digest": "C3F6Y7VSMXkdFajX8x1zhtZ64UGbx5Sx1mMqNe61S7gd"
+    },
+    {
+      "step": "easy chart validated 204/204",
+      "digest": "G1yaYdGYaPCpzQiGZcvpokgkD4dpRneLApVfcaXxpiSd"
+    },
+    {
+      "step": "easy chart registered with GKR opening",
+      "digest": "5VJKiuffkjHSE8nMR95rHVKxhhjvwKJ24dGnjHhHeJa"
+    },
+    {
+      "step": "hard chart upload 0",
+      "digest": "GTAuxEFDBebwuU8RZajphQe4Fe6fnRhpMqCDcqJJb2of"
+    },
+    {
+      "step": "hard chart validated 1026/1026",
+      "digest": "FpqP8ZPp9LVhjoDfeXdcEzBKvDaKU9bcj8F2SBTxhijV"
+    },
+    {
+      "step": "hard chart registered with GKR opening",
+      "digest": "2PmmyLkeUGCuTxkwVQ9AUfLFHh2tzLjeJyw5yR4TQows"
+    },
+    {
+      "step": "register device for Forest Challenge",
+      "digest": "8Md6MWXEnpMZQ7Up1vXm5pch9sKEQpnEnvKkQeFdaLNS"
+    },
+    {
+      "step": "schedule Forest Challenge<CircleUSDC>",
+      "digest": "4Rz7yGZGodzoUt8JNU5H5AueYkP8C14YGWL5qR6qgHDp"
+    }
+  ],
+  "browserConfiguration": {
+    "VITE_SUI_PACKAGE_ID": "0x08232a7e6c08dce4bf52508f53eba6fd16dd24063fdfcc305eb955270217ce5e",
+    "VITE_SUI_REGISTRY_ID": "0x08c5906005e6d2e030b224d724368c1c68f89b4deba6c81e1d62d42147610bc4",
+    "VITE_SUI_CHALLENGE_ID": "0xadc2d90a9561fbcc857100ab25417906121e99c2eb01ced08c91cba55a49b1d9",
+    "VITE_SUI_EASY_CHART_HASH": "0xaeb24d9f22f715fa38a9e49d4ed081dd0ccad286b9b14fecaa6cfeb5118d3f92",
+    "VITE_SUI_HARD_CHART_HASH": "0xceb6d1b65e81eec7b10153e455fcbd376a7f8ab8a30f8ae678b4f13d2e28de75",
+    "VITE_SUI_USDC_TYPE": "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+    "VITE_SUI_INSECURE_DEMO": "true",
+    "VITE_BEATMAP_URL": "/beatmaps/forest.osz"
+  }
+}

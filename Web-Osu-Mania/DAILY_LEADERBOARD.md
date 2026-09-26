@@ -1,3 +1,6 @@
+> Current claims use Sui wallet signatures only. World ID references in the historical
+> evidence section describe the retired integration.
+
 # versu! Forest challenge
 
 ## Source of truth
@@ -23,31 +26,80 @@ With `VITE_WALLETCONNECT_PROJECT_ID`, the official Mysten WalletConnect Wallet S
 
 ## Local dev simulation
 
-From `Web-Osu-Mania/`, run `VITE_VERSU_MODE=dev npm run dev -- --port 3000` on an available port. The **player homepage is the real Sui Wallet/USDC/Bridge/World flow in both modes**. The isolated in-browser simulation is an unlinked internal test harness at `/#_simulation` in Vite development only. There an operator chooses the mock start time up front, advances to it and to claim/settlement cutoffs, selects one of six mock wallets, and uses the mock-score shortcut to exercise the ledger. Internal controls do not appear on the player homepage. Simulated values live under `versu:local-simulation:v1` and cannot be interpreted as Sui transactions, Bridge proof, World verification or real payouts.
+From `Web-Osu-Mania/`, run `VITE_VERSU_MODE=dev npm run dev -- --port 3000` on an available port. The **player homepage uses the real Sui Wallet/USDC/Bridge flow in both modes**. The isolated in-browser simulation is an unlinked internal test harness at `/#_simulation` in Vite development only. There an operator chooses the mock start time up front, advances to it and to claim/settlement cutoffs, selects one of six mock wallets, and uses the mock-score shortcut to exercise the ledger. Internal controls do not appear on the player homepage. Simulated values live under `versu:local-simulation:v1` and cannot be interpreted as Sui transactions, Bridge proof, World verification or real payouts.
 
 Without the dev flag, both preview and build use the real Sui/Bridge path. `npm run build` compiles only the real production player flow because the internal harness is gated by `import.meta.env.MODE === "development"`; inspected production artifacts contained no simulator labels, mock wallet or mock-score text. The build strips a copied local `.dev.vars` from its server output.
 
+## Start the local stack
+
+From the repository root, run:
+
+```sh
+./start-sui.sh
+```
+
+The launcher installs missing Node dependencies, incrementally builds the current Rust
+hardware prover, starts it on `127.0.0.1:8092`, and starts the web app on `127.0.0.1:3000`.
+It verifies the web scoring proxy, matching package/Registry IDs, and SRS fingerprint
+before reporting readiness. Ctrl-C stops both services and their child processes.
+No Cloudflare login, World ID service, EVM indexer, or deployment transaction is required.
+
+It reads the committed wallet-only testnet receipt by default and updates public IDs in
+`Web-Osu-Mania/.env.local`. It preserves other settings and configures matching private
+scoring credentials in `Web-Osu-Mania/.dev.vars` and ignored `artifacts/local-stack` files.
+Logs and proof jobs also live under `scoring/gkr-scoring-sui/artifacts/local-stack/`.
+The startup check establishes service connectivity, not a successful hardware gameplay proof.
+
+```sh
+# If the default ports are occupied:
+WEB_PORT=3001 PROVER_PORT=8093 ./start-sui.sh
+# Start, check connectivity, and shut down:
+./start-sui.sh --check
+# Use another already-activated deployment and its matching SRS:
+SUI_DEPLOYMENT_FILE=/path/to/deployment.json SUI_SRS_FILE=/path/to/srs.bin ./start-sui.sh
+```
+
+Prerequisites: Node 22+, npm, Rust/Cargo, curl, and the matching Sui SRS file (the current
+ignored `scoring/gkr-scoring-sui/artifacts/dev-srs-24.bin`). Connect the provisioned Bridge
+to the computer over USB, open the app in a WebHID-capable browser, and connect a Sui
+testnet wallet funded with gas and test USDC. Hardware must match the registered device.
+A phone wallet additionally needs `VITE_WALLETCONNECT_PROJECT_ID` in `.env.local`.
+The launcher does not flash hardware, mint tokens, generate an SRS, or reset challenge deadlines.
+
 ## Operator configuration
 
-The testnet deployer is `scoring/gkr-scoring-sui/scripts/deploy_forest_challenge.mjs`. For a secure Challenge, obtain an independently reviewed BLS12-381 ceremony SRS before `--prepare --srs <trusted-SRS> --out <new-private-output-dir>`. Preparation publishes a **new immutable package**, Registry and both charts without starting play; a prior shared-pot package cannot be upgraded in place. After checking SRS provenance, hardware, Circle test USDC and World ID readiness, use `--activate --out <same-dir> --start-at <future-UTC> --device-pubkey 0x<actual-compressed-33-byte-key> --bitstream-hash 0x<actual-32-byte-image-hash> --identity-attestor 0x<service-wallet>`. The UTC start timestamp, six-hour cutoff and claim deadline are locked at creation. Device registration and Challenge creation are separately confirmed transactions; the manifest checkpoints both, and a failed submission must be reconciled on-chain before retrying. `--insecure-demo` explicitly opts into a known-toxic development SRS on testnet only and labels the manifest/browser accordingly; do not present that Challenge as hardware-secure or use mainnet funds.
+The testnet deployer is `scoring/gkr-scoring-sui/scripts/deploy_forest_challenge.mjs`.
+Run `--prepare --srs <SRS-file> --out <deployment-directory>` to publish the Move package,
+create a Registry, and register Easy and Hard. This writes `deployment.json` and does not
+start a challenge. Then run `--activate --out <same-directory> --start-at <UTC-timestamp>
+--device-pubkey <compressed-secp256k1-public-key> --bitstream-hash <32-byte-image-hash>`.
+The start, six-hour gameplay window, and claim deadline are immutable. For the explicitly
+unsafe testnet demo, add `--insecure-demo`; the bundled development SRS permits forged proofs.
 
-Copy `deployment.json`'s browser configuration to public `VITE_SUI_*` settings, including **both** chart hashes and the one Challenge ID. `.env.example` lists Circle's native six-decimal testnet USDC type; the site bundles `/beatmaps/forest.osz` for paid runs and `/beatmaps/daily-demo.osz` for free practice. A provisional `VITE_SUI_PROOF_BUFFER_SECONDS=900` reserves time after the measured 139-second Forest chart; replace this buffer using actual Bridge capture, GKR proof and Sui confirmation timings before activation. If deployment or a required dependency is missing, the browser fails closed rather than showing fabricated balances or ranks.
+Copy the manifest's `browserConfiguration` to `Web-Osu-Mania/.env.local`. The browser
+and scoring service must use the same package, Registry, challenge, and chart hashes.
+The server needs `SUI_SCORING_ORIGIN` and `SUI_SCORING_API_TOKEN` for the scoring proxy.
 
-Cloudflare Worker configuration: World public `app_id`, `rp_id`, production action `versu-prize-claim` and environment in `wrangler.jsonc`; server-only RP signing key in a Worker secret; Sui network/RPC, attestor private key, package/coin type and **`SUI_IDENTITY_CHALLENGES` keyed by real Challenge ID** with its `IdentityCap`; authenticated HTTPS `SUI_SCORING_ORIGIN` and server-only `SUI_SCORING_API_TOKEN`. Requests use expiring server-authenticated tokens. The Sui Challenge's nullifier and wallet tables enforce durable claim uniqueness; no separate claims database is required. Keep secrets out of `VITE_` and chat.
+Claims require only the player's Sui wallet. During the claim window, `register_claim`
+uses the transaction sender and their best on-chain score for the selected difficulty.
+Each wallet can select one difficulty, retries for the same difficulty are idempotent,
+and no wallet can register another wallet's claim. There is no World ID, nullifier,
+IdentityCap, or identity-attestor service. Multiple wallets are not restricted by human identity.
+After claims close, anyone can settle the top five of each independent difficulty pool;
+unused shares refund that pool's purchasers.
 
-The Sui proof server (`scoring/crates/prove-server-sui/`) verifies Bridge-signed GET_RESULT/GET_TRACE bytes and returns a mode-3 Sui transaction plan. Large traces are staged across wallet-signed Sui transactions; mode 3 rejects captures beyond its roughly 7,000-event TraceUpload bound. Provision a bank of sufficient capacity on the **actual** board; the existing 65-event development board cannot finish either Forest chart. Production requires trusted SRS and secure signer firmware, not the bundled development setup.
+The Bridge still gates gameplay and signs the scoring trace. World ID removal does not
+replace hardware proofs or relax the recorded-score requirement.
 
-For the selected **secure-device** path, `bridgeos/scripts/prepare-hardware-root.py` requires an independently reviewed external provisioning record, a verified **200,000-point BN254 SRS bank**, the actual bitstream hash, approved secure OTP/HUK slot and non-development TA signing/trust keys. Do not use `bridgeos/board/radxa-zero3-rt/debug-overlay/etc/osumania-provision.conf`: it publishes private scalar `1` and hardcodes `04` repeated 32 times as the image marker. After flashing, verify `GET_INFO.maxEvents >= 2052` and a signed `GET_RESULT` under the recovered **compressed public key**; provide only that public key, its device address, and the real image hash to `--activate`. Never share or commit HUK, TA signing material or the device private key.
+## Current wallet-only testnet deployment
 
-## World ID operator setup
+Package: `0x08232a7e6c08dce4bf52508f53eba6fd16dd24063fdfcc305eb955270217ce5e`.
+Challenge: `0xadc2d90a9561fbcc857100ab25417906121e99c2eb01ced08c91cba55a49b1d9`.
+Scoring: **2026-09-26T22:57:04.609Z–2026-09-27T04:57:04.609Z**; claims close **2026-09-28T04:57:04.609Z**.
+The confirmed public receipt is [wallet-claims-testnet-20260927.json](../scoring/gkr-scoring-sui/docs/wallet-claims-testnet-20260927.json).
+This is an explicitly insecure development-SRS demo. Wallet-only claims do not enforce one-person uniqueness.
 
-1. In the [World Developer Portal](https://developer.world.org), reuse app `app_3b09fd5fe1c151bd37b19ceb95c45170` and RP `rp_78581d63ee7bed85`; confirm World ID **v4 registration is complete** and create the **production** action slug `versu-prize-claim` with Proof of Human. The public IDs, action and environment are in `wrangler.jsonc` `vars`. The RP signing private key is returned only once at provisioning/rotation; never paste it into chat or a `VITE_` variable. [Official IDKit integration guide](https://docs.world.org/world-id/idkit/integrate).
-2. From `Web-Osu-Mania/`, log in with Node 22: `npx --yes node@22 node_modules/wrangler/bin/wrangler.js login`. Then run `npx --yes node@22 node_modules/wrangler/bin/wrangler.js secret put WORLD_ID_RP_SIGNING_KEY` and enter the RP private signing key **only** in the operator terminal. The server signs expiring challenge and proof-confirmed attestation tickets; no database creation, migration or binding is part of this flow.
-3. After a trusted SRS/Bridge deployment creates a real Challenge, set `SUI_NETWORK=testnet`, `SUI_RPC_URL`, `SUI_IDENTITY_PACKAGE_ID`, `SUI_IDENTITY_COIN_TYPE` (Circle USDC) and `SUI_IDENTITY_CHALLENGES` as `{"<challenge ID>":{"identityCapId":"<cap ID>"}}` from its deploy manifest. `SUI_IDENTITY_PRIVATE_KEY`, owning that cap, is a separate Ed25519 **Worker secret** set with `wrangler secret put`; never use the player's wallet key. Browser `VITE_SUI_*` IDs and both chart hashes must identify this same deployment.
-4. After a wallet has a verified paid score and the on-chain six-hour score window closes, open **Claims** in the real World App. `/api/identity/challenge` must return an RP context and signed challenge ticket; `/api/identity/verify` must return a World-confirmed Sui claim digest or a signed attestation ticket for retry. The on-chain `ClaimRegistered` event and Challenge nullifier table are the final one-human-one-claim evidence. Try the same human on a second wallet/difficulty and verify its transaction is rejected; also test cancellation/denial. Production World ID proofs cannot be replaced by the staging Simulator.
-
-
-## Observed checks and missing live evidence
+## Historical checks before wallet-only claims (superseded deployment)
 
 The revised `sui move test` passed **106/106**, including cross-difficulty credit/refund rejection, isolated six-buyer payouts and six-hour boundaries. Web typecheck, Vite production build and Node 22 `npm test` passed **20/20**. A fresh browser read the newly created Sui Challenge: Easy and Hard each displayed a separate **0.00 USDC** pool; selecting Hard changed the purchase label and ranking without fetching `forest.osz`. At 390px the page had no horizontal overflow and displayed an explicit insecure-testnet warning. The scorer mismatch alert cleared after the local prover restarted against the new package/Registry. This confirms reads and UI, **not** a wallet-signed Circle USDC purchase, physical Bridge gameplay or World claim.
 

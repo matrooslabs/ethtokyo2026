@@ -52,7 +52,6 @@ const challengeObject = bcs.struct("Challenge", {
   buyers: dynamicTable,
   attempts: dynamicTable,
   claims: dynamicTable,
-  nullifiers: dynamicTable,
   easy_top: bcs.vector(rankedClaim),
   hard_top: bcs.vector(rankedClaim),
   score_order: bcs.u64(),
@@ -160,6 +159,13 @@ export function startPaid(challengeId: string, difficulty: Difficulty): Transact
     target: target("start_paid"), typeArguments: coinType,
     arguments: [tx.object(challengeId), tx.object(suiDeployment.registryId), tx.pure.u8(difficultyCode(difficulty)), tx.object.clock()],
   });
+  return tx;
+}
+
+export function registerClaim(challengeId: string, difficulty: Difficulty): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({ target: target("register_claim"), typeArguments: coinType,
+    arguments: [tx.object(challengeId), tx.pure.u8(difficultyCode(difficulty)), tx.object.clock()] });
   return tx;
 }
 

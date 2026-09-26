@@ -35,7 +35,6 @@ export default function DevCompetition() {
   const [scheduledStart, setScheduledStart] = useState("");
   const [wallet, setWallet] = useState(DEV_WALLETS[0].wallet);
   const [connected, setConnected] = useState(false);
-  const [humanId, setHumanId] = useState(DEV_WALLETS[0].wallet);
   const [difficulty, setDifficulty] = useState<DevDifficulty>("Easy");
   const [setup, setSetup] = useState<{ paid: boolean; beatmapSet: BeatmapSet } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -165,7 +164,6 @@ export default function DevCompetition() {
     commit(initialState(Date.now()));
     setScheduledStart(defaultScheduledStart());
     setWallet(DEV_WALLETS[0].wallet);
-    setHumanId(DEV_WALLETS[0].wallet);
     setConnected(false);
     setSetup(null);
     setError("");
@@ -175,7 +173,7 @@ export default function DevCompetition() {
   return <div className="arena-dev">
     <GameOverlay hardware={simulatedHardware} />
     <div className="arena-dev-banner" role="status">
-      <span><strong>Simulation only.</strong> Wallet, USDC, Bridge and World ID are mocked.</span>
+      <span><strong>Simulation only.</strong> Wallet, USDC and Bridge are mocked.</span>
       <button className="arena-text-button" type="button" onClick={reset}>Reset</button>
     </div>
     {setup && chart ? <QuickSetup beatmap={chart} beatmapSet={setup.beatmapSet} paid={setup.paid} simulated busy={busy}
@@ -202,7 +200,7 @@ export default function DevCompetition() {
               disabled={!!state.run} onClick={() => setDifficulty(name)}><strong>{name}</strong><span>{money(state.pots[name])} demo USDC</span></button>)}
           </div></fieldset>
           <div className="arena-dev-controls">
-            <label>Mock wallet <select value={wallet} onChange={(event) => { setWallet(event.target.value); setHumanId(event.target.value); setConnected(false); }}>
+            <label>Mock wallet <select value={wallet} onChange={(event) => { setWallet(event.target.value); setConnected(false); }}>
               {DEV_WALLETS.map((identity) => <option value={identity.wallet} key={identity.wallet}>{identity.name}</option>)}
             </select></label>
             {!connected ? <button className="arena-secondary" onClick={() => setConnected(true)}>Connect mock wallet</button> :
@@ -218,12 +216,9 @@ export default function DevCompetition() {
           </div>}
           <button className="arena-text-button" disabled={busy || !!state.run} onClick={() => void prepare(false)}>Practice demo</button>
           {claimOpen && connected && <div className="arena-dev-claim">
-            <p>One claim per simulated person across both charts. The top five claimed {difficulty} scores share only the {difficulty} pool; unused shares refund only {difficulty} purchasers.</p>
-            <label>Mock World ID <select value={humanId} onChange={(event) => setHumanId(event.target.value)}>
-              {DEV_WALLETS.map((identity) => <option value={identity.wallet} key={identity.wallet}>{identity.name}</option>)}
-            </select></label>
+            <p>One claim per simulated wallet across both charts. The top five claimed {difficulty} scores share only the {difficulty} pool; unused shares refund only {difficulty} purchasers.</p>
             {player.claim ? <p role="status">Claimed {player.claim}</p> :
-              <button className="arena-primary" disabled={!player.best[difficulty]} onClick={() => act((current) => claimPrize(current, wallet, difficulty, humanId))}>Claim {difficulty}</button>}
+              <button className="arena-primary" disabled={!player.best[difficulty]} onClick={() => act((current) => claimPrize(current, wallet, difficulty))}>Claim {difficulty}</button>}
           </div>}
           {canSettle && <button className="arena-primary" onClick={() => act(settle)}>Distribute prizes</button>}
           {state.settled && <div className="arena-dev-claim">

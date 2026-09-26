@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-kit-react";
 import type { Transaction } from "@mysten/sui/transactions";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { HomeKeysGuide } from "@/components/homeKeysGuide";
 import HardwareGate from "@/components/hardware/hardwareGate";
 import SuiConnectButton from "@/components/sui/suiConnectButton";
 import { phoneQrConfigured } from "@/components/sui/suiProvider";
-import ClaimVerification from "@/components/identity/claimVerification";
 import QuickSetup from "./quickSetup";
 import { GameOverlay } from "@/components/game/gameOverlay";
 import { useBridgeHardware } from "@/lib/hardware/useBridgeHardware";
@@ -21,7 +20,7 @@ import { useGameStore } from "@/stores/gameStore";
 import { useChallengeClockStore } from "@/stores/challengeClockStore";
 import {
   buyPlays, configured, difficultyCode, readCompetition, readRankings, readRounds,
-  refund, settle, startPaid, suiDeployment, type Difficulty, type Ranking,
+  refund, registerClaim, settle, startPaid, suiDeployment, type Difficulty, type Ranking,
 } from "@/lib/sui/competition";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
 
@@ -40,7 +39,6 @@ export default function DailyCompetition() {
   const account = useCurrentAccount();
   const wallet = useDAppKit();
   const client = useCurrentClient();
-  const queryClient = useQueryClient();
   const setClock = useChallengeClockStore((value) => value.setClock);
   const clearClock = useChallengeClockStore((value) => value.clearClock);
   const hardware = useBridgeHardware();
@@ -119,9 +117,6 @@ export default function DailyCompetition() {
     retry: false,
   });
   const selectedRound = claimState.data;
-  const updateClaim = useCallback((ready: boolean) => {
-    if (ready) void queryClient.invalidateQueries({ queryKey: ["sui-forest-claim-v2", claimId] });
-  }, [claimId, queryClient]);
   const competition = state.data;
   const remaining = competition?.remaining ?? 0n;
   const correctDevice = !!competition && hardware.info?.deviceAddress.toLowerCase() === competition.device.toLowerCase();
@@ -308,7 +303,7 @@ export default function DailyCompetition() {
         <section className="arena-panel arena-claim-screen" aria-label="Prize claims">
           <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
           <h1>Prize claims</h1>
-          <p>World ID: one claim per person across Easy and Hard. Each chart has its own pot; its top five split 40/20/20/10/10%. Unclaimed shares refund only that chart’s purchasers.</p>
+          <p>One claim per wallet across Easy and Hard. Each chart has its own pot; its top five split 40/20/20/10/10%. Unclaimed shares refund only that chart’s purchasers.</p>
           <fieldset className="arena-difficulty"><legend>Chart</legend><div className="arena-difficulty-toggle">
             {(["Easy", "Hard"] as const).map((next) => <button type="button" key={next} aria-pressed={difficulty === next}
               onClick={() => setDifficulty(next)}><strong>{next}</strong><span>Separate pool</span></button>)}
@@ -335,11 +330,20 @@ export default function DailyCompetition() {
                   Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(payoutShares[index]) / 100n) / 1_000_000
                 ).toFixed(2)} {tokenLabel}</strong>
               </li>)}
-            </ol> : <p>No World-verified {difficulty} claims yet.</p>}
-            {!selectedRound.settled && now <= selectedRound.scoreDeadlineMs && <p>Claims open after scores close.</p>}
-            {!selectedRound.settled && now > selectedRound.scoreDeadlineMs && now <= selectedRound.claimDeadlineMs && (
+            </ol> : <p>No {difficulty} claims yet.</p>}
+            {!selectedRound.settled && now < selectedRound.scoreDeadlineMs && <p>Claims open after scores close.</p>}
+            {!selectedRound.settled && now >= selectedRound.scoreDeadlineMs && now < selectedRound.claimDeadlineMs && (
               !account ? <SuiConnectButton /> : selectedRound.claimRegistered ? <p role="status">Claim registered. Rankings settle after the claim window.</p> :
-                <ClaimVerification challengeId={claimId} difficulty={difficulty === "Easy" ? "easy" : "hard"} onReady={updateClaim} />
+                <button className="arena-primary" disabled={busy} onClick={() => {
+                  if (actionLock.current) return;
+                  actionLock.current = true;
+                  setBusy(true);
+                  setMessage("");
+                  void transact(registerClaim(claimId, difficulty)).then(
+                    () => setMessage(`${difficulty} claim registered on Sui.`),
+                    (error) => setMessage(error instanceof Error ? error.message : String(error)),
+                  ).finally(() => { setBusy(false); actionLock.current = false; });
+                }}>{busy ? "Registering claim…" : `Register ${difficulty} claim`}</button>
             )}
             {canSettle && <>
               {!account && <SuiConnectButton />}
@@ -349,7 +353,7 @@ export default function DailyCompetition() {
                   (error) => setMessage(String(error))).finally(() => setBusy(false));
               }}>Distribute prizes</button>
             </>}
-            {selectedRound.settled && <p role="status">Prize shares paid to verified wallets.</p>}
+            {selectedRound.settled && <p role="status">Prize shares paid to winning wallets.</p>}
             {canRefund && <button className="arena-secondary" disabled={busy} onClick={() => {
               setBusy(true);
               void transact(refund(address, claimId, difficulty)).then(() => setMessage(`${difficulty} unused shares refunded on Sui.`),
