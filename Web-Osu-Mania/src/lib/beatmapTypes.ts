@@ -32,6 +32,7 @@ export type Beatmap = {
 
   // Custom properties
   hash?: string;
+  sourceHash?: string; // SHA-256 of exact .osu archive bytes; paid-chart identity.
 };
 
 export type BeatmapSet = {

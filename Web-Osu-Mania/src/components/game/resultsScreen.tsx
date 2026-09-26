@@ -1,3 +1,4 @@
+import ProofSubmission from "@/components/leaderboard/proofSubmission";
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +31,7 @@ const ResultsScreen = ({
   playResults: PlayResults;
   retry: () => void;
 }) => {
+  const paidAttempt = useGameStore.use.paidAttempt();
   const closeGame = useGameStore.use.closeGame();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -115,6 +117,8 @@ const ResultsScreen = ({
     <>
       {/* Top of -1px since it wasn't covering the top for some reason */}
       <div className="bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
+        <ProofSubmission results={playResults} beatmap={beatmapData} />
+
         {/* Hidden results at a fixed width for getting screenshots */}
         <div className="max-h-0 overflow-hidden" aria-hidden tabIndex={-1}>
           <div ref={hiddenRef} className="w-7xl">
@@ -145,7 +149,7 @@ const ResultsScreen = ({
                 <MoveLeft /> Back
               </Button>
 
-              {!playResults.viewingReplay && (
+              {!playResults.viewingReplay && !paidAttempt && (
                 <Button
                   variant={"default"}
                   className="gap-2 text-xl"
@@ -180,7 +184,7 @@ const ResultsScreen = ({
                 </Tooltip>
               </TooltipProvider>
 
-              {playResults.replayData && (
+              {playResults.replayData && !paidAttempt && (
                 <div className="outline-border rounded-md outline-1 outline-solid">
                   <TooltipProvider>
                     <Tooltip delayDuration={0}>

@@ -1,3 +1,4 @@
+import { recordTransition } from "@/lib/replayInputs";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import type { EncodedMods } from "@/lib/replay";
 import { encodeMods } from "@/lib/replay";
@@ -46,6 +47,7 @@ export type ReplayDataV2 = BaseReplayData & {
 
 export class ReplayRecorder {
   private game: Game;
+  private keyStates: boolean[] = [];
 
   public replayData: ReplayDataV2;
 
@@ -79,6 +81,6 @@ export class ReplayRecorder {
   public record(column: number, isDown: boolean) {
     const time = this.game.timeElapsed + this.game.audioOffset;
 
-    this.replayData.inputs.push([column, time, isDown]);
+    recordTransition(this.keyStates, this.replayData.inputs, column, time, isDown);
   }
 }

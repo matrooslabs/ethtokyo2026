@@ -1,3 +1,4 @@
+import DailyCompetition from "@/components/leaderboard/dailyCompetition";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import {
@@ -58,7 +59,7 @@ const BeatmapList = ({
                   <div className="flex gap-3">
                     <div className="grow overflow-hidden">
                       <span className="block max-w-full truncate text-start" title={beatmap.version}>
-                        {beatmap.version}
+                        {beatmap.version} · Practice
                       </span>
 
                       <DifficultyBadge
@@ -75,6 +76,8 @@ const BeatmapList = ({
                     hp={beatmap.drain}
                   />
                 </button>
+
+                <DailyCompetition beatmap={beatmap} beatmapSet={beatmapSet} stopPreview={stopPreview} />
 
                 {beatmapScores.length > 0 && (
                   <Accordion type="single" collapsible className="mt-0.5">
