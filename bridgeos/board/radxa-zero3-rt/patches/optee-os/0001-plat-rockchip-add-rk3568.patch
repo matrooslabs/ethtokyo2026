@@ -1,0 +1,269 @@
+diff --git a/core/arch/arm/plat-rockchip/conf.mk b/core/arch/arm/plat-rockchip/conf.mk
+index 85c22df..ce0137a 100644
+--- a/core/arch/arm/plat-rockchip/conf.mk
++++ b/core/arch/arm/plat-rockchip/conf.mk
+@@ -56,6 +56,29 @@ CFG_SHMEM_SIZE   ?= 0x00400000
+ CFG_EARLY_CONSOLE ?= n
+ endif
+ 
++ifeq ($(PLATFORM_FLAVOR),rk3568)
++include core/arch/arm/cpu/cortex-armv8-0.mk
++$(call force,CFG_TEE_CORE_NB_CORE,4)
++$(call force,CFG_ARM_GICV3,y)
++
++# Match mainline U-Boot's Rockchip SPL OP-TEE reservation fallback.
++CFG_TZDRAM_START ?= 0x08400000
++CFG_TZDRAM_SIZE ?= 0x02000000
++CFG_SHMEM_START ?= 0x0a400000
++CFG_SHMEM_SIZE ?= 0x00400000
++
++CFG_EARLY_CONSOLE ?= y
++CFG_EARLY_CONSOLE_BASE ?= UART2_BASE
++CFG_EARLY_CONSOLE_SIZE ?= UART2_SIZE
++CFG_EARLY_CONSOLE_BAUDRATE ?= 1500000
++CFG_EARLY_CONSOLE_CLK_IN_HZ ?= 24000000
++CFG_DTB_MAX_SIZE ?= 0x60000
++
++# Required production provisioning: secure OTP byte offset of 16-byte HUK.
++CFG_RK3568_HUK_OFFSET ?= 0xffffffff
++CFG_RK3568_DEV_INSECURE_HUK ?= n
++endif
++
+ ifeq ($(PLATFORM_FLAVOR),rk3588)
+ include core/arch/arm/cpu/cortex-armv8-0.mk
+ $(call force,CFG_TEE_CORE_NB_CORE,8)
+diff --git a/core/arch/arm/plat-rockchip/platform_config.h b/core/arch/arm/plat-rockchip/platform_config.h
+index 673ce71..8ec4164 100644
+--- a/core/arch/arm/plat-rockchip/platform_config.h
++++ b/core/arch/arm/plat-rockchip/platform_config.h
+@@ -86,6 +86,30 @@
+ #define FIREWALL_DDR_BASE	0xff534000
+ #define FIREWALL_DDR_SIZE	SIZE_K(16)
+ 
++#elif defined(PLATFORM_FLAVOR_rk3568)
++
++#define GIC_BASE                0xfd400000
++#define GIC_SIZE                SIZE_M(1)
++#define GICC_BASE               0
++#define GICD_BASE               GIC_BASE
++#define GICR_BASE               (GIC_BASE + 0x60000)
++
++#define UART2_BASE              0xfe660000
++#define UART2_SIZE              SIZE_K(64)
++
++#define DDRSGRF_BASE            0xfe200000
++#define DDRSGRF_SIZE            SIZE_K(64)
++#define OTP_S_BASE              0xfe3a0000
++#define OTP_S_SIZE              SIZE_K(64)
++#define OTP_PHY_BASE            0xfe880000
++#define OTP_PHY_SIZE            SIZE_K(64)
++#define CRU_BASE                0xfdd20000
++#define CRU_SIZE                SIZE_K(64)
++#define SCRU_BASE               0xfdd10000
++#define SCRU_SIZE               SIZE_K(64)
++#define SGRF_BASE               0xfdd18000
++#define SGRF_SIZE               SIZE_K(64)
++
+ #elif defined(PLATFORM_FLAVOR_rk3588)
+ 
+ #define GIC_BASE		0xfe600000
+diff --git a/core/arch/arm/plat-rockchip/platform_rk3568.c b/core/arch/arm/plat-rockchip/platform_rk3568.c
+new file mode 100644
+index 0000000..73dd90c
+--- /dev/null
++++ b/core/arch/arm/plat-rockchip/platform_rk3568.c
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/* RK3568 support derived from the pinned TF-A rk3568 OTP/firewall definitions. */
++#include <assert.h>
++#include <common.h>
++#include <io.h>
++#include <kernel/delay.h>
++#include <kernel/panic.h>
++#include <kernel/tee_common_otp.h>
++#include <mm/core_memprot.h>
++#include <platform.h>
++#include <platform_config.h>
++#include <string.h>
++#include <string_ext.h>
++#include <utee_defines.h>
++
++#define WRITE_MASK 16
++#define DDR_FW_RGN(i) ((i) * 4)
++#define DDR_FW_CON 0x80
++#define RG_MAP_SECURE(last, base) ((((last) & 0x7fff) << 16) | ((base) & 0x7fff))
++
++#define CRU_CLKGATE_CON0 0x300
++#define CRU_CLKGATES_CON(i) (CRU_CLKGATE_CON0 + (i) * 4)
++#define CRU_SOFTRST_CON 0x300
++#define CRU_SOFTRSTS_CON(i) (CRU_SOFTRST_CON + (i) * 4)
++#define SCRU_GATE_CON01 0x0184
++#define SGRF_SOC_CON2 0x0008
++#define CLK_S_OTP_USER_EN BIT(7)
++#define CLK_S_OTP_SBPI_EN BIT(6)
++#define PCLK_S_OTP_EN BIT(5)
++#define PCLK_PHY_OTP_EN BIT(13)
++#define OTP_PHY_SRSTN BIT(15)
++#define SGRF_CON_OTP_CKE BIT(2)
++#define SGRF_CON_OTP_SECURE BIT(1)
++#define OTP_MAX_SECURE_BYTES 896u
++
++#define SBPI_CTRL 0x0020
++#define SBPI_CMD_VALID_PRE 0x0024
++#define SBPI_CS_VALID_PRE 0x0028
++#define SBPI_ENABLE BIT(0)
++#define SBPI_CS_AUTO BIT(2)
++#define SBPI_DEV_ID_SHIFT 8
++#define USER_CTRL 0x0100
++#define USER_DCTRL BIT(0)
++#define USER_QP 0x0120
++#define SBPI_CMD(n) (0x1000 + ((n) << 2))
++#define SBPI_DATA 0x2000
++#define INT_STATUS 0x0304
++#define SBPI_VALID(n) (0xffff0000u | (n))
++#define WMASK(bits) ((bits) << WRITE_MASK)
++#define BITS_WMASK(value, mask, shift) (((value) << (shift)) | ((mask) << ((shift) + 16)))
++
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, DDRSGRF_BASE, DDRSGRF_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, OTP_S_BASE, OTP_S_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, CRU_BASE, CRU_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, SCRU_BASE, SCRU_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, SGRF_BASE, SGRF_SIZE);
++
++int platform_secure_ddr_region(int region, paddr_t start, size_t size)
++{
++    vaddr_t base = (vaddr_t)phys_to_virt_io(DDRSGRF_BASE, DDRSGRF_SIZE);
++    paddr_t end = start + size - 1;
++    if (!base) panic();
++    assert(region >= 0 && region < 8 && start <= end);
++    assert(!(start % SIZE_K(128)) && !(size % SIZE_K(128)));
++    io_write32(base + DDR_FW_RGN(region),
++               RG_MAP_SECURE(end / SIZE_K(128), start / SIZE_K(128)));
++    io_setbits32(base + DDR_FW_CON, BIT(region));
++    DMSG("protecting RK3568 DDR region %d: %#"PRIxPA"-%#"PRIxPA, region, start, end);
++    return 0;
++}
++
++static int wait_sbpi(vaddr_t otp)
++{
++    for (unsigned timeout = 0; timeout < 10000; ++timeout) {
++        if (io_read32(otp + INT_STATUS) & BIT(1)) {
++            io_write32(otp + INT_STATUS, 0xffff0002);
++            return 0;
++        }
++        udelay(1);
++    }
++    return -1;
++}
++
++static int read_halfword(uint32_t address, uint16_t *value)
++{
++    vaddr_t otp = (vaddr_t)phys_to_virt_io(OTP_S_BASE, OTP_S_SIZE);
++    vaddr_t cru = (vaddr_t)phys_to_virt_io(CRU_BASE, CRU_SIZE);
++    vaddr_t scru = (vaddr_t)phys_to_virt_io(SCRU_BASE, SCRU_SIZE);
++    vaddr_t sgrf = (vaddr_t)phys_to_virt_io(SGRF_BASE, SGRF_SIZE);
++    if (!otp || !cru || !scru || !sgrf) return -1;
++
++    io_write32(cru + CRU_CLKGATES_CON(34), WMASK(PCLK_PHY_OTP_EN));
++    io_write32(scru + SCRU_GATE_CON01,
++               WMASK(PCLK_S_OTP_EN | CLK_S_OTP_SBPI_EN | CLK_S_OTP_USER_EN));
++    io_write32(sgrf + SGRF_SOC_CON2,
++               WMASK(SGRF_CON_OTP_SECURE | SGRF_CON_OTP_CKE) |
++               SGRF_CON_OTP_SECURE | SGRF_CON_OTP_CKE);
++    io_write32(cru + CRU_SOFTRSTS_CON(28), WMASK(OTP_PHY_SRSTN) | OTP_PHY_SRSTN);
++    udelay(2);
++    io_write32(cru + CRU_SOFTRSTS_CON(28), WMASK(OTP_PHY_SRSTN));
++    udelay(1);
++    io_write32(otp + USER_CTRL, WMASK(USER_DCTRL));
++    udelay(2);
++
++    io_write32(otp + SBPI_CTRL, BITS_WMASK(0x2, 0xff, SBPI_DEV_ID_SHIFT));
++    io_write32(otp + SBPI_CMD_VALID_PRE, SBPI_VALID(1));
++    io_write32(otp + SBPI_CMD(0), 0xfa);
++    io_write32(otp + SBPI_CMD(1), 0x09); /* disable ECC for raw provisioned HUK */
++    io_write32(otp + SBPI_CTRL, WMASK(SBPI_ENABLE) | SBPI_ENABLE);
++    if (wait_sbpi(otp)) return -1;
++
++    io_write32(otp + SBPI_CTRL, WMASK(SBPI_CS_AUTO) | SBPI_CS_AUTO);
++    io_write32(otp + SBPI_CS_VALID_PRE, 0xffff0000);
++    io_write32(otp + SBPI_CTRL, BITS_WMASK(0x2, 0xff, SBPI_DEV_ID_SHIFT));
++    io_write32(otp + SBPI_CMD_VALID_PRE, SBPI_VALID(2));
++    io_write32(otp + SBPI_CMD(0), 0xfc);
++    io_write32(otp + SBPI_CMD(1), address & 0xff);
++    io_write32(otp + SBPI_CMD(2), (address >> 8) & 0xff);
++    io_write32(otp + SBPI_CTRL, WMASK(SBPI_ENABLE) | SBPI_ENABLE);
++    if (wait_sbpi(otp)) return -1;
++
++    io_write32(otp + SBPI_CMD_VALID_PRE, SBPI_VALID(7));
++    static const uint8_t sequence[8] = {0x00,0x00,0x40,0x40,0x00,0x02,0x80,0x81};
++    for (unsigned i = 0; i < 8; ++i) io_write32(otp + SBPI_CMD(i), sequence[i]);
++    io_write32(otp + SBPI_CTRL, WMASK(SBPI_ENABLE) | SBPI_ENABLE);
++    if (wait_sbpi(otp)) return -1;
++    if ((io_read32(otp + USER_QP) & 0xe0) != 0) return -1;
++    *value = (uint16_t)io_read32(otp + SBPI_DATA + 0x20) |
++             (uint16_t)(io_read32(otp + SBPI_DATA + 0x24) << 8);
++    io_write32(otp + INT_STATUS, 0xffff0003);
++    return 0;
++}
++
++TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *key)
++{
++#if defined(CFG_RK3568_DEV_INSECURE_HUK) && CFG_RK3568_DEV_INSECURE_HUK
++    static const uint8_t development_huk[HW_UNIQUE_KEY_LENGTH] = {
++        'B','r','i','d','g','e','O','S','-','d','e','v','-','H','U','K'
++    };
++    EMSG("CFG_RK3568_DEV_INSECURE_HUK active");
++    memcpy(key->data, development_huk, sizeof(development_huk));
++    return TEE_SUCCESS;
++#elif CFG_RK3568_HUK_OFFSET == 0xffffffff
++    EMSG("CFG_RK3568_HUK_OFFSET is unprovisioned");
++    return TEE_ERROR_NOT_SUPPORTED;
++#else
++    static_assert(!(CFG_RK3568_HUK_OFFSET & 1));
++    static_assert(CFG_RK3568_HUK_OFFSET + HW_UNIQUE_KEY_LENGTH <= OTP_MAX_SECURE_BYTES);
++    uint16_t words[HW_UNIQUE_KEY_LENGTH / 2];
++    for (unsigned i = 0; i < ARRAY_SIZE(words); ++i)
++        if (read_halfword(CFG_RK3568_HUK_OFFSET / 2 + i, words + i))
++            return TEE_ERROR_SECURITY;
++    memcpy(key->data, words, sizeof(words));
++    memzero_explicit(words, sizeof(words));
++    bool all_zero = true, all_ff = true;
++    for (unsigned i = 0; i < sizeof(key->data); ++i) {
++        all_zero &= key->data[i] == 0;
++        all_ff &= key->data[i] == 0xff;
++    }
++    if (all_zero || all_ff) {
++        memzero_explicit(key, sizeof(*key));
++        return TEE_ERROR_NO_DATA;
++    }
++    return TEE_SUCCESS;
++#endif
++}
+diff --git a/core/arch/arm/plat-rockchip/sub.mk b/core/arch/arm/plat-rockchip/sub.mk
+index 693d90e..80f288c 100644
+--- a/core/arch/arm/plat-rockchip/sub.mk
++++ b/core/arch/arm/plat-rockchip/sub.mk
+@@ -4,6 +4,7 @@ srcs-y += platform.c
+ srcs-$(PLATFORM_FLAVOR_px30) += platform_px30.c
+ srcs-$(PLATFORM_FLAVOR_rk322x) += platform_rk322x.c
+ srcs-$(PLATFORM_FLAVOR_rk3399) += platform_rk3399.c
++srcs-$(PLATFORM_FLAVOR_rk3568) += platform_rk3568.c
+ srcs-$(PLATFORM_FLAVOR_rk3588) += platform_rk3588.c
+ 
+ ifeq ($(PLATFORM_FLAVOR),rk322x)
+diff --git a/core/arch/arm/plat-rockchip/main.c b/core/arch/arm/plat-rockchip/main.c
+index 03112f6ba..51fe8a1ec 100644
+--- a/core/arch/arm/plat-rockchip/main.c
++++ b/core/arch/arm/plat-rockchip/main.c
+@@ -31,7 +31,11 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
+ 
+ void boot_primary_init_intc(void)
+ {
++#if defined(CFG_ARM_GICV3)
++	gic_init_v3(GICC_BASE, GICD_BASE, GICR_BASE);
++#else
+ 	gic_init(GICC_BASE, GICD_BASE);
++#endif
+ }
+ 
+ void boot_secondary_init_intc(void)

@@ -1,0 +1,97 @@
+#!/bin/sh
+set -eu
+PIDFILE=/run/bridge-daemon.pid
+READY=/run/bridge-daemon.ready
+G=/sys/kernel/config/usb_gadget/bridgeos
+[ -r /etc/bridge-rt.conf ] && . /etc/bridge-rt.conf
+if [ -n "${BRIDGE_DIAG_LOG:-}" ]; then
+    exec >> "$BRIDGE_DIAG_LOG" 2>&1
+fi
+cleanup_failed_start() {
+    pid=${1:-}
+    if [ -n "$pid" ]; then
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+        wait "$pid" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE" "$READY"
+    if [ -w "$G/UDC" ]; then
+        printf '%s' '' > "$G/UDC"
+    fi
+}
+start() {
+    if [ -r "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo 'bridge: already running' >&2
+        return
+    fi
+    rm -f "$PIDFILE" "$READY"
+    /usr/sbin/bridge-gadget
+    if ! /usr/sbin/bridge-rt-policy; then
+        echo 'bridge: WARNING RT policy incomplete; forwarding continues without claimed tuning' >&2
+    fi
+    tries=0
+    until [ -c /dev/hidg0 ] && [ -c /dev/hidg1 ]; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 5 ]; then
+            echo 'bridge: /dev/hidg0 or /dev/hidg1 did not appear' >&2
+            cleanup_failed_start
+            return 1
+        fi
+        sleep 1
+    done
+    set -- --keyboard "${BRIDGE_KEYBOARD_DEVICE:-auto}" \
+        --cpu "${BRIDGE_RT_CPU:-2}" --rt-priority "${BRIDGE_RT_PRIORITY:-60}" \
+        --signer "${OSUMANIA_SIGNER_BACKEND:-optee}"
+    [ -z "${OSUMANIA_SRS:-}" ] || set -- "$@" --srs "$OSUMANIA_SRS"
+    if [ -n "${BRIDGE_DIAG_LOG:-}" ]; then
+        /usr/bin/bridge-daemon "$@" </dev/null >> "$BRIDGE_DIAG_LOG" 2>&1 &
+    else
+        /usr/bin/bridge-daemon "$@" </dev/null >/dev/console 2>&1 &
+    fi
+    child=$!
+    echo "$child" > "$PIDFILE"
+    tries=0
+    until [ -r "$READY" ]; do
+        if ! kill -0 "$child" 2>/dev/null; then
+            echo 'bridge: daemon startup failed (see console)' >&2
+            cleanup_failed_start "$child"
+            return 1
+        fi
+        tries=$((tries + 1))
+        if [ "$tries" -ge 5 ]; then
+            echo 'bridge: daemon not ready (see console)' >&2
+            cleanup_failed_start "$child"
+            return 1
+        fi
+        sleep 1
+    done
+    echo "bridge: running PID $child"
+}
+stop() {
+    if [ -r "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        kill "$pid" 2>/dev/null || true
+        tries=0
+        while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 5 ]; do
+            sleep 1
+            tries=$((tries + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+        wait "$pid" 2>/dev/null || true
+        rm -f "$PIDFILE" "$READY"
+    fi
+    if [ -w "$G/UDC" ]; then
+        printf '%s' '' > "$G/UDC"
+    fi
+}
+case "${1:-}" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    *) echo "usage: $0 {start|stop|restart}" >&2; exit 2 ;;
+esac

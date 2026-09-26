@@ -1,4 +1,3 @@
-import { startCapture, finishCapture, interruptCapture } from "@/lib/leaderboard/capture";
 import { useGameStore } from "@/stores/gameStore";
 import { defaultSettings } from "@/stores/settingsStore";
 import type { TimelineDataPoint } from "@/components/game/timelineGraph";
@@ -85,6 +84,7 @@ export class Game {
   public app = new Application();
   public state: GameState = "WAIT";
   public showHud: boolean;
+  public readonly hardwareOnly: boolean;
 
   public settings: Settings;
   public mods: Settings["mods"];
@@ -170,6 +170,7 @@ export class Game {
   private setResults: (failed?: boolean) => void;
   private setIsPaused: Dispatch<SetStateAction<boolean>>;
   private retry: () => void;
+  private onPaidStart?: () => Promise<void>;
 
   private finished = false;
   private disposed = false;
@@ -185,8 +186,11 @@ export class Game {
     replayData: ReplayData | null,
     retry: () => void,
     videoEl: HTMLVideoElement | null,
+    onPaidStart?: () => Promise<void>,
   ) {
     gsap.registerPlugin(PixiPlugin);
+    this.hardwareOnly = replayData === null;
+    this.onPaidStart = onPaidStart;
 
     this.resize = this.resize.bind(this);
     this.hitObjects = beatmapData.hitObjects;
@@ -206,6 +210,9 @@ export class Game {
     if (useGameStore.getState().paidAttempt) {
       this.settings.mods = structuredClone(defaultSettings.mods);
       this.settings.retryOnFail = false;
+    }
+    if (this.hardwareOnly) {
+      this.settings.mods.autoplay = false;
       this.settings.touch.enabled = false;
     }
 
@@ -317,7 +324,6 @@ export class Game {
 
   public dispose() {
     this.disposed = true;
-    if (this.paid && !this.finished) void interruptCapture(this.paid);
     this.inputSystem.dispose();
     this.audioSystem.dispose();
 
@@ -614,24 +620,31 @@ export class Game {
     this.setShowHud(showHud);
 
     window.addEventListener("resize", this.resize);
-
-    if (this.paid) {
-      if (this.song.state() !== 'loaded') await new Promise<void>((resolve, reject) => { this.song.once('load', () => resolve()); this.song.once('loaderror', () => reject(new Error('Audio preload failed'))); });
+    // The device timestamps from START; trigger it immediately before audio playback,
+    // never when the user first loads the chart or presses a gameplay key.
+    if (this.onPaidStart) {
+      if (this.song.state() !== "loaded") {
+        await new Promise<void>((resolve, reject) => {
+          this.song.once("load", () => resolve());
+          this.song.once("loaderror", () => reject(new Error("Audio preload failed")));
+        });
+      }
       await Howler.ctx.resume();
-      if (Howler.ctx.state !== 'running') throw new Error('Audio context is not ready for paid capture');
+      if (Howler.ctx.state !== "running") throw new Error("Audio context is not ready for paid capture");
       if (this.disposed) return;
-      await startCapture(this.paid);
-      if (this.disposed) { await interruptCapture(this.paid); return; }
+      await this.onPaidStart();
+      if (this.disposed) return;
       this.app.stage.removeChild(this.startMessage);
       this.play();
     }
+
     // Game loop
     this.app.ticker.add((time) => this.update(time));
   }
 
   private update(time: Ticker) {
     this.fps?.update(time.FPS);
-    if (!this.paid) this.inputSystem.updateGamepadInputs();
+    if (!this.hardwareOnly) this.inputSystem.updateGamepadInputs();
 
     if (this.inputSystem.pauseTapped && !this.finished) {
       this.setIsPaused((prev) => !prev);
@@ -1103,9 +1116,6 @@ export class Game {
       return;
     }
 
-    if (this.paid) {
-      try { await finishCapture(this.paid); } catch (e) { console.error("Capture retained on board for recovery", e); }
-    }
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     this.scoreSystem.score = Math.round(this.scoreSystem.score);
@@ -1155,7 +1165,6 @@ export class Game {
   }
 
   private async fail() {
-    if (this.paid) await interruptCapture(this.paid);
     this.song.stop();
     this.videoEl?.pause();
 

@@ -1,0 +1,21 @@
+diff --git a/common/spl/spl_optee.S b/common/spl/spl_optee.S
+index a269904d386..638974b233f 100644
+--- a/common/spl/spl_optee.S
++++ b/common/spl/spl_optee.S
+@@ -4,9 +4,16 @@
+  */
+ 
+ #include <linux/linkage.h>
++#ifndef CONFIG_ARM64
+ #include <asm/assembler.h>
++#endif
+ 
+ ENTRY(spl_optee_entry)
++#ifdef CONFIG_ARM64
++	ldr x30, =CONFIG_TEXT_BASE
++	br x3
++#else
+ 	ldr lr, =CONFIG_TEXT_BASE
+ 	mov pc, r3
++#endif
+ ENDPROC(spl_optee_entry)

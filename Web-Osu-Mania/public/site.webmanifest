@@ -1,21 +1,15 @@
 {
-  "name": "Web osu!mania",
-  "short_name": "MySite",
+  "name": "versu!",
+  "short_name": "versu!",
   "icons": [
     {
-      "src": "/web-app-manifest-192x192.png",
-      "sizes": "192x192",
+      "src": "/versu-logo.png",
+      "sizes": "1536x1024",
       "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/web-app-manifest-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any"
     }
   ],
-  "theme_color": "#070e16",
-  "background_color": "#070e16",
+  "theme_color": "#231b18",
+  "background_color": "#231b18",
   "display": "standalone"
 }

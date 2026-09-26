@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export default function Header() {
   return (
@@ -8,11 +7,17 @@ export default function Header() {
         to="/"
         onClick={() => window.dispatchEvent(new Event("arena:home"))}
         className="arena-brand"
-        aria-label="osu! arena home"
       >
-        <span className="arena-logo">osu!</span>
-        <strong>osu! arena</strong>
-        <span className="arena-tag">ETH TOKYO</span>
+        <span className="arena-brand-mark" aria-hidden="true">
+          <img
+            className="arena-logo"
+            src={`${import.meta.env.BASE_URL}versu-logo.png`}
+            alt=""
+            width="1536"
+            height="1024"
+          />
+        </span>
+        <strong>versu!</strong>
       </Link>
       <nav aria-label="Main navigation">
         <Link
@@ -22,12 +27,9 @@ export default function Header() {
         >
           Leaderboard
         </Link>
-        <Link to="/faq">How to play</Link>
-        <ConnectButton
-          accountStatus="address"
-          chainStatus="none"
-          showBalance={false}
-        />
+        <Link to="/how-to-play" activeProps={{ className: "active" }}>
+          How to play
+        </Link>
       </nav>
     </header>
   );

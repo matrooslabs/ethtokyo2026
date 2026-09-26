@@ -1,0 +1,22 @@
+#ifndef OSUMANIA_TA_H
+#define OSUMANIA_TA_H
+
+#define OSUMANIA_TA_UUID { 0x91fc6874, 0x8551, 0x4b42, \
+    { 0xa9, 0x5d, 0x6e, 0xe4, 0xa1, 0x47, 0xf4, 0x21 } }
+
+enum osumania_ta_command {
+    OSUMANIA_TA_GET_DEVICE = 0,
+    OSUMANIA_TA_SET_HEADER = 1,
+    OSUMANIA_TA_START_SESSION = 2,
+    OSUMANIA_TA_FINALIZE_SESSION = 3,
+    OSUMANIA_TA_GET_RESULT = 4,
+    OSUMANIA_TA_ABORT_SESSION = 5,
+    OSUMANIA_TA_GET_STATE = 6,
+};
+
+#define OSUMANIA_TA_HEADER_SIZE 292u
+#define OSUMANIA_TA_FINAL_FIELDS_SIZE 108u /* n4 || D8 || root32 || x32 || y32 */
+#define OSUMANIA_TA_RESULT_SIZE 465u
+#define OSUMANIA_TA_DEVICE_INFO_SIZE 52u /* address20 || bitstream32 */
+
+#endif

@@ -1,0 +1,6 @@
+/sources/
+/output/
+/output-debug/
+*.pyc
+debian-zero3e.img
+/output*

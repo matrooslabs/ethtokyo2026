@@ -1,0 +1,29 @@
+diff --git a/arch/arm/mach-rockchip/rk3568/rk3568.c b/arch/arm/mach-rockchip/rk3568/rk3568.c
+index 57c959c9d8..f312d36a91 100644
+--- a/arch/arm/mach-rockchip/rk3568/rk3568.c
++++ b/arch/arm/mach-rockchip/rk3568/rk3568.c
+@@ -15,5 +15,9 @@
+ 
+ #define PMUGRF_BASE			0xfdc20000
++#define PMUGRF_OS_REG10			0x0228
++#define PMUGRF_OS_REG11			0x022c
++#define OPTEE_STAGE_MASK		0xffffff00
++#define OPTEE_STAGE_MAGIC		0x4f500000
+ #define GRF_BASE			0xfdc60000
+ #define GRF_GPIO1B_DS_2			0x218
+ #define GRF_GPIO1B_DS_3			0x21c
+@@ -117,6 +121,14 @@ void board_debug_uart_init(void)
+ int arch_cpu_init(void)
+ {
+ #ifdef CONFIG_XPL_BUILD
++	u32 stage = readl(PMUGRF_BASE + PMUGRF_OS_REG11);
++
++	/* Preserve the previous BL32 stage before the next OP-TEE boot overwrites it. */
++	if ((stage & OPTEE_STAGE_MASK) == OPTEE_STAGE_MAGIC)
++		writel(stage, PMUGRF_BASE + PMUGRF_OS_REG10);
++	else
++		writel(0, PMUGRF_BASE + PMUGRF_OS_REG10);
++
+ 	/*
+ 	 * When perform idle operation, corresponding clock can
+ 	 * be opened or gated automatically.

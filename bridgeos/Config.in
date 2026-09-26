@@ -1,0 +1,5 @@
+menu "Radxa ZERO 3W appliance"
+source "$BR2_EXTERNAL_RADXA_ZERO3_RT_PATH/package/bridge-daemon/Config.in"
+source "$BR2_EXTERNAL_RADXA_ZERO3_RT_PATH/package/osumania-optee-ta/Config.in"
+source "$BR2_EXTERNAL_RADXA_ZERO3_RT_PATH/package/osumania-optee-test/Config.in"
+endmenu

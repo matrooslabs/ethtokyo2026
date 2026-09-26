@@ -1,13 +1,11 @@
-import type { PaidAttempt } from "@/lib/leaderboard/scoring";
+import type { PaidAttempt } from "@/lib/sui/paidAttempt";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
-import { walletConfig } from "@/lib/walletConfig";
 import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
 import { createSelectors } from "@/lib/zustand";
 import type { ReplayData } from "@/osuMania/systems/replayRecorder";
 import { Howler } from "howler";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { getAccount } from "wagmi/actions";
 import { immer } from "zustand/middleware/immer";
 
 type GameState = {
@@ -43,10 +41,6 @@ const useGameStoreBase = create<GameState>()(
 
     startGame: (beatmapId: number) => {
       set((state) => { state.paidAttempt = null; });
-      if (!getAccount(walletConfig).isConnected) {
-        toast("Connect your wallet before playing.");
-        return;
-      }
       if (
         !get().beatmapSet?.beatmaps.some(
           (beatmap) => beatmap.id === beatmapId && beatmap.cs === 4,
@@ -65,10 +59,6 @@ const useGameStoreBase = create<GameState>()(
     },
 
     startReplay: async (replay: ReplayData) => {
-      if (!getAccount(walletConfig).isConnected) {
-        toast("Connect your wallet before playing.");
-        return;
-      }
 
       try {
         const beatmapSet = await getBundledBeatmapSet();
@@ -82,9 +72,6 @@ const useGameStoreBase = create<GameState>()(
         );
         if (!beatmap) {
           toast("Replay does not match the bundled beatmap.");
-          return;
-        }
-        if (!getAccount(walletConfig).isConnected) {
           return;
         }
         set((state) => {

@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// Include the exact board DTS from the pinned Radxa 6.18.2 kernel.
+#include "rk3566-radxa-zero-3w.dts"
+
+/ {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		optee_core@8400000 {
+			reg = <0x0 0x08400000 0x0 0x02000000>;
+			no-map;
+		};
+
+		optee_shm@a400000 {
+			reg = <0x0 0x0a400000 0x0 0x00400000>;
+			no-map;
+		};
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+};
+
+// The USB-C data path is high-speed only; keep the other DWC3 in host mode.
+&usb_host0_xhci {
+	dr_mode = "peripheral";
+};
+
+// SDIO1 is the onboard WLAN bus; UART1 is the onboard Bluetooth transport.
+// The serial console is UART2 and is not affected.
+&sdmmc1 {
+	status = "disabled";
+};
+
+&sdio_pwrseq {
+	status = "disabled";
+};
+
+&uart1 {
+	status = "disabled";
+};

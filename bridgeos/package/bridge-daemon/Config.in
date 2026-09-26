@@ -1,0 +1,20 @@
+config BR2_PACKAGE_BRIDGE_DAEMON
+	bool "bridge-daemon"
+	depends on BR2_LINUX_KERNEL
+	select BR2_PACKAGE_OPENSSL
+	select BR2_PACKAGE_LIBOPENSSL
+	select BR2_PACKAGE_OPTEE_CLIENT
+	help
+	  PREEMPT_RT keyboard forwarding plus canonical osu!mania Vendor HID v1.
+	  The production signer backend uses the stateful OP-TEE Client API and
+	  fails closed when BL32 or the TA is unavailable.
+
+if BR2_PACKAGE_BRIDGE_DAEMON
+
+config BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO
+	bool "insecure development SRS and signer backend"
+	help
+	  Install the public 260-point development SRS. This supports at most
+	  65 events and must never be presented as production hardware security.
+
+endif

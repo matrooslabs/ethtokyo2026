@@ -3,7 +3,7 @@ name = "mania-gkr-sui-prove-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Standalone HTTP server: POST a play, get its GKR (BLS12-381, Sui) scoring proof back as JSON"
+description = "Hardware-sealed BridgeOS scoring proof bridge for Sui secure relay"
 
 [dependencies]
 mania-gkr-sui.workspace = true
@@ -12,10 +12,12 @@ axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 anyhow.workspace = true
 hex.workspace = true
 
+reqwest.workspace = true
+k256.workspace = true
 [dev-dependencies]
 tower.workspace = true
 http-body-util.workspace = true

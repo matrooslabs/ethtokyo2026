@@ -1,0 +1,16 @@
+config BR2_PACKAGE_OSUMANIA_OPTEE_TA
+	bool "osu!mania OP-TEE constrained signer TA"
+	depends on BR2_TARGET_OPTEE_OS
+	select BR2_TARGET_OPTEE_OS_SDK
+	help
+	  Build the stateful signer TA. The RK3566 hardware-root backend fails
+	  closed until a reviewed Secure OTP/HUK platform hook is supplied.
+
+if BR2_PACKAGE_OSUMANIA_OPTEE_TA
+
+config BR2_PACKAGE_OSUMANIA_OPTEE_TA_DEV_KEY
+	bool "DEV_INSECURE_KEY_BACKEND"
+	help
+	  Development only. Uses a public deterministic root and emits a warning.
+
+endif
