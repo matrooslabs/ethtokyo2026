@@ -10,13 +10,21 @@ Players use the web version of osu! with wallet extension support. Players shoul
 
 The core web app for playing the game.
 
+- `Web-Osu-Mania/`: web game application. (Currently used)
+- `osu-old/`: legacy osu! application.
+
 ## Scoring
 
 We prove the score from osu! gameplay logs using GKR and sumcheck, then verify the proof on-chain.
 
+- `scoring/gkr-scoring/`: GKR scoring, proof generation, and on-chain verification.
+- `scoring/sp1-scoring/`: first-version SP1 scoring and proof generation.
+
 ## Hardware
 
 We use custom hardware to sign the contract.
+
+- `scoring/gkr-scoring/docs/fpga/`: hardware protocol, integration documentation, and validation vectors. Hardware implementation does not yet have a dedicated subdirectory.
 
 # Coding style
 
