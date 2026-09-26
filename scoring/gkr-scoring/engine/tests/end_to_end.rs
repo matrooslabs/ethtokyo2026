@@ -14,7 +14,7 @@ fn srs() -> &'static Srs {
 
 fn fixture(name: &str) -> PlayInput {
     let path = format!(
-        "{}/../../sp1-scoring/fixtures/{name}",
+        "{}/../../fixtures/{name}",
         env!("CARGO_MANIFEST_DIR")
     );
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
@@ -54,7 +54,7 @@ fn prove_and_check(input: &PlayInput, mode: Mode) -> Proved {
 }
 
 #[test]
-fn sp1_fixtures_both_modes() {
+fn canonical_fixtures_both_modes() {
     for name in ["demo.json", "perfect.json"] {
         let input = fixture(name);
         prove_and_check(&input, Mode::Calldata);

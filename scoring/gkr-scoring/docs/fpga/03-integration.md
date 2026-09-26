@@ -129,3 +129,6 @@ Reset/power loss가 발생한 불완전 세션은 기본적으로 abort한다. �
 착수 시 결정할 항목: FPGA/board, clock, BRAM/외부 memory, 예상 peak edge rate와 burst, 허용 STOP→signature 지연, START 동기화, 보안 소자 정확한 SKU/firmware, USB/기타 링크, ROM/bitstream 업데이트 인증과 rollback 정책. 미정인 상태에서 LUT/DSP/Fmax 또는 실시간 달성 여부를 확정할 수 없다.
 
 원본 근거: [registry](../../contracts/src/ManiaGkrRegistry.sol), [API](../../engine/src/scoring/api.rs), [witness](../../engine/src/scoring/witness.rs), [forge helper](../../engine/src/forge.rs).
+
+
+Current bridge support: `mania-gkr prove-sealed --srs FILE --input PLAY.json --mode a [--header ABI_HEADER]` preserves the sealed Mode A header/footer exactly and rejects inconsistent seals. It emits the same ABI word array as `prove-session`. The bridge must verify the device signature and on-chain session before invocation. `register-chart --srs FILE --input PLAY.json` emits canonical chart bytes, hash, commitment and registration proof as flat JSON.

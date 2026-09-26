@@ -68,6 +68,6 @@ flowchart LR
 
 **구현해야 할 하드웨어:** RTL, clock/START 동기화, debounce 정책, overflow/reset 처리, SRS provisioning, 보안 소자 연동, DER→`r,s,v`, USB framing/재전송. 이 패키지에는 해당 기능의 실기기 검증이나 자원·타이밍 측정 결과가 없다.
 
-`gkr-scoring/gkr/`는 별도 upstream 연구용 fork이며 현 채점 엔진의 런타임 의존성이 아니다. FPGA 구현은 `gkr-scoring/engine/`와 `contracts/`를 기준으로 한다. `sp1-scoring`은 V1 의미와 신뢰 경계를 이해하는 데 사용했으며, SP1 prover/server/배포 절차는 handoff 대상에 포함하지 않는다. 다만 현재 엔진에는 `../../sp1-scoring/core`라는 **실제 빌드 의존성**이 남아 있어, Rust 도구 실행 시 그 sibling 경로가 필요하다.
+`gkr-scoring/gkr/`는 별도 upstream 연구용 fork이며 현 채점 엔진의 런타임 의존성이 아니다. FPGA 구현은 `gkr-scoring/engine/`와 `contracts/`를 기준으로 한다. `sp1-scoring`은 V1 의미와 신뢰 경계를 이해하는 데 사용했으며, SP1 prover/server/배포 절차는 handoff 대상에 포함하지 않는다. 공통 scoring crate는 이제 `scoring/core`에 있으며 SP1 source와 runtime dependency는 제거되었다.
 
 **전달 방법:** `docs/fpga/` 전체를 전달하면 수신자가 Python만으로 벡터 검증을 실행할 수 있다. Rust에서 재생성하려면 원래 workspace와 [fpga_vectors.rs](../../engine/examples/fpga_vectors.rs)가 필요하다. 제공 ROM은 공개 seed의 **개발용 SRS**이며 운영 장치에 사용하면 안 된다.

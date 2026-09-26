@@ -1,3 +1,5 @@
+> Maintained canonical V1 scoring and hardware format specification. The historical SP1 proof integration described below has been removed; current proof verification uses [GKR](gkr-scoring/SPEC.md), with shared semantics in [core](core/).
+
 # OSUMANIA_ONCHAIN_RULESET_V1 (prototype)
 
 This document and `core/src/lib.rs` define the tournament protocol. This is **not**

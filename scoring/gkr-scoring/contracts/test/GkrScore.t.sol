@@ -296,7 +296,7 @@ contract GkrScoreTest {
         address device = vm.addr(DEVICE_KEY);
         registry.setDevice(device, BITSTREAM, true);
         bytes32 id = registry.openSession(bytes32("match-1"), h, address(0xBEEF), device, uint64(block.timestamp + 3600), 1);
-        uint256[] memory out = _proveSession(id, "../../sp1-scoring/fixtures/demo.json", "a");
+        uint256[] memory out = _proveSession(id, "../../fixtures/demo.json", "a");
         (ManiaGkrRegistry.Submission memory sub, uint256[] memory proof) = _submission(out);
         bytes memory events = _events("demo-a");
         bytes32 root = registry.traceRoot(id, events);
@@ -326,7 +326,7 @@ contract GkrScoreTest {
         address device = vm.addr(DEVICE_KEY);
         registry.setDevice(device, BITSTREAM, true);
         bytes32 id = registry.openSession(bytes32("match-2"), h, address(0xBEEF), device, uint64(block.timestamp + 3600), 2);
-        uint256[] memory out = _proveSession(id, "../../sp1-scoring/fixtures/perfect.json", "b");
+        uint256[] memory out = _proveSession(id, "../../fixtures/perfect.json", "b");
         (ManiaGkrRegistry.Submission memory sub, uint256[] memory proof) = _submission(out);
         uint256[2] memory tc = [out[9], out[10]];
         uint32 n = uint32(out[12]);
@@ -350,7 +350,7 @@ contract GkrScoreTest {
         address device = vm.addr(DEVICE_KEY);
         registry.setDevice(device, BITSTREAM, true);
         bytes32 id = registry.openSession(bytes32("m"), h, address(0xBEEF), device, uint64(block.timestamp + 10), 1);
-        uint256[] memory out = _proveSession(id, "../../sp1-scoring/fixtures/demo.json", "a");
+        uint256[] memory out = _proveSession(id, "../../fixtures/demo.json", "a");
         (ManiaGkrRegistry.Submission memory sub, uint256[] memory proof) = _submission(out);
         bytes memory events = _events("demo-a");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(DEVICE_KEY, bytes32(out[11]));

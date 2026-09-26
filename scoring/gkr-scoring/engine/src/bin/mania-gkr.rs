@@ -150,8 +150,10 @@ fn main() -> Result<()> {
         Some("prove") => prove_cmd(&args)?,
         Some("export-forge") => mania_gkr::forge::export(&args)?,
         Some("prove-session") => mania_gkr::forge::prove_session(&args)?,
+        Some("prove-sealed") => mania_gkr::forge::prove_sealed(&args)?,
+        Some("register-chart") => mania_gkr::forge::register_chart_command(&args)?,
         _ => bail!(
-            "usage: mania-gkr srs --smax N --out FILE [--seed S | --ptau CEREMONY.ptau]\n       mania-gkr bench --srs FILE [--cases 500,3000ln] [--reps 3] [--out FILE]\n       mania-gkr prove --srs FILE --input PLAY.json [--mode a|b] [--out FILE]\n       mania-gkr export-forge --srs FILE --out DIR"
+            "usage: mania-gkr srs --smax N --out FILE [--seed S | --ptau CEREMONY.ptau]\n       mania-gkr bench --srs FILE [--cases 500,3000ln] [--reps 3] [--out FILE]\n       mania-gkr prove --srs FILE --input PLAY.json [--mode a|b] [--out FILE]\n       mania-gkr export-forge --srs FILE --out DIR\n       mania-gkr prove-sealed --srs FILE --input PLAY.json [--mode a] [--header ABI_HEADER]\n       mania-gkr register-chart --srs FILE --input PLAY.json"
         ),
     }
     Ok(())

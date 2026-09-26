@@ -1,8 +1,8 @@
 # OSUMANIA_GKR_V1 — sumcheck/GKR scoring proofs (normative)
 
-This document specifies a replacement for the SP1 proof in `../sp1-scoring`. The
+This document specifies the active GKR proof system. The former SP1 implementation has been removed. The
 **scoring semantics are unchanged**: the proven function is exactly
-`OSUMANIA_ONCHAIN_RULESET_V1` (`../sp1-scoring/SPEC.md`, `core::evaluate`). What
+`OSUMANIA_ONCHAIN_RULESET_V1` (`../SCORING_SPEC.md`, `core::evaluate`). What
 changes is how correctness is proven: a data-parallel constraint system checked
 with a sumcheck, logUp-style multiset arguments reduced with GKR, and a
 multilinear KZG opening (Zeromorph). No zkVM, no recursion, and no Groth16 wrapper.

@@ -11,7 +11,7 @@
 ## 2. 실제 실행 경로
 
 ```text
-공통 V1 데이터·채점 의미: sp1-scoring/core
+공통 V1 데이터·채점 의미: scoring/core
                          │ path dependency
                          ▼
 gkr-scoring/engine/scoring/witness ──► relation + layout
@@ -106,7 +106,7 @@ sp1 host/program/server = SP1 실행 경로, GKR proof 경로가 아님
 | `scripts/sepolia.sh`, `receipt_value.py`, `test_sepolia_tools.py`, `unlock_demo_signer.py` | 개발용 chain orchestration, receipt parsing, helper 테스트, demo signer 운용 |
 | `fixtures/`, `SPEC.md`, `README.md`, `SEPOLIA.md`, `DEMO_READINESS.md`, `server/README.md` | V1 known-answer data, 공개 필드/입력 신뢰 경계, 기존 demo의 준비 상태 |
 
-공통 core는 실제 Rust build dependency로 남아 있지만 이 패키지의 Python oracle와 하드웨어 바이트 규격은 SP1 host/guest/server 없이 사용할 수 있다. Core를 별도 공통 crate로 옮기는 일은 가능한 후속 정리이며 이번 handoff 작성에서 수행하지 않았다.
+공통 core는 `scoring/core`로 옮겨졌다. SP1 host/guest/server는 제거되었고 아래 원본 SP1 설명과 source manifest는 이전 handoff의 역사적 기록이다.
 
 ## 5. 별도 upstream fork에서 읽은 내용
 

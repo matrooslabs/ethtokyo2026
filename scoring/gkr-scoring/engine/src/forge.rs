@@ -1,4 +1,4 @@
-//! Foundry fixtures (`export-forge`) and the FFI prover (`prove-session`).
+//! Foundry fixtures, development session rebinding, and sealed hardware bridge commands.
 use crate::field::{fe_to_be, g1_to_words, g2_to_words, words_to_hex, Word, F};
 use crate::scoring::api;
 use crate::scoring::encode::{proof_words, shape_for};
@@ -104,7 +104,7 @@ pub fn export(args: &[String]) -> Result<()> {
         "srsId": hex0x(&vk.id()),
     });
     std::fs::write(out.join("vk.json"), serde_json::to_string_pretty(&vk_json)?)?;
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sp1-scoring/fixtures");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let load = |f: &str| -> Result<PlayInput> {
         Ok(serde_json::from_slice(&std::fs::read(fixtures.join(f))?)?)
     };
@@ -162,6 +162,10 @@ fn parse_header(hex_str: &str) -> Result<SessionHeader> {
     );
     let w = |i: usize| -> [u8; 32] { bytes[32 * i..32 * i + 32].try_into().unwrap() };
     let addr = |i: usize| -> [u8; 20] { bytes[32 * i + 12..32 * i + 32].try_into().unwrap() };
+    ensure!(bytes[..24].iter().all(|b| *b == 0), "noncanonical chain ID word");
+    for i in [1, 5, 6] {
+        ensure!(bytes[32 * i..32 * i + 12].iter().all(|b| *b == 0), "noncanonical address word");
+    }
     let chain = u64::from_be_bytes(bytes[24..32].try_into().unwrap());
     Ok(SessionHeader {
         chain_id: chain,
@@ -198,6 +202,11 @@ pub fn prove_session(args: &[String]) -> Result<()> {
     let reg = register_chart(&srs, &input.chart)?;
     // For mode B the contract header already carries the V2 input policy; api::prove sets the same value.
     let proved = api::prove(&srs, &input, &reg.record, mode)?;
+    println!("{}", hex0x(&encode_session_proof(&proved, input.footer.trace_root)));
+    Ok(())
+}
+
+fn encode_session_proof(proved: &api::Proved, trace_root: Word) -> Vec<u8> {
     let st = &proved.statement;
     let mut words: Vec<Word> = Vec::new();
     words.extend(
@@ -216,7 +225,7 @@ pub fn prove_session(args: &[String]) -> Result<()> {
     words.push(st.session_digest);
     words.push(fe_to_be(&F::from(st.n)));
     words.push(fe_to_be(&F::from(st.duration)));
-    words.push(input.footer.trace_root);
+    words.push(trace_root);
     words.extend(proof_words(&proved.proof));
     let mut enc = Vec::with_capacity(64 + 32 * words.len());
     enc.extend(fe_to_be(&F::from(32u64)));
@@ -224,6 +233,105 @@ pub fn prove_session(args: &[String]) -> Result<()> {
     for w in &words {
         enc.extend(w);
     }
-    println!("{}", hex0x(&enc));
+    enc
+}
+
+
+/// Validate a sealed Mode A input without changing any signed fields.
+/// Signature and on-chain session checks belong to the bridge before invoking this command.
+fn sealed_proof(srs: &Srs, input: &PlayInput, expected_header: Option<&SessionHeader>) -> Result<Vec<u8>> {
+    if let Some(header) = expected_header {
+        ensure!(serde_json::to_value(&input.header)? == serde_json::to_value(header)?, "sealed header does not match expected session");
+    }
+    let reference = evaluate(input).map_err(anyhow::Error::msg)?;
+    let registration = register_chart(srs, &input.chart)?;
+    ensure!(registration.chart_hash == input.header.chart_hash, "sealed chart hash mismatch");
+    let proved = api::prove(srs, input, &registration.record, Mode::Calldata)?;
+    ensure!(proved.statement.session_digest == reference.session_digest, "sealed session digest changed");
+    let verified = api::verify(&srs.vk(), &proved.statement, &proved.proof, Some(&input.events))?;
+    ensure!(verified.score == u64::from(reference.score) && verified.judgements == reference.judgements.map(u64::from), "proof differs from sealed gameplay");
+    Ok(encode_session_proof(&proved, input.footer.trace_root))
+}
+
+/// `prove-sealed --srs FILE --input PLAY.json [--mode a] [--header ABI_HEADER]`
+/// Same ABI output as prove-session, with no session/footer rebinding.
+pub fn prove_sealed(args: &[String]) -> Result<()> {
+    ensure!(arg(args, "--mode").as_deref().unwrap_or("a") == "a", "prove-sealed supports only hardware Mode A");
+    let input: PlayInput = serde_json::from_slice(&std::fs::read(arg(args, "--input").context("missing --input")?)?)?;
+    let expected = arg(args, "--header").map(|h| parse_header(&h)).transpose()?;
+    let srs = Srs::load(Path::new(&arg(args, "--srs").context("missing --srs")?))?;
+    print!("{}", hex0x(&sealed_proof(&srs, &input, expected.as_ref())?));
     Ok(())
+}
+
+/// `register-chart --srs FILE --input PLAY.json`: existing fixture chart JSON, unwrapped.
+/// Only the chart is consumed; no gameplay or seal is needed to register a chart.
+pub fn register_chart_command(args: &[String]) -> Result<()> {
+    let input: PlayInput = serde_json::from_slice(&std::fs::read(arg(args, "--input").context("missing --input")?)?)?;
+    let srs = Srs::load(Path::new(&arg(args, "--srs").context("missing --srs")?))?;
+    let (chart, _) = chart_json(&srs, &input)?;
+    println!("{}", serde_json::to_string(&chart)?);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::OnceLock;
+
+    fn srs() -> &'static Srs {
+        static SRS: OnceLock<Srs> = OnceLock::new();
+        SRS.get_or_init(|| Srs::insecure_dev(16, 42))
+    }
+    fn input() -> PlayInput {
+        serde_json::from_str(include_str!("../../../fixtures/demo.json")).unwrap()
+    }
+    fn word(encoded: &[u8], at: usize) -> &[u8] { &encoded[64 + at * 32..64 + (at + 1) * 32] }
+
+    #[test]
+    fn sealed_proof_preserves_digest_root_and_input() {
+        let input = input();
+        let before = serde_json::to_value(&input).unwrap();
+        let expected = evaluate(&input).unwrap();
+        let output = sealed_proof(srs(), &input, Some(&input.header)).unwrap();
+        assert_eq!(serde_json::to_value(&input).unwrap(), before);
+        assert_eq!(&output[..32], &fe_to_be(&F::from(32u64)));
+        assert_eq!(&output[32..64], &fe_to_be(&F::from(((output.len()-64)/32) as u64)));
+        assert_eq!(word(&output,11), expected.session_digest);
+        assert_eq!(word(&output,12), fe_to_be(&F::from(input.footer.event_count as u64)));
+        assert_eq!(word(&output,13), fe_to_be(&F::from(input.footer.duration_us)));
+        assert_eq!(word(&output,14), input.footer.trace_root);
+        assert!(output.len() > 64 + 15 * 32);
+    }
+
+    #[test]
+    fn sealed_proof_rejects_mutated_seal_and_header() {
+        let original = input();
+        let mut bad = original.clone(); bad.footer.trace_root[0] ^= 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("trace root"));
+        let mut bad = original.clone(); bad.footer.event_count += 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("event count"));
+        let mut bad = original.clone(); bad.header.session_id[0] ^= 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("trace root"));
+        let mut bad = original.clone(); bad.header.chart_hash[0] ^= 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("chart hash"));
+        let mut bad = original.clone(); bad.header.input_policy_hash[0] ^= 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("unsupported"));
+        let mut bad = original.clone(); bad.header.player[0] ^= 1;
+        assert!(sealed_proof(srs(), &bad, Some(&original.header)).unwrap_err().to_string().contains("expected session"));
+        let mut bad = original.clone(); bad.events[0].timestamp_us += 1;
+        assert!(sealed_proof(srs(), &bad, None).unwrap_err().to_string().contains("trace root"));
+    }
+
+    #[test]
+    fn registration_matches_canonical_chart_and_verifies() {
+        let input = input();
+        let (output, _) = chart_json(srs(), &input).unwrap();
+        assert_eq!(output["chartHash"], hex0x(&mania_scoring_core::chart_hash(&input.chart)));
+        assert_eq!(output["bytes"], hex0x(&chart_bytes(&input.chart)));
+        assert_eq!(output["commitment"].as_array().unwrap().len(),2);
+        assert!(!output["proof"].as_array().unwrap().is_empty());
+        let registration = register_chart(srs(), &input.chart).unwrap();
+        crate::scoring::session::verify_chart_registration(&srs().vk(), &input.chart, &registration.record.commitment, &registration.proof).unwrap();
+    }
 }

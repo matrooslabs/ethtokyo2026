@@ -253,10 +253,10 @@ class Runner:
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--env-file",default=str(ROOT.parent/"sp1-scoring/.env"))
-    p.add_argument("--device",default=str(ROOT.parent/"sp1-scoring/artifacts/software-device.json"))
+    p.add_argument("--env-file",default=str(ROOT/".env"))
+    p.add_argument("--device",default=str(ROOT/"artifacts/software-device.json"))
     p.add_argument("--keystore",default="~/.foundry/keystores/sepolia-deployer")
-    p.add_argument("--password-file",default=str(ROOT.parent/"sp1-scoring/artifacts/private-signing/deployer.password"))
+    p.add_argument("--password-file",default=str(ROOT/"artifacts/private-signing/deployer.password"))
     p.add_argument("--rpc"); p.add_argument("--sender"); p.add_argument("--local",action="store_true")
     p.add_argument("--srs",default=str(ROOT/"artifacts/dev-srs-22.bin"))
     p.add_argument("--prepared",default=str(ROOT/"artifacts/fpga-e2e-prepared"))
