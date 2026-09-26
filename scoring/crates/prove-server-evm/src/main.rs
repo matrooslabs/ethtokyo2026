@@ -18,6 +18,9 @@ struct Args {
     /// SRS file. `mania-gkr srs --smax N` makes an INSECURE dev SRS; use a ceremony .ptau in production.
     #[arg(long, default_value = "artifacts/dev-srs-22.bin")]
     srs: PathBuf,
+    /// Print the exact pinned G1 bank mapping and exit. Does not attest production security.
+    #[arg(long)]
+    hardware_bank_points: Option<usize>,
     /// Enable paid game routes using this JSON config (or SCORING_CONFIG).
     #[arg(long)]
     competition_config: Option<PathBuf>,
@@ -43,6 +46,17 @@ fn main() -> Result<()> {
         "SRS loaded in {:.0} ms",
         start.elapsed().as_secs_f64() * 1e3
     );
+    if let Some(points) = args.hardware_bank_points {
+        ensure!(
+            points % 4 == 0 && points <= 200000,
+            "bank requires four points per event"
+        );
+        println!(
+            "{}",
+            serde_json::json!({"bankHash":format!("0x{}",hex::encode(prover.bank_hash(points)?)),"bankLength":points,"maxEvents":points/4,"srsId":prover.info()["srsId"]})
+        );
+        return Ok(());
+    }
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(args.bind).await?;

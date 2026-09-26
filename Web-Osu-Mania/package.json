@@ -10,7 +10,9 @@
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types",
     "typecheck": "tsc --noEmit --incremental false",
-    "test:leaderboard": "node --test tests/leaderboard.test.mjs tests/wallet-qr.test.mjs"
+    "test:leaderboard": "node --test tests/leaderboard.test.mjs tests/wallet-qr.test.mjs",
+    "test:hardware": "node --test tests/hid.test.mjs tests/seal.test.mjs tests/wallet-submission.test.mjs",
+    "test:hardware-storage": "node --test tests/hardware-storage.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

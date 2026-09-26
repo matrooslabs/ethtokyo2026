@@ -6,6 +6,8 @@ These commands run from the repository root. Install dependencies with `npm ci -
 
 `ALLOW_INSECURE_DEMO_SRS=1 KEY_FILE=./.priv-key npm run deploy --prefix leaderboard/ops`
 
+New paid deployments use Mode B. Explicitly set `DEPLOYMENT_FILE=leaderboard/ops/deployments/<chain>.mode-b.json` when deploying: the deployment script still defaults to `<chain>.json`, which may identify an older deployment. Preserve historical Mode A journals; point settlement-only operations at them explicitly with `DEPLOYMENT_FILE` and `SMOKE_FILE`.
+
 Defaults: Ethereum Sepolia (11155111), publicnode RPC, Circle test USDC `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`. Override `RPC_URL`, `DEPLOYMENT_FILE`, `VK_FILE`. Chain 31337 supports Anvil and deploys local-only DemoUSDC when USDC_ADDRESS is absent. No mainnet deployment path is supported.
 
 The existing generated SRS has known tau and is **cryptographically insecure: demo only**. The explicit flag acknowledges this; it does not repair the SRS. A ceremony SRS and corresponding fixtures/VK must replace it for meaningful proof soundness.
@@ -22,7 +24,7 @@ Only the registry organizer may call `setDevice(address,bytes32,bool)`. Use the 
 
 Start the EVM scoring HTTP server with the deployment's SRS before running the smoke harness. Set `PROVER_URL` (default `http://127.0.0.1:8091`) and, if configured on the server, `PROVER_API_TOKEN`. Run `npm run smoke --prefix leaderboard/ops` (see script environment settings). Local settlement tests advance Anvil time; Sepolia never time-travels and requires real UTC midnight for claim/refund.
 
-For the existing Sepolia smoke round, resume after `2026-09-27T00:00:00Z` with `SMOKE_SETTLE_ONLY=1 npm run smoke --prefix leaderboard/ops`. Keep the original ignored smoke journal and demo signer files: this checks and settles the recorded sessions rather than buying new entries. The committed smoke manifest records completed paid-proof checks and explicitly marks live settlement pending.
+For the existing Sepolia smoke round, resume after `2026-09-27T00:00:00Z` with `DEPLOYMENT_FILE=leaderboard/ops/deployments/11155111.json SMOKE_FILE=leaderboard/ops/deployments/11155111.smoke.json SMOKE_SETTLE_ONLY=1 npm run smoke --prefix leaderboard/ops`. Keep the original ignored smoke journal and demo signer files: this checks and settles the recorded sessions rather than buying new entries. The committed smoke manifest records completed paid-proof checks and explicitly marks live settlement pending.
 
 ## Fresh checkout proof prerequisites
 
@@ -37,3 +39,5 @@ scoring/target/release/mania-gkr export-forge --srs scoring/gkr-scoring/artifact
 ```
 
 Use this exact SRS and its exported `vk.json` together. Existing deployments bind the SRS identity immutably; do not replace their SRS/VK with unrelated files. These files are generated and ignored, so fresh checkouts need this step. Generating this development SRS does not provide production proof soundness.
+
+Browser hardware rollout and bank mapping: [operator guide](../../docs/browser-hardware.md). The paid server requires no relayer key.

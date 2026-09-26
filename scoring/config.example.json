@@ -1,12 +1,19 @@
 {
-  "manifest": "leaderboard/ops/deployments/11155111.manifest.json",
+  "manifest": "leaderboard/ops/deployments/11155111.mode-b.manifest.json",
   "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
-  "allowedOrigins": ["http://localhost:3000"],
+  "allowedOrigins": [
+    "http://localhost:3000"
+  ],
   "confirmations": 2,
-  "captureMode": "hardware",
-  "hardwareUrl": "http://127.0.0.1:8790",
-  "relayerKeyFile": "./.priv-key",
   "provingBufferSeconds": 180,
   "provingBufferMeasured": false,
-  "charts": []
+  "charts": [],
+  "jobStoreFile": "scoring/data/mode-b-jobs.json",
+  "hardwareSrs": {
+    "bankHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "bankLength": 260,
+    "maxEvents": 65,
+    "srsId": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "developmentOnly": true
+  }
 }

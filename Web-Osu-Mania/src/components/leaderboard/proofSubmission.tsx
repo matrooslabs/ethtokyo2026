@@ -1,129 +1,225 @@
-import { useEffect, useRef, useState } from "react";
-import { usePublicClient } from "wagmi";
+import { submitAndConfirm } from "@/lib/leaderboard/walletSubmission";
+import { useState, useRef } from "react";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { competitionChain } from "@/lib/walletConfig";
 import { acceptedScore } from "@/lib/leaderboard/receipts";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import type { PlayResults } from "@/types";
-import { scoringRequest, ScoringError, type ProofJob, type PaidAttempt } from "@/lib/leaderboard/scoring";
-import { leaderboardAbi, leaderboardAddress } from "@/lib/leaderboard/contracts";
+import {
+  scoringRequest,
+  type ProofJob,
+  type PaidAttempt,
+} from "@/lib/leaderboard/scoring";
+import {
+  leaderboardAbi,
+  leaderboardAddress,
+  registryAbi,
+  registryAddress,
+} from "@/lib/leaderboard/contracts";
+import {
+  saved,
+  save,
+  finishCapture,
+  validateCapture,
+  type Capture,
+} from "@/lib/leaderboard/capture";
 import { useGameStore } from "@/stores/gameStore";
 import { Button } from "@/components/ui/button";
-
-export type ProofPayload = { replay: NonNullable<PlayResults["replayData"]>; timing: { chartDelayMs: number }; webBeatmapHash: string };
-export default function ProofSubmission({ results, beatmap, savedAttempt, savedPayload }: {
-  results?: PlayResults; beatmap?: BeatmapData; savedAttempt?: PaidAttempt; savedPayload?: ProofPayload;
+export type ProofPayload = Capture;
+export default function ProofSubmission({
+  savedAttempt,
+}: {
+  results?: PlayResults;
+  beatmap?: BeatmapData;
+  savedAttempt?: PaidAttempt;
+  savedPayload?: ProofPayload;
 }) {
-  const activeAttempt = useGameStore.use.paidAttempt();
-  const attempt = savedAttempt || activeAttempt;
-  const payload = savedPayload || (results?.replayData && beatmap ? {
-    replay: results.replayData, timing: { chartDelayMs: beatmap.delay }, webBeatmapHash: beatmap.sourceHash,
-  } : undefined);
-  const client = usePublicClient({ chainId: competitionChain.id });
-  const [message, setMessage] = useState("Ready to prove this paid attempt.");
-  const [job, setJob] = useState<ProofJob>();
-  const [busy, setBusy] = useState(false);
-  const [accepted, setAccepted] = useState(false);
-  const [terminalFailure, setTerminalFailure] = useState(false);
-  const [retryableFailure, setRetryableFailure] = useState(false);
-  const alive = useRef(true);
-  const locked = useRef(false);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-
-  useEffect(() => {
-    if (attempt && payload && !results?.viewingReplay) {
-      try { localStorage.setItem(`paid-proof:${attempt.sessionId}`, JSON.stringify(payload)); }
-      catch { setMessage("Browser storage is full. Keep this page open until proof submission completes."); }
-    }
-  }, [attempt?.sessionId, results, beatmap, savedPayload]);
-
+  const active = useGameStore.use.paidAttempt(),
+    attempt = savedAttempt || active;
+  const client = usePublicClient({ chainId: competitionChain.id }),
+    account = useAccount();
+  const { writeContractAsync } = useWriteContract();
+  const [message, setMessage] = useState(
+    "Original hardware capture awaiting verification.",
+  );
+  const [busy, setBusy] = useState(false),
+    [accepted, setAccepted] = useState(false);
+  const lock = useRef(false);
   async function submit() {
-    if (!attempt || !client || !leaderboardAddress || locked.current) return;
-    locked.current = true; setBusy(true);
+    if (!attempt || !client || !leaderboardAddress || lock.current) return;
+    lock.current = true;
+    setBusy(true);
     try {
-      if (results?.viewingReplay || !payload || payload.replay.version !== 2) throw new Error("A live recorded attempt is required.");
-      const key = `paid-proof:${attempt.sessionId}`;
-      // Preserve evidence for retry if the connection is lost or the player navigates away.
-      try { localStorage.setItem(key, JSON.stringify(payload)); } catch { /* Submission can proceed without persistence. */ }
+      if (
+        attempt.chainId !== competitionChain.id ||
+        attempt.registry.toLowerCase() !== registryAddress?.toLowerCase()
+      )
+        throw new Error(
+          "Saved deployment differs from configured Mode B registry. Use the original deployment for lookup.",
+        );
+      let r = await saved(attempt);
+      if (!r)
+        throw new Error(
+          "No durable hardware attempt. Legacy Mode A records cannot be converted.",
+        );
       const readAccepted = async () => {
-        const entry = await client.readContract({ address: leaderboardAddress!, abi: leaderboardAbi, functionName: "entries", args: [attempt.sessionId] });
-        if (entry[0] !== attempt.chartHash || entry[1] !== BigInt(attempt.dayId) || entry[3].toLowerCase() !== attempt.player.toLowerCase()) {
-          throw new Error("Saved attempt does not match the on-chain paid session.");
-        }
-        return entry[4];
+        const e = await client.readContract({
+          address: leaderboardAddress!,
+          abi: leaderboardAbi,
+          functionName: "entries",
+          args: [attempt.sessionId],
+        });
+        const s = await client.readContract({
+          address: attempt.registry,
+          abi: registryAbi,
+          functionName: "getSession",
+          args: [attempt.sessionId],
+        });
+        if (
+          e[0] !== attempt.chartHash ||
+          e[1] !== BigInt(attempt.dayId) ||
+          e[3].toLowerCase() !== attempt.player.toLowerCase() ||
+          s.mode !== 2
+        )
+          throw new Error("Saved attempt differs from paid entry");
+        return e[4] && s.consumed;
       };
-      const markExistingAccepted = () => {
-        setAccepted(true); setMessage("This paid session already has an accepted on-chain score.");
-        localStorage.removeItem(key);
-      };
-      if (await readAccepted()) { markExistingAccepted(); return; }
-      let jobId = localStorage.getItem(`paid-job:${attempt.sessionId}`);
-      if (retryableFailure) {
-        const retried = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, { ...payload, retry: true });
-        if (!retried.jobId) throw new Error("Prover returned no retry job identifier.");
-        jobId = retried.jobId;
-        localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);
-        setRetryableFailure(false);
+      if (await readAccepted()) {
+        setAccepted(true);
+        setMessage("Session already accepted on-chain.");
+        return;
       }
-      if (!jobId) {
-        const block = await client.getBlock();
-        if (Number(block.timestamp) >= (attempt.dayId + 1) * 86400) throw new Error("The UTC deadline passed before proof submission. Check the round for payout or refund eligibility.");
-        setMessage("Sending captured gameplay for proof generation…");
+      if (!r.capture) {
+        setMessage("Retrieving original finalized board data…");
+        r = await finishCapture(attempt);
+      }
+      const checked = await validateCapture(r.capture!, r);
+      if (!r.proof && !r.transactionHash) {
         await scoringRequest(`/sessions/${attempt.sessionId}/start`, attempt);
-        const started = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
-        if (!started.jobId) throw new Error("Prover returned no job identifier.");
-        jobId = started.jobId;
-        localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);
+        const { jobId } = await scoringRequest<{ jobId: string }>(
+          `/sessions/${attempt.sessionId}/proof`,
+          r.capture,
+        );
+        for (;;) {
+          const job = await scoringRequest<ProofJob>(
+            `/jobs/${encodeURIComponent(jobId)}`,
+          );
+          if (job.sessionId !== attempt.sessionId)
+            throw new Error("Prover returned another session");
+          if (job.status === "failed")
+            throw new Error(
+              job.message || "Proof failed; retained capture can be retried",
+            );
+          if (job.status === "ready") {
+            if (!job.result) throw new Error("Missing proof result");
+            r.proof = job.result;
+            await save(r);
+            break;
+          }
+          if (!["queued", "proving"].includes(job.status))
+            throw new Error("Invalid prover state");
+          setMessage(
+            "Awaiting SRS commitment verification and proof generation…",
+          );
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
       }
-      let recovered = false;
-      while (alive.current) {
-        let current: ProofJob;
-        try { current = await scoringRequest<ProofJob>(`/jobs/${encodeURIComponent(jobId)}`); }
-        catch (error) {
-          if (!(error instanceof ScoringError) || error.status !== 404 || recovered) throw error;
-          if (await readAccepted()) { markExistingAccepted(); return; }
-          // The scoring server restarted before persisting a job. Resume only this same paid session.
-          recovered = true;
-          await scoringRequest(`/sessions/${attempt.sessionId}/start`, attempt);
-          const resumed = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
-          if (!resumed.jobId) throw new Error("Prover returned no recovery job identifier.");
-          jobId = resumed.jobId;
-          localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);
-          continue;
-        }
-        if (!alive.current) return;
-        setJob(current); setMessage(current.message || current.status);
-        if (current.status === "failed") { setTerminalFailure(!current.retryable); setRetryableFailure(!!current.retryable); throw new Error(current.message || "Proof generation or submission failed."); }
-        if (current.status === "confirmed") {
-          if (!current.transactionHash) throw new Error("Prover claimed confirmation without a transaction hash.");
-          setMessage("Checking proof transaction and accepted score directly on chain…");
-          const receipt = await client.waitForTransactionReceipt({ hash: current.transactionHash, confirmations: 2 });
-          const score = acceptedScore(receipt, leaderboardAddress, { chartHash: attempt.chartHash,
-            sessionId: attempt.sessionId, player: attempt.player, dayId: BigInt(attempt.dayId) });
-          const entry = await client.readContract({ address: leaderboardAddress!, abi: leaderboardAbi, functionName: "entries", args: [attempt.sessionId] });
-          if (!entry[4] || entry[0] !== attempt.chartHash || entry[1] !== BigInt(attempt.dayId) || entry[3].toLowerCase() !== attempt.player.toLowerCase()) throw new Error("No accepted on-chain score for this paid session.");
-          setAccepted(true); setMessage(`Verified score accepted on-chain: ${score}. The displayed gameplay score can use different scoring rules.`);
-          localStorage.removeItem(key);
-          return;
-        }
-        if (!["queued", "capturing", "proving", "submitting"].includes(current.status)) throw new Error("Unknown prover job status.");
-        if (Date.now() / 1000 >= (attempt.dayId + 1) * 86400) {
-          throw new Error("The UTC deadline has passed. Recheck the job to see whether its transaction was accepted before midnight.");
-        }
-        await new Promise(resolve => setTimeout(resolve, 2500));
-      }
-    } catch (error) {
-      if (alive.current) setMessage(error instanceof Error ? error.message : String(error));
-    } finally { locked.current = false; if (alive.current) setBusy(false); }
+      const record = r;
+      const score = await submitAndConfirm(record, {
+        send: async () => {
+          const p = record.proof!,
+            sub = p.submission;
+          if (
+            p.chainId !== attempt.chainId ||
+            p.registry.toLowerCase() !== attempt.registry.toLowerCase() ||
+            p.sessionId !== attempt.sessionId ||
+            p.srsId !== record.setup!.hardwareSrs.srsId ||
+            p.sessionDigest !== checked.digest ||
+            sub.sessionId !== attempt.sessionId ||
+            sub.eventCount !== checked.n ||
+            BigInt(sub.duration) !== checked.duration ||
+            sub.root !== checked.root ||
+            sub.signature !== checked.signature ||
+            sub.commitment.some(
+              (c, i) => BigInt(c) !== BigInt(checked.commitment[i]),
+            )
+          )
+            throw new Error(
+              "Proof submission differs from immutable signed capture",
+            );
+          if (
+            account.chainId !== attempt.chainId ||
+            account.address?.toLowerCase() !== attempt.player.toLowerCase()
+          )
+            throw new Error(
+              "Connect the player wallet on the paid session network. Proof is saved.",
+            );
+          const args = [
+            attempt.sessionId,
+            sub.eventCount,
+            sub.root,
+            sub.commitment.map(BigInt) as [bigint, bigint],
+            {
+              duration: BigInt(sub.duration),
+              laneBits: sub.laneBits,
+              counts: sub.counts,
+            },
+            sub.proof.map(BigInt),
+            sub.signature,
+          ] as const;
+          setMessage(
+            "Verified proof ready. Confirm submission gas in your wallet.",
+          );
+          const { request } = await client.simulateContract({
+            address: attempt.registry,
+            abi: registryAbi,
+            functionName: "submitCommitted",
+            args,
+            account: account.address,
+          });
+          return writeContractAsync({ ...request, chainId: attempt.chainId });
+        },
+        persist: save,
+        wait: (hash, replaced) => {
+          setMessage("Waiting for proof transaction confirmations…");
+          return client.waitForTransactionReceipt({
+            hash,
+            confirmations: 2,
+            onReplaced: (replacement) => replaced(replacement.transaction.hash),
+          });
+        },
+        accepted: readAccepted,
+        score: (receipt) =>
+          acceptedScore(receipt, leaderboardAddress!, {
+            chartHash: attempt.chartHash,
+            sessionId: attempt.sessionId,
+            player: attempt.player,
+            dayId: BigInt(attempt.dayId),
+          }),
+      });
+      setAccepted(true);
+      setMessage(`Score ${score} accepted on-chain.`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
   if (!attempt) return null;
-  return <section className="mx-auto my-4 max-w-3xl space-y-3 rounded border p-4" aria-label="Paid score proof">
-    <h2 className="font-semibold">Daily competition proof</h2>
-    <p className="break-all">Session: {attempt.sessionId}</p>
-    <p>Capture: {attempt.captureMode === "hardware" ? "signed hardware" : "software-signer demo (not physical hardware)"}</p>
-    <p role="status">{message}</p>
-    {!accepted && <Button disabled={busy || terminalFailure} onClick={() => void submit()}>{busy ? "Proof in progress…" : retryableFailure ? "Retry proof" : "Submit / recheck proof"}</Button>}
-    {terminalFailure && <p>This job failed. Check its transaction or contact the operator before making another paid attempt.</p>}
-    {job?.transactionHash && competitionChain.blockExplorers && <a className="block underline" href={`${competitionChain.blockExplorers?.default.url}/tx/${job.transactionHash}`} target="_blank" rel="noreferrer">View proof transaction</a>}
-    <p>Proof acceptance must occur before midnight UTC. Each new attempt requires a new entry.</p>
-  </section>;
+  return (
+    <section className="mx-auto my-4 max-w-3xl space-y-3 rounded border p-4">
+      <p className="break-all">Hardware session {attempt.sessionId}</p>
+      <p role="status">{message}</p>
+      {!accepted && (
+        <Button disabled={busy} onClick={() => void submit()}>
+          {busy ? "Verifying / submitting…" : "Recover / prove / submit"}
+        </Button>
+      )}
+      <p>
+        The player wallet pays submission gas. Captures and proofs are retained
+        for retry.
+      </p>
+    </section>
+  );
 }

@@ -8,9 +8,9 @@ import { artifact, clients, root, repoPath, readJSON, save } from './common.mjs'
 import { prove } from './proof.mjs';
 const {id,account,publicClient:pc,wallet}=clients();
 assert.equal(await pc.getChainId(),id,'RPC chain mismatch');
-const deployment=readJSON(repoPath(process.env.DEPLOYMENT_FILE||`leaderboard/ops/deployments/${id}.json`));
+const deployment=readJSON(repoPath(process.env.DEPLOYMENT_FILE||`leaderboard/ops/deployments/${id}.mode-b.json`));
 assert.equal(deployment.chainId,id);assert.equal(deployment.ready,true);
-const file=repoPath(process.env.SMOKE_FILE||`leaderboard/ops/deployments/${id}.smoke.json`);
+const file=repoPath(process.env.SMOKE_FILE||`leaderboard/ops/deployments/${id}.mode-b.smoke.json`);
 const board=deployment.contracts.DailyLeaderboard,registry=deployment.contracts.ManiaGkrRegistry;
 const boardAbi=artifact('DailyLeaderboard').abi,regAbi=artifact('ManiaGkrRegistry').abi;
 const tokenAbi=parseAbi(['function balanceOf(address) view returns(uint256)','function allowance(address,address) view returns(uint256)','function approve(address,uint256) returns(bool)','function mint(address,uint256)']);
@@ -72,11 +72,11 @@ if(process.env.SMOKE_SETTLE_ONLY!=='1'){
   if(!session.consumed){
    const input=readJSON(path.join(root,'scoring/fixtures',label==='low'?'demo.json':'perfect.json'));
    const started=performance.now();
-   const output=await prove({url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input,header:session.header});
+   const output=await prove({mode:"committed",url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input,header:session.header});
    state.provingMs??={};state.provingMs[label]=performance.now()-started;save(file,state);
    const signature=await device.sign({hash:output.digest});
-   await send(`score:${label}`,registry,regAbi,'submitCalldata',[state.sessions[label],output.events,output.sub,output.proof,signature]);
-   await expectRevert(registry,regAbi,'submitCalldata',[state.sessions[label],output.events,output.sub,output.proof,signature],'unknown or consumed session');
+   await send(`score:${label}`,registry,regAbi,'submitCommitted',[state.sessions[label],output.n,output.root,output.commitment,output.sub,output.proof,signature]);
+   await expectRevert(registry,regAbi,'submitCommitted',[state.sessions[label],output.n,output.root,output.commitment,output.sub,output.proof,signature],'unknown or consumed session');
   }
   const record=await read(board,boardAbi,'entries',[state.sessions[label]]);assert.equal(record[4],true);
  }
@@ -99,10 +99,10 @@ if((await pc.getBlock()).timestamp>=deadline){
  await expectRevert(board,boardAbi,'claim',[chart.chartHash,day],'no claimable prize');
  await expectRevert(board,boardAbi,'refund',[noScore.chartHash,day],'nothing to refund');
  const late=await read(registry,regAbi,'getSession',[state.sessions.late]);
- const lateProof=await prove({url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input:readJSON(path.join(root,'scoring/fixtures/perfect.json')),header:late.header});
+ const lateProof=await prove({mode:"committed",url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input:readJSON(path.join(root,'scoring/fixtures/perfect.json')),header:late.header});
  const lateSignature=await device.sign({hash:lateProof.digest});
  // At midnight the strict paid cutoff rejects an otherwise valid proof.
- await expectRevert(registry,regAbi,'submitCalldata',[state.sessions.late,lateProof.events,lateProof.sub,lateProof.proof,lateSignature],(await pc.getBlock()).timestamp===deadline?'paid round closed':'session expired');
+ await expectRevert(registry,regAbi,'submitCommitted',[state.sessions.late,lateProof.n,lateProof.root,lateProof.commitment,lateProof.sub,lateProof.proof,lateSignature],(await pc.getBlock()).timestamp===deadline?'paid round closed':'session expired');
  state.settlementVerified=true;
 }else{state.settlementVerified=false;state.claimableAtUtc=new Date(Number(deadline)*1000).toISOString();}
 state.checkedUtc=new Date().toISOString();save(file,state);

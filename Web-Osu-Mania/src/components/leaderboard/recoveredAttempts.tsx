@@ -1,31 +1,50 @@
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import type { PaidAttempt } from "@/lib/leaderboard/scoring";
-import ProofSubmission, { type ProofPayload } from "./proofSubmission";
-export default function RecoveredAttempts({ chartHash }: { chartHash: string }) {
+import { allSaved, type Saved } from "@/lib/leaderboard/capture";
+import ProofSubmission from "./proofSubmission";
+export default function RecoveredAttempts({
+  chartHash,
+}: {
+  chartHash: string;
+}) {
   const { address } = useAccount();
-  const [saved, setSaved] = useState<{ attempt: PaidAttempt; payload?: ProofPayload }[]>([]);
+  const [legacy, setLegacy] = useState<{sessionId:string;entryTxHash:string}[]>([]);
+  const [records, setRecords] = useState<Saved[]>([]);
   useEffect(() => {
-    const found: typeof saved = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key?.startsWith("paid-entry:")) continue;
+    const old: {sessionId:string;entryTxHash:string}[] = [];
+    for (let i=0;i<localStorage.length;i++) {
+      const key=localStorage.key(i);
+      if (!key?.startsWith('paid-entry:')) continue;
       try {
-        const attempt = JSON.parse(localStorage.getItem(key)!) as PaidAttempt;
-        if (attempt.chartHash !== chartHash || attempt.player.toLowerCase() !== address?.toLowerCase()) continue;
-        const payload = localStorage.getItem(`paid-proof:${attempt.sessionId}`);
-        found.push({ attempt, payload: payload ? JSON.parse(payload) : undefined });
-      } catch { /* Skip malformed local state; it is never authoritative. */ }
+        const r=JSON.parse(localStorage.getItem(key)!);
+        if (!r.registry && r.chartHash===chartHash && r.player?.toLowerCase()===address?.toLowerCase()) old.push(r);
+      } catch { /* Historical records are lookup-only. */ }
     }
-    setSaved(found.reverse());
+    setLegacy(old);
+    void allSaved().then((rows) =>
+      setRecords(
+        rows.filter(
+          (r) =>
+            r.attempt.chartHash === chartHash &&
+            r.attempt.player.toLowerCase() === address?.toLowerCase(),
+        ),
+      ),
+    );
   }, [address, chartHash]);
-  if (!saved.length) return null;
-  return <details><summary>Your saved paid attempts ({saved.length})</summary>
-    {saved.map(({ attempt, payload }) => <div key={attempt.sessionId} className="my-2 border-t pt-2">
-      {payload ? <ProofSubmission savedAttempt={attempt} savedPayload={payload} /> : <>
-        <p className="break-all">Session {attempt.sessionId}</p>
-        <p>No pending browser replay. Check the daily record for accepted scores. Unfinished entries fund the winner; if the day has no accepted scores, use the refund button after midnight.</p>
-      </>}
-    </div>)}
-  </details>;
+  if (!records.length && !legacy.length) return null;
+  return (
+    <details>
+      <summary>Saved hardware attempts ({records.length})</summary>
+      {legacy.map(r => <div key={r.sessionId} className="my-2 break-all">
+        <p>Legacy session: {r.sessionId}</p><p>Entry transaction: {r.entryTxHash}</p>
+        <p>Use its original deployment for settlement and transaction lookup. This record is not a Mode B attempt.</p>
+      </div>)}
+      {records.map((r) => (
+        <ProofSubmission
+          key={`${r.attempt.chainId}:${r.attempt.registry}:${r.attempt.sessionId}`}
+          savedAttempt={r.attempt}
+        />
+      ))}
+    </details>
+  );
 }

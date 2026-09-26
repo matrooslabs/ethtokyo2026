@@ -1,15 +1,11 @@
 //! Canonical chart/replay parsing and hardware seal authentication.
 use alloy::primitives::{Address, Signature, B256};
-use anyhow::{bail, ensure, Context, Result};
-use mania_scoring_core::{
-    session_digest, sha256, trace_root, Chart, InputEvent, Note, PlayInput, SessionHeader,
-};
-use serde_json::Value;
+use anyhow::{ensure, Context, Result};
+use mania_scoring_core::{sha256, trace_root, Chart, InputEvent, Note, PlayInput, SessionHeader};
 
 pub struct ParsedChart {
     pub chart: Chart,
     pub web_hash: String,
-    pub first_note_ms: u64,
     pub max_end: u64,
 }
 
@@ -85,7 +81,6 @@ pub fn parse_osu(bytes: &[u8]) -> Result<ParsedChart> {
         "chart exceeds maximum duration"
     );
     Ok(ParsedChart {
-        first_note_ms: notes[0].start_us / 1000,
         max_end,
         web_hash: hex::encode(sha256(bytes)),
         chart: Chart {
@@ -95,161 +90,109 @@ pub fn parse_osu(bytes: &[u8]) -> Result<ParsedChart> {
     })
 }
 
-pub fn replay_events(body: &Value, chart: &ParsedChart) -> Result<Vec<InputEvent>> {
-    let replay = &body["replay"];
-    ensure!(replay["version"] == 2, "unsupported replay");
-    let inputs = replay["inputs"].as_array().context("unsupported replay")?;
-    ensure!(inputs.len() <= 50000, "too many events");
-    let mods = &replay["mods"];
-    ensure!(
-        mods["bits"] == 0
-            && mods["rate"].as_f64() == Some(1.0)
-            && [
-                "hpOverride",
-                "odOverride",
-                "accuracyChallenge",
-                "cover",
-                "percy"
-            ]
-            .iter()
-            .all(|k| mods[k].is_null()),
-        "scoring mods unsupported"
-    );
-    let delay = 1000u64.saturating_sub(chart.first_note_ms);
-    ensure!(
-        body["timing"]["chartDelayMs"].as_u64() == Some(delay),
-        "chart timing mismatch"
-    );
-    let mut last = 0;
-    let mut keys = [false; 4];
-    inputs
-        .iter()
-        .enumerate()
-        .map(|(sequence, event)| {
-            ensure!(
-                event.as_array().is_some_and(|a| a.len() == 3),
-                "invalid replay event"
-            );
-            let lane = event[0].as_u64().context("invalid lane")?;
-            let time = event[1].as_f64().context("invalid timestamp")?;
-            let down = event[2].as_bool().context("invalid key state")?;
-            // Match JavaScript Math.round, including negative half values.
-            let us = ((time - delay as f64) * 1000.0 + 0.5).floor();
-            ensure!(
-                lane < 4
-                    && us.is_finite()
-                    && (0.0..=1_800_000_000.0).contains(&us)
-                    && us >= last as f64,
-                "invalid replay timestamp/lane"
-            );
-            ensure!(keys[lane as usize] != down, "invalid replay key transition");
-            keys[lane as usize] = down;
-            last = us as u64;
-            Ok(InputEvent {
-                sequence: sequence as u32,
-                timestamp_us: last,
-                lane: lane as u8,
-                action: if down { 0 } else { 1 },
-            })
-        })
-        .collect()
+/// Board wire bytes, never ABI encoding or a replacement header.
+pub fn packed_header(h: &SessionHeader) -> Vec<u8> {
+    let mut b = h.chain_id.to_be_bytes().to_vec();
+    b.extend(h.verifier);
+    b.extend(h.match_id);
+    b.extend(h.session_id);
+    b.extend(h.challenge);
+    b.extend(h.player);
+    b.extend(h.device);
+    b.extend(h.chart_hash);
+    b.extend(h.ruleset_id);
+    b.extend(h.bitstream_hash);
+    b.extend(h.input_policy_hash);
+    b
 }
 
-pub fn validate_seal(
-    header: &SessionHeader,
-    input: &PlayInput,
-    signature: &str,
-) -> Result<Vec<u8>> {
-    ensure!(
-        serde_json::to_value(&input.header)? == serde_json::to_value(header)?,
-        "hardware header differs from paid session"
-    );
-    ensure!(
-        input.footer.event_count as usize == input.events.len(),
-        "hardware event count mismatch"
-    );
-    ensure!(
-        trace_root(&header.session_id, &input.events) == input.footer.trace_root,
-        "hardware trace root mismatch"
-    );
-    let sig: Signature = signature.parse().context("invalid hardware signature")?;
-    let digest = B256::from(session_digest(header, &input.footer));
-    ensure!(
-        sig.recover_address_from_prehash(&digest)? == Address::from(header.device),
-        "hardware signature mismatch"
-    );
-    // Serialize Ethereum's canonical r || s || v (v=27/28).
-    let bytes = sig.as_bytes().to_vec();
-    if bytes.len() != 65 {
-        bail!("invalid signature length");
-    }
-    Ok(bytes)
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Capture {
+    pub result: String,
+    pub trace: String,
+    pub web_beatmap_hash: String,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloy::signers::{local::PrivateKeySigner, SignerSync};
-    use serde_json::json;
-    const OSU:&[u8]=b"osu file format v14\n[General]\nMode:3\n[Difficulty]\nCircleSize:4\n[HitObjects]\n64,192,500,1,0,0:0:0:0:\n192,192,1500,128,0,2000:0:0:0:0:\n";
-    fn replay() -> Value {
-        json!({"replay":{"version":2,"mods":{"bits":0,"rate":1},"inputs":[[0,1000,true],[0,1001,false]]},"timing":{"chartDelayMs":500}})
-    }
-    #[test]
-    fn chart_and_replay_preserve_canonical_timing() {
-        let chart = parse_osu(OSU).unwrap();
-        let events = replay_events(&replay(), &chart).unwrap();
-        assert_eq!(chart.first_note_ms, 500);
-        assert_eq!(events[0].timestamp_us, 500000);
-        assert_eq!(events[1].action, 1);
-        let mut bom = vec![239, 187, 191];
-        bom.extend(OSU);
-        assert_ne!(parse_osu(&bom).unwrap().web_hash, chart.web_hash);
-        assert_eq!(chart.chart.notes[1].end_us, 2000000);
-    }
-    #[test]
-    fn replay_rejects_mods_timing_and_duplicate_keys() {
-        let chart = parse_osu(OSU).unwrap();
-        let mut p = replay();
-        p["timing"]["chartDelayMs"] = json!(0);
-        assert!(replay_events(&p, &chart).is_err());
-        let mut p = replay();
-        p["replay"]["mods"]["bits"] = json!(1);
-        assert!(replay_events(&p, &chart).is_err());
-        let mut p = replay();
-        p["replay"]["inputs"][1][2] = json!(true);
-        assert!(replay_events(&p, &chart).is_err());
-        let mut p = replay();
-        p["replay"]["inputs"] = json!([]);
-        assert!(replay_events(&p, &chart).unwrap().is_empty());
-    }
-    #[test]
-    fn signed_seal_binds_header_event_count_and_trace() {
-        let mut input: PlayInput =
-            serde_json::from_str(include_str!("../../../fixtures/demo.json")).unwrap();
-        let signer: PrivateKeySigner = format!("{:064x}", 77).parse().unwrap();
-        input.header.device = signer.address().into_array();
-        let signature = signer
-            .sign_hash_sync(&B256::from(session_digest(&input.header, &input.footer)))
-            .unwrap()
-            .to_string();
-        assert_eq!(
-            validate_seal(&input.header, &input, &signature)
-                .unwrap()
-                .len(),
-            65
+impl Capture {
+    pub fn decode(
+        &self,
+        header: &SessionHeader,
+        chart: &ParsedChart,
+        capacity: u32,
+    ) -> Result<(PlayInput, [[u8; 32]; 2], Vec<u8>, B256)> {
+        let decode = |s: &str| -> Result<Vec<u8>> {
+            hex::decode(s.strip_prefix("0x").context("hex prefix required")?).map_err(Into::into)
+        };
+        let b: Vec<u8> = decode(&self.result)?;
+        let trace: Vec<u8> = decode(&self.trace)?;
+        ensure!(
+            b.len() == 465 && trace.len() <= 700000,
+            "invalid capture length"
         );
-        let mut header = input.header.clone();
-        header.challenge[0] ^= 1;
-        assert!(validate_seal(&header, &input, &signature).is_err());
-        let mut changed = input.clone();
-        changed.footer.event_count += 1;
-        assert!(validate_seal(&input.header, &changed, &signature).is_err());
-        let mut changed = input.clone();
-        changed.events[0].timestamp_us += 1;
-        assert!(validate_seal(&input.header, &changed, &signature).is_err());
-        let mut changed = input.clone();
-        changed.footer.duration_us += 1;
-        assert!(validate_seal(&input.header, &changed, &signature).is_err());
+        ensure!(
+            b[..292] == packed_header(header),
+            "original header mismatch"
+        );
+        ensure!(
+            header.input_policy_hash == mania_gkr::scoring::session::input_policy_v2(),
+            "not Mode B"
+        );
+        let n = u32::from_be_bytes(b[292..296].try_into()?);
+        let duration = u64::from_be_bytes(b[296..304].try_into()?);
+        ensure!(
+            n <= capacity && n <= 50000 && trace.len() == n as usize * 14,
+            "event count/capacity mismatch"
+        );
+        ensure!(
+            duration >= chart.max_end + 136500 && duration <= 1_800_000_000,
+            "invalid duration"
+        );
+        let events = trace
+            .chunks_exact(14)
+            .map(|e| InputEvent {
+                sequence: u32::from_be_bytes(e[..4].try_into().unwrap()),
+                timestamp_us: u64::from_be_bytes(e[4..12].try_into().unwrap()),
+                lane: e[12],
+                action: e[13],
+            })
+            .collect();
+        let input = PlayInput {
+            header: header.clone(),
+            footer: mania_scoring_core::SessionFooter {
+                event_count: n,
+                duration_us: duration,
+                trace_root: b[304..336].try_into()?,
+            },
+            chart: chart.chart.clone(),
+            events,
+        };
+        mania_scoring_core::evaluate_with_policy(
+            &input,
+            mania_gkr::scoring::session::input_policy_v2(),
+        )
+        .map_err(anyhow::Error::msg)?;
+        ensure!(
+            trace_root(&header.session_id, &input.events) == input.footer.trace_root,
+            "trace root mismatch"
+        );
+        let commitment = [b[336..368].try_into()?, b[368..400].try_into()?];
+        let tc =
+            mania_gkr::field::g1_from_words(&commitment).context("invalid commitment point")?;
+        let digest = B256::from(mania_gkr::scoring::session::session_digest_v2(
+            header,
+            n,
+            duration,
+            &input.footer.trace_root,
+            &tc,
+        ));
+        let signature = b[400..].to_vec();
+        ensure!([27, 28].contains(&signature[64]), "invalid recovery byte");
+        let sig: Signature = format!("0x{}", hex::encode(&signature)).parse()?;
+        ensure!(sig.normalize_s().is_none(), "noncanonical high-s signature");
+        ensure!(
+            sig.recover_address_from_prehash(&digest)? == Address::from(header.device),
+            "signature mismatch"
+        );
+        Ok((input, commitment, signature, digest))
     }
 }

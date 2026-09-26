@@ -1,3 +1,4 @@
+import { startCapture, finishCapture, interruptCapture } from "@/lib/leaderboard/capture";
 import { useGameStore } from "@/stores/gameStore";
 import { defaultSettings } from "@/stores/settingsStore";
 import type { TimelineDataPoint } from "@/components/game/timelineGraph";
@@ -23,7 +24,7 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import type { Column, GameState, PlayResults } from "@/types";
 import { gsap } from "gsap";
 import { PixiPlugin } from "gsap/PixiPlugin";
-import { Howl } from "howler";
+import { Howl, Howler } from "howler";
 import type { Ticker } from "pixi.js";
 import * as PIXI from "pixi.js";
 import {
@@ -171,6 +172,8 @@ export class Game {
   private retry: () => void;
 
   private finished = false;
+  private disposed = false;
+  private paid = useGameStore.getState().paidAttempt;
 
   // Results chart data
   public timelineData: TimelineDataPoint[] = [];
@@ -203,6 +206,7 @@ export class Game {
     if (useGameStore.getState().paidAttempt) {
       this.settings.mods = structuredClone(defaultSettings.mods);
       this.settings.retryOnFail = false;
+      this.settings.touch.enabled = false;
     }
 
     // If watching a replay, there should be no unpause delay
@@ -312,6 +316,8 @@ export class Game {
   }
 
   public dispose() {
+    this.disposed = true;
+    if (this.paid && !this.finished) void interruptCapture(this.paid);
     this.inputSystem.dispose();
     this.audioSystem.dispose();
 
@@ -609,13 +615,23 @@ export class Game {
 
     window.addEventListener("resize", this.resize);
 
+    if (this.paid) {
+      if (this.song.state() !== 'loaded') await new Promise<void>((resolve, reject) => { this.song.once('load', () => resolve()); this.song.once('loaderror', () => reject(new Error('Audio preload failed'))); });
+      await Howler.ctx.resume();
+      if (Howler.ctx.state !== 'running') throw new Error('Audio context is not ready for paid capture');
+      if (this.disposed) return;
+      await startCapture(this.paid);
+      if (this.disposed) { await interruptCapture(this.paid); return; }
+      this.app.stage.removeChild(this.startMessage);
+      this.play();
+    }
     // Game loop
     this.app.ticker.add((time) => this.update(time));
   }
 
   private update(time: Ticker) {
     this.fps?.update(time.FPS);
-    this.inputSystem.updateGamepadInputs();
+    if (!this.paid) this.inputSystem.updateGamepadInputs();
 
     if (this.inputSystem.pauseTapped && !this.finished) {
       this.setIsPaused((prev) => !prev);
@@ -998,6 +1014,7 @@ export class Game {
   }
 
   public resume() {
+    if (this.paid) return;
     if (this.song.seek() === 0) {
       this.state = "WAIT";
     } else {
@@ -1032,6 +1049,7 @@ export class Game {
   }
 
   public seek(time: number) {
+    if (this.paid) return;
     for (const column of this.columns) {
       for (const hitObject of column) {
         hitObject.view.visible = false;
@@ -1085,6 +1103,9 @@ export class Game {
       return;
     }
 
+    if (this.paid) {
+      try { await finishCapture(this.paid); } catch (e) { console.error("Capture retained on board for recovery", e); }
+    }
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     this.scoreSystem.score = Math.round(this.scoreSystem.score);
@@ -1134,6 +1155,7 @@ export class Game {
   }
 
   private async fail() {
+    if (this.paid) await interruptCapture(this.paid);
     this.song.stop();
     this.videoEl?.pause();
 
