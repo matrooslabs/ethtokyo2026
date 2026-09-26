@@ -52,3 +52,7 @@ The Anvil process uses a dedicated local port and disposable unlocked accounts, 
 - Metadata is operator-provided JSON, not an external chart crawler. Historical RPC state/log availability is required. Correct deployment-block configuration is essential because the contract cannot enumerate unknown rounds for reconciliation.
 
 Changed paths: `leaderboard-indexer/**`, `docs/reports/pr4-api.md`, `docs/reports/pr4.md`.
+
+## Coordinator live verification
+
+The worker-only live-network limitation above was resolved during integration. Using the deployed Sepolia leaderboard `0x35319a0232dfe355d1ab26641d0f77482b3ea1dd` from block11784156, the indexer processed actual paid entries and three GKR-verified scores. At block11784200 (two confirmations), reconciliation performed six authoritative reads with no mismatches and zero target lag. See PR3’s public smoke manifest for the transaction evidence. This verifies live indexing/projection integration, while live midnight settlement remains pending until 2026-09-27T00:00:00Z.
