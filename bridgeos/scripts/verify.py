@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -18,10 +19,10 @@ def require(test, description):
     if not test:
         raise SystemExit('FAILED invariant: ' + description)
 
-require(profile in ('production', 'debug', 'optee-debug', 'optee-runtime', 'hardware-root'),
+require(profile in ('production', 'debug', 'optee-debug', 'optee-runtime', 'signed-lab', 'hardware-root'),
         'known profile')
-debug_profile = profile in ('debug', 'optee-debug')
-optee_profile = profile in ('optee-debug', 'optee-runtime', 'hardware-root')
+debug_profile = profile in ('debug', 'optee-debug', 'signed-lab')
+optee_profile = profile in ('optee-debug', 'optee-runtime', 'signed-lab', 'hardware-root')
 require(config.is_file(), 'Buildroot .config')
 build_config = config.read_text()
 require('BR2_aarch64=y' in build_config, 'aarch64 Buildroot target')
@@ -135,14 +136,25 @@ with disk_image.open('rb') as disk, boot_image.open('rb') as src:
         require(disk.read(len(chunk)) == chunk, 'boot filesystem in flash partition')
 debugfs = out / 'host/sbin/debugfs'
 require(debugfs.is_file(), 'host debugfs for boot partition verification')
-if profile == 'hardware-root':
+if profile in ('hardware-root', 'signed-lab'):
     fit = images / 'kernel.itb'
-    trusted = project / 'sources/boot-firmware/out-optee-hardware/u-boot.dtb'
+    mode = 'hardware' if profile == 'hardware-root' else 'signed-lab'
+    trusted = project / f'sources/boot-firmware/out-optee-{mode}/u-boot.dtb'
     checker = project / 'sources/boot-firmware/build/u-boot/tools/fit_check_sign'
     require(fit.is_file() and trusted.is_file() and checker.is_file(),
             'signed kernel FIT and trusted U-Boot verifier')
     subprocess.run([str(checker), '-f', str(fit), '-k', str(trusted), '-c', 'conf-1'],
                    check=True, capture_output=True)
+    dumpimage = project / 'sources/boot-firmware/build/u-boot/tools/dumpimage'
+    require(dumpimage.is_file(), 'U-Boot FIT extractor')
+    with tempfile.TemporaryDirectory(prefix='zero3-fit-verification-') as scratch:
+        signed_fdt = Path(scratch) / 'board.dtb'
+        subprocess.run([str(dumpimage), '-T', 'flat_dt', '-p', '1', '-o',
+                        str(signed_fdt), str(fit)], check=True, capture_output=True)
+        args = subprocess.run(['fdtget', '-t', 's', str(signed_fdt), '/chosen', 'bootargs'],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        require(f'bridgeos.profile={profile}' in args and 'rdinit=/init' in args,
+                'signed FDT owns appliance boot arguments')
     boot_fit = subprocess.run([str(debugfs), '-R', 'stat /boot/kernel.itb', str(boot_image)],
                               capture_output=True, text=True, check=True)
     require('Inode:' in boot_fit.stdout, 'signed kernel FIT in boot partition')
@@ -180,8 +192,9 @@ if debug_profile:
         require({'usr/bin/osumania-optee-test',
                  'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'} <= members,
                 'OP-TEE smoke client and constrained TA')
-        expected_firmware = project / 'sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin'
-        description = 'OP-TEE debug image uses corrected source 4.9 BL32 firmware'
+        mode = 'signed-lab' if profile == 'signed-lab' else 'dev'
+        expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
+        description = 'source OP-TEE debug firmware matches selected signed/unsigned profile'
     else:
         expected_firmware = project / 'sources/boot-firmware/out/u-boot-rockchip.bin'
         description = 'debug flash image uses known-bootable baseline firmware'
@@ -248,7 +261,7 @@ shutil.copy2(manifest, images / 'sources.lock')
 files = [images / x for x in ('kernel.config', 'buildroot.config', 'sources.lock',
          'Image', 'boot.ext4', 'rootfs.cpio.gz', 'u-boot-rockchip.bin', 'radxa-zero3-rt.img')]
 files.extend(dtbs)
-if profile == 'hardware-root':
+if profile in ('hardware-root', 'signed-lab'):
     files.append(images / 'kernel.itb')
 if debug_profile:
     files.append(images / 'diag.vfat')

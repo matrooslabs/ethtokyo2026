@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || [ "$2" != '--erase-device' ]; then
-    echo "Usage: $0 /dev/WHOLE_REMOVABLE_DEVICE --erase-device [production|debug|optee-debug|optee-runtime]" >&2
+    echo "Usage: $0 /dev/WHOLE_REMOVABLE_DEVICE --erase-device [production|debug|optee-debug|optee-runtime|signed-lab]" >&2
     exit 2
 fi
 device="$1"
@@ -11,6 +11,7 @@ case "$profile" in
     debug) out=output-debug ;;
     optee-debug) out=output-optee-debug ;;
     optee-runtime) out=output-optee-runtime ;;
+    signed-lab) out=output-signed-lab ;;
     *) echo 'Unknown image profile' >&2; exit 2 ;;
 esac
 project="$(cd "$(dirname "$0")/.." && pwd)"

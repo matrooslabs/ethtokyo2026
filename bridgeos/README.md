@@ -65,6 +65,22 @@ Hardware verification: macOS Vendor HID `GET_INFO` succeeded on the ZERO 3W with
 
 The opaque rkbin `rk3568_bl32_v2.16.bin` is never packaged. It is retained only as a disassembly reference for RK3566 register addresses, secure-memory layout and platform behavior; all executable TEE/TA paths use source OP-TEE 4.9 and its current Internal API ABI.
 
+## Signed-boot laboratory image (no OTP changes)
+
+`signed-lab` keeps the explicitly insecure development HUK/TA and adds externally keyed signed idblock, SPL firmware FIT, and kernel/DTB/initramfs FIT. It tests boot-chain packaging on SD **before** any OTP or Secure Boot fuses are programmed; it does not establish ROM enforcement or a hardware identity. The pinned `rk_sign_tool` is an opaque host-side utility, not boot firmware.
+
+Generate the lab signing key **once** outside the checkout; do not reuse it as a production trust key. On subsequent builds, run only the final `BOOT_SIGN_KEY_DIR=... ./scripts/build.sh signed-lab` line with the same keys. Regenerating keys changes the firmware trust anchor.
+
+```sh
+mkdir -m 700 "$HOME/zero3-signed-lab-keys"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$HOME/zero3-signed-lab-keys/boot.key"
+openssl req -batch -new -x509 -key "$HOME/zero3-signed-lab-keys/boot.key" -out "$HOME/zero3-signed-lab-keys/boot.crt" -subj '/CN=ZERO3-SIGNED-LAB-ONLY'
+openssl pkey -in "$HOME/zero3-signed-lab-keys/boot.key" -pubout -out "$HOME/zero3-signed-lab-keys/boot.pubkey"
+BOOT_SIGN_KEY_DIR="$HOME/zero3-signed-lab-keys" ./scripts/build.sh signed-lab
+```
+
+Flash `output-signed-lab/images/radxa-zero3-rt.img` with Etcher on the separate macOS computer. This profile includes `RTDIAG` for boot results and uses the same development signing identity as `optee-debug`. If it does not boot, return to the earlier unsigned debug image; **do not burn fuses to make a failing lab image boot**. Run `python3 tests/test_idblock_signature.py` and `python3 tests/test_signed_kernel_fit.py` on the Linux build host for offline tamper checks.
+
 ## Hardware-root signing profile
 
 `./scripts/build.sh hardware-root` and direct `./scripts/build-optee.sh hardware` **refuse to emit an image**. On this unmodified ZERO 3W, the current Secure OTP interface returns raw HUK bytes to programmable BL32, while the existing SD boot chain is unsigned; an attacker could replace BL32 and export the HUK. No on-chip key-reader-only secp256k1 signer is documented. Also missing: RK3566 ROM-enforced boot authentication, debug-port lock, approved OTP slot/lock procedure and qualified Secure World RNG (`CFG_INSECURE=n` fails to link at `plat_rng_init`). No OTP write occurs. The existing `optee-runtime` image is **development-only** despite successful GET_INFO. See `docs/hardware-key-provisioning.md`.

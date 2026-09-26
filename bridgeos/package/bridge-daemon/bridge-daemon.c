@@ -242,6 +242,8 @@ static void keyboard_disconnected(void)
     keyboard_dropped += keyboard_queue_count;
     keyboard_queue_head = 0;
     keyboard_queue_count = 0;
+    osum_session_input_lost(atomic_load_explicit(&mania_session, memory_order_acquire),
+                            OSUM_INVALID_EVENT);
     release_keyboard();
     fprintf(stderr, "keyboard disconnected; released keys\n");
 }
@@ -283,6 +285,8 @@ static void keyboard_input(void)
         if (n < 0 && (errno == EAGAIN || errno == EINTR)) return;
         if (n != sizeof(event)) { keyboard_disconnected(); return; }
         if (event.type == EV_SYN && event.code == SYN_DROPPED) {
+            osum_session_input_lost(atomic_load_explicit(&mania_session, memory_order_acquire),
+                                    OSUM_INVALID_EVENT);
             desynchronized = true;
             continue;
         }
@@ -298,13 +302,20 @@ static void keyboard_input(void)
         unsigned usage = mod >= 0 ? (unsigned)(224 + mod) : linux_to_hid[event.code];
         if (!usage || (event.value != 0 && event.value != 1)) continue;
         pressed[usage] = (uint8_t)event.value;
-        struct timespec received = { .tv_sec = event.time.tv_sec, .tv_nsec = event.time.tv_usec * 1000L };
-        send_keyboard(&received);
         int lane = mania_lane(event.code);
-        if (lane >= 0)
+        if (lane >= 0) {
+            const uint64_t timestamp_us = (uint64_t)event.time.tv_sec * 1000000u +
+                                          (uint64_t)event.time.tv_usec;
+            if (!osum_vendor_edge(atomic_load_explicit(&vendor_service, memory_order_acquire),
+                                  timestamp_us, (uint8_t)lane, event.value ? 0u : 1u))
+                osum_session_input_lost(atomic_load_explicit(&mania_session, memory_order_acquire),
+                                        OSUM_EVENT_OVERFLOW);
             osum_session_capture_edge(
                 atomic_load_explicit(&mania_session, memory_order_acquire),
                 (uint8_t)lane, event.value ? 0u : 1u);
+        }
+        struct timespec received = { .tv_sec = event.time.tv_sec, .tv_nsec = event.time.tv_usec * 1000L };
+        send_keyboard(&received);
     }
 }
 
@@ -324,8 +335,8 @@ static void *start_vendor_service(void *opaque)
         osum_session_destroy(session);
         return NULL;
     }
-    atomic_store_explicit(&mania_session, session, memory_order_release);
     atomic_store_explicit(&vendor_service, service, memory_order_release);
+    atomic_store_explicit(&mania_session, session, memory_order_release);
     return NULL;
 }
 

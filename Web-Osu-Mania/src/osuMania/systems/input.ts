@@ -6,6 +6,7 @@ export class InputSystem {
   private game: Game;
   private keybindsMap: Map<string, number>;
   private columnPressedKeybinds: Set<string>[];
+  private fromBridge = false;
 
   public gamepadState: boolean[] = [];
 
@@ -54,7 +55,19 @@ export class InputSystem {
     });
   }
 
+  public applyBridgeEdge(lane: number, action: 0 | 1) {
+    if (!this.game.hardwareOnly || !Number.isInteger(lane) || lane < 0 || lane >= this.game.difficulty.keyCount) return;
+    this.fromBridge = true;
+    try {
+      if (action === 0) this.hit(lane);
+      else this.release(lane);
+    } finally {
+      this.fromBridge = false;
+    }
+  }
+
   public hit(column: number, timeElapsed?: number, isAfterSeek?: boolean) {
+    if (this.game.hardwareOnly && !this.fromBridge) return;
     if (this.pressedColumns[column]) {
       return;
     }
@@ -84,6 +97,7 @@ export class InputSystem {
   }
 
   public release(column: number, timeElapsed?: number) {
+    if (this.game.hardwareOnly && !this.fromBridge) return;
     if (!this.pressedColumns[column]) {
       return;
     }
@@ -156,7 +170,7 @@ export class InputSystem {
         this.pauseTapped = true;
       }
 
-      if (this.game.replayPlayer) {
+      if (this.game.hardwareOnly || this.game.replayPlayer) {
         return;
       }
 
@@ -203,6 +217,7 @@ export class InputSystem {
 
       return;
     }
+    if (this.game.hardwareOnly) return;
 
     const column = this.keybindsMap.get(event.code);
     if (column === undefined) {
@@ -235,7 +250,7 @@ export class InputSystem {
   }
 
   private handleKeyUp(event: KeyboardEvent) {
-    if (this.game.replayPlayer) {
+    if (this.game.hardwareOnly || this.game.replayPlayer) {
       return;
     }
 

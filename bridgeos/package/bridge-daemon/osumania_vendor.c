@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <poll.h>
 #include <stdatomic.h>
+#include <sys/eventfd.h>
 #include <unistd.h>
 
 #include <errno.h>
@@ -19,10 +20,12 @@ struct memory_payload {
 
 struct osum_vendor {
     int fd;
+    int wake_fd;
     struct osum_session *session;
     pthread_t thread;
     atomic_bool running;
     struct osum_rx rx;
+    struct osum_live_queue live;
 };
 
 static int memory_read(void *context, uint32_t offset, uint8_t *destination, size_t length)
@@ -42,13 +45,29 @@ static int write_report(struct osum_vendor *vendor, const uint8_t report[OSUM_RE
             return 0;
         if (size < 0 && (errno == EAGAIN || errno == EINTR)) {
             struct pollfd descriptor = { .fd = vendor->fd, .events = POLLOUT };
-            if (poll(&descriptor, 1, 1000) < 0 && errno != EINTR)
+            int ready = poll(&descriptor, 1, 1000);
+            if (ready < 0 && errno != EINTR)
+                return -1;
+            if (ready > 0 && (descriptor.revents & (POLLHUP | POLLERR | POLLNVAL)))
                 return -1;
             continue;
         }
         return -1;
     }
     return -1;
+}
+
+/* Only the vendor worker writes hidg1; never let a long TRACE reply starve live input. */
+static int drain_live(struct osum_vendor *vendor, unsigned limit)
+{
+    struct osum_live_edge edge;
+    uint8_t report[OSUM_REPORT_SIZE];
+    while (limit-- && osum_live_dequeue(&vendor->live, &edge)) {
+        osum_live_report(&edge, report);
+        if (write_report(vendor, report) != 0)
+            return -1;
+    }
+    return 0;
 }
 
 static int transmit(struct osum_vendor *vendor, uint8_t message_type, uint8_t flags,
@@ -59,9 +78,10 @@ static int transmit(struct osum_vendor *vendor, uint8_t message_type, uint8_t fl
     osum_tx_begin(&tx, message_type, flags, transfer_id, length, read, context);
     uint8_t report[OSUM_REPORT_SIZE];
     int status;
-    while ((status = osum_tx_next(&tx, report)) > 0)
-        if (write_report(vendor, report) != 0)
+    while ((status = osum_tx_next(&tx, report)) > 0) {
+        if (write_report(vendor, report) != 0 || drain_live(vendor, 16) != 0)
             return -1;
+    }
     return status;
 }
 
@@ -193,6 +213,7 @@ static int command(struct osum_vendor *vendor, const struct osum_request *reques
 static void disconnect(struct osum_vendor *vendor)
 {
     osum_rx_reset(&vendor->rx);
+    osum_live_discard(&vendor->live);
     struct osum_session_status status;
     osum_session_status(vendor->session, &status);
     if (status.state == OSUM_STATE_RECORDING)
@@ -203,19 +224,30 @@ static void *vendor_thread(void *argument)
 {
     struct osum_vendor *vendor = argument;
     while (atomic_load(&vendor->running)) {
-        struct pollfd descriptor = { .fd = vendor->fd, .events = POLLIN };
-        int ready = poll(&descriptor, 1, 1000);
+        if (drain_live(vendor, 64) != 0) {
+            disconnect(vendor);
+            continue;
+        }
+        struct pollfd descriptors[] = {
+            { .fd = vendor->fd, .events = POLLIN },
+            { .fd = vendor->wake_fd, .events = POLLIN },
+        };
+        int ready = poll(descriptors, 2, 1000);
         if (ready < 0) {
             if (errno == EINTR) continue;
             break;
         }
         if (!ready) continue;
-        if (descriptor.revents & (POLLHUP | POLLERR | POLLNVAL)) {
+        if (descriptors[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
             disconnect(vendor);
             usleep(10000);
             continue;
         }
-        if (!(descriptor.revents & POLLIN)) continue;
+        if (descriptors[1].revents & POLLIN) {
+            uint64_t wake;
+            (void)read(vendor->wake_fd, &wake, sizeof(wake));
+        }
+        if (!(descriptors[0].revents & POLLIN)) continue;
         uint8_t report[OSUM_REPORT_SIZE];
         ssize_t size = read(vendor->fd, report, sizeof(report));
         if (size <= 0) {
@@ -246,13 +278,30 @@ struct osum_vendor *osum_vendor_start(int hidg_fd, struct osum_session *session)
     if (!vendor) return NULL;
     vendor->fd = hidg_fd;
     vendor->session = session;
+    vendor->wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (vendor->wake_fd < 0) {
+        free(vendor);
+        return NULL;
+    }
+    osum_live_queue_init(&vendor->live);
     atomic_init(&vendor->running, true);
     osum_rx_reset(&vendor->rx);
     if (pthread_create(&vendor->thread, NULL, vendor_thread, vendor) != 0) {
+        close(vendor->wake_fd);
         free(vendor);
         return NULL;
     }
     return vendor;
+}
+
+bool osum_vendor_edge(struct osum_vendor *vendor, uint64_t timestamp_us,
+                      uint8_t lane, uint8_t action)
+{
+    if (!vendor || !osum_live_enqueue(&vendor->live, timestamp_us, lane, action))
+        return false;
+    const uint64_t one = 1;
+    const ssize_t notified = write(vendor->wake_fd, &one, sizeof(one));
+    return notified == sizeof(one) || (notified < 0 && errno == EAGAIN);
 }
 
 void osum_vendor_stop(struct osum_vendor *vendor)
@@ -260,5 +309,6 @@ void osum_vendor_stop(struct osum_vendor *vendor)
     if (!vendor) return;
     atomic_store(&vendor->running, false);
     pthread_join(vendor->thread, NULL);
+    close(vendor->wake_fd);
     free(vendor);
 }

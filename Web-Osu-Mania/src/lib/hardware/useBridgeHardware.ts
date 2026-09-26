@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BridgeClient, bridgeHid, isVendorDevice, type VendorDevice } from './client';
-import { BRIDGE_FILTER, type BridgeInfo, type BridgeStatus } from './protocol';
+import { BRIDGE_FILTER, type BridgeInfo, type BridgeStatus, type BridgeLiveEvent } from './protocol';
 
 export type HardwarePhase = 'unsupported' | 'disconnected' | 'connecting' | 'ready' | 'not-ready' | 'denied' | 'error';
 export type BridgeHardware = {
@@ -11,6 +11,8 @@ export type BridgeHardware = {
   error: string | null;
   /** Aborts immediately on physical disconnect, failed probe or hook teardown. */
   disconnectSignal: AbortSignal;
+  /** Local Vendor HID sideband; the signed result/trace remain authoritative for paid scoring. */
+  subscribeLiveEvents(callback: (event: BridgeLiveEvent) => void): () => void;
   /** Must be invoked directly by a user gesture (WebHID permission picker). */
   connect(): Promise<boolean>;
   /** Repeat immediately before paid actions; never use a cached ready value alone. */
@@ -38,6 +40,7 @@ export function useBridgeHardware(): BridgeHardware {
   const rawRef = useRef<{ infoHex: string; statusHex: string; deviceAddress: `0x${string}` } | null>(null);
   const mounted = useRef(false);
   const generation = useRef(0);
+  const liveSubscribers = useRef(new Set<(event: BridgeLiveEvent) => void>());
 
   const invalidate = useCallback((next: Snapshot) => {
     rawRef.current = null;
@@ -90,6 +93,10 @@ export function useBridgeHardware(): BridgeHardware {
     }
     return rawRef.current;
   }, [refresh]);
+  const subscribeLiveEvents = useCallback((callback: (event: BridgeLiveEvent) => void): (() => void) => {
+    liveSubscribers.current.add(callback);
+    return () => { liveSubscribers.current.delete(callback); };
+  }, []);
 
   const setHeader = useCallback(async (headerHex: string) => {
     const client = clientRef.current;
@@ -126,7 +133,12 @@ export function useBridgeHardware(): BridgeHardware {
     controllerRef.current = nextController;
     setController(nextController);
     deviceRef.current = device;
-    const client = new BridgeClient(device, nextController.signal);
+    const client = new BridgeClient(device, nextController.signal, (error) => {
+      if (clientRef.current === client) invalidate({ phase: 'error', info: null, status: null, error: error.message });
+    });
+    client.subscribeLiveEvents((event) => {
+      for (const callback of liveSubscribers.current) callback(event);
+    });
     clientRef.current = client;
     setSnapshot({ ...disconnected, phase: 'connecting' });
     return probe(client, generation.current);
@@ -191,7 +203,7 @@ export function useBridgeHardware(): BridgeHardware {
   // Readiness represents the last successful live probe, never mere VID/PID presence.
   // This is NOT cryptographic proof of device authenticity, a signed trace, or a paid score.
   return { ...snapshot, ready: snapshot.phase === 'ready' && !controller.signal.aborted,
-    disconnectSignal: controller.signal, connect, refresh, getPreflight, setHeader,
+    disconnectSignal: controller.signal, connect, refresh, getPreflight, subscribeLiveEvents, setHeader,
     startRecording, stopRecording, abortRecording };
 }
 

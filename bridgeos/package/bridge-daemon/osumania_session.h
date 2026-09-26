@@ -41,5 +41,7 @@ int osum_session_trace_read(void *context, uint32_t offset, uint8_t *destination
 
 /* Producer-only hot-path API. It never waits for crypto or OP-TEE. */
 void osum_session_capture_edge(struct osum_session *session, uint8_t lane, uint8_t action);
+/* Fail an active signed capture when physical input or the live sideband is lost. */
+void osum_session_input_lost(struct osum_session *session, enum osum_error error);
 
 #endif

@@ -21,6 +21,24 @@ export const STOP = 0x12;
 export const ABORT = 0x13;
 export const GET_RESULT = 0x20;
 export const GET_TRACE = 0x21;
+export const LIVE_EVENT = 0x30;
+export type BridgeLiveEvent = { seq: number; timestampUs: bigint; lane: number; action: 0 | 1 };
+
+// Unsolicited Vendor HID traffic is a local input sideband, not signed scoring evidence.
+// Only frames identifying themselves as live events are validated here; other reports
+// belong to the request/response assembler.
+export function parseLiveEvent(report: Uint8Array): BridgeLiveEvent | null {
+  if (report[2] !== LIVE_EVENT) return null;
+  if (report.length !== REPORT_SIZE) throw new Error('Invalid BridgeOS live event report length');
+  const data = view(report);
+  if (report[0] !== MAGIC || report[1] !== VERSION || report[3] !== 0x04 ||
+      data.getUint32(4) !== 0 || data.getUint32(8) !== 0 || data.getUint32(12) !== 14 ||
+      report[28] > 3 || report[29] > 1 || report.subarray(30).some((byte) => byte !== 0)) {
+    throw new Error('Malformed BridgeOS live event');
+  }
+  return { seq: data.getUint32(16), timestampUs: data.getBigUint64(20),
+    lane: report[28], action: report[29] as 0 | 1 };
+}
 export type Command = typeof GET_INFO | typeof GET_STATUS | typeof SET_HEADER | typeof START |
   typeof STOP | typeof ABORT | typeof GET_RESULT | typeof GET_TRACE;
 

@@ -22,6 +22,9 @@ case "$profile" in
     hardware-root)
         firmware="$project/sources/boot-firmware/out-optee-hardware/u-boot-rockchip.bin"
         image_cfg="$board_dir/genimage.cfg" ;;
+    signed-lab)
+        firmware="$project/sources/boot-firmware/out-optee-signed-lab/u-boot-rockchip.bin"
+        image_cfg="$board_dir/genimage-debug.cfg" ;;
 	*) echo "Unknown post-image profile: $profile" >&2; exit 2 ;;
 esac
 : "${BINARIES_DIR:?Buildroot BINARIES_DIR is required}"
@@ -33,13 +36,15 @@ test -s "$BINARIES_DIR/Image" && test -s "$BINARIES_DIR/$ZERO3_DTB" && test -s "
 cp "$firmware" "$BINARIES_DIR/u-boot-rockchip.bin"
 boot="$BUILD_DIR/zero3-boot-files"
 rm -rf "$boot"
-if [ "$profile" = hardware-root ]; then
-    : "${BOOT_SIGN_KEY_DIR:?hardware-root requires externally held boot-signing keys}"
-    trusted="$project/sources/boot-firmware/out-optee-hardware/u-boot.dtb"
+if [ "$profile" = hardware-root ] || [ "$profile" = signed-lab ]; then
+    : "${BOOT_SIGN_KEY_DIR:?signed boot requires externally held boot-signing keys}"
+    mode=hardware
+    if [ "$profile" = signed-lab ]; then mode=signed-lab; fi
+    trusted="$project/sources/boot-firmware/out-optee-$mode/u-boot.dtb"
     test -s "$trusted" || { echo 'Signed U-Boot control DTB missing' >&2; exit 1; }
     "$project/scripts/build-signed-kernel-fit.sh" \
         "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" \
-        "$BOOT_SIGN_KEY_DIR" "$trusted" "$BINARIES_DIR/kernel.itb"
+        "$BOOT_SIGN_KEY_DIR" "$trusted" "$BINARIES_DIR/kernel.itb" "$profile"
     mkdir -p "$boot/boot"
     cp "$BINARIES_DIR/kernel.itb" "$boot/boot/kernel.itb"
 else

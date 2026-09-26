@@ -1,7 +1,7 @@
 import {
   BRIDGE_FILTER, GET_INFO, GET_STATUS, SET_HEADER, START, STOP, ABORT, GET_RESULT, GET_TRACE,
-  ResponseAssembler, parseInfo, parseStatus, requestReport, decodeHex, encodeHex,
-  type Command, type BridgeInfo, type BridgeStatus,
+  ResponseAssembler, parseInfo, parseStatus, parseLiveEvent, requestReport, decodeHex, encodeHex,
+  type Command, type BridgeInfo, type BridgeStatus, type BridgeLiveEvent,
 } from './protocol';
 
 // Structural interfaces keep WebHID's still-experimental browser API isolated.
@@ -47,16 +47,56 @@ export function isVendorDevice(device: VendorDevice): boolean {
 // the 64-byte payload must NOT be prefixed with a zero byte.
 export class BridgeClient {
   private tail: Promise<void> = Promise.resolve();
-  constructor(private readonly device: VendorDevice, private readonly disconnectSignal: AbortSignal) {}
+  private lastLiveSeq: number | null = null;
+  private lastLiveTimestamp: bigint | null = null;
+  private listening = false;
+  private readonly liveSubscribers = new Set<(event: BridgeLiveEvent) => void>();
+  private readonly onLiveReport = (event: { reportId: number; data: DataView }) => {
+    if (event.reportId !== 0 || this.disconnectSignal.aborted) return;
+    let live: BridgeLiveEvent | null;
+    try {
+      live = parseLiveEvent(new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength));
+      if (!live) return;
+      if ((this.lastLiveSeq !== null && live.seq !== ((this.lastLiveSeq + 1) >>> 0)) ||
+          (this.lastLiveTimestamp !== null && live.timestampUs < this.lastLiveTimestamp)) {
+        throw new Error('BridgeOS live input stream skipped or reordered an event');
+      }
+      this.lastLiveSeq = live.seq;
+      this.lastLiveTimestamp = live.timestampUs;
+    } catch (error) {
+      this.onLiveFailure(error instanceof Error ? error : new Error('Malformed BridgeOS live event'));
+      return;
+    }
+    for (const subscriber of this.liveSubscribers) subscriber(live);
+  };
+
+  constructor(private readonly device: VendorDevice, private readonly disconnectSignal: AbortSignal,
+    private readonly onLiveFailure: (error: Error) => void) {}
+
+  subscribeLiveEvents(callback: (event: BridgeLiveEvent) => void): () => void {
+    this.liveSubscribers.add(callback);
+    return () => { this.liveSubscribers.delete(callback); };
+  }
 
   async open(): Promise<void> {
     if (!isVendorDevice(this.device)) throw new Error('Not the BridgeOS Vendor HID collection');
     if (this.disconnectSignal.aborted) throw new Error('BridgeOS disconnected');
     if (!this.device.opened) await this.device.open();
     if (this.disconnectSignal.aborted) throw new Error('BridgeOS disconnected');
+    if (!this.listening) {
+      this.lastLiveSeq = null;
+      this.lastLiveTimestamp = null;
+      this.device.addEventListener('inputreport', this.onLiveReport);
+      this.listening = true;
+    }
   }
 
   async close(): Promise<void> {
+    if (this.listening) {
+      this.device.removeEventListener('inputreport', this.onLiveReport);
+      this.listening = false;
+    }
+    this.liveSubscribers.clear();
     if (this.device.opened) await this.device.close();
   }
 

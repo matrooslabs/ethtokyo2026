@@ -38,6 +38,63 @@ void osum_be64_store(uint8_t value[8], uint64_t number)
     osum_be32_store(value + 4, (uint32_t)number);
 }
 
+_Static_assert(ATOMIC_INT_LOCK_FREE == 2, "live input queue requires lock-free atomic indices");
+_Static_assert((OSUM_LIVE_QUEUE_SIZE & (OSUM_LIVE_QUEUE_SIZE - 1u)) == 0,
+               "live input queue size must be a power of two");
+
+void osum_live_queue_init(struct osum_live_queue *queue)
+{
+    atomic_init(&queue->head, 0);
+    atomic_init(&queue->tail, 0);
+    queue->next_sequence = 0;
+}
+
+bool osum_live_enqueue(struct osum_live_queue *queue, uint64_t timestamp_us,
+                       uint8_t lane, uint8_t action)
+{
+    const uint32_t sequence = queue->next_sequence++;
+    const unsigned head = atomic_load_explicit(&queue->head, memory_order_relaxed);
+    const unsigned tail = atomic_load_explicit(&queue->tail, memory_order_acquire);
+    if (head - tail == OSUM_LIVE_QUEUE_SIZE)
+        return false;
+    queue->edges[head & (OSUM_LIVE_QUEUE_SIZE - 1u)] =
+        (struct osum_live_edge){sequence, timestamp_us, lane, action};
+    atomic_store_explicit(&queue->head, head + 1u, memory_order_release);
+    return true;
+}
+
+bool osum_live_dequeue(struct osum_live_queue *queue, struct osum_live_edge *edge)
+{
+    const unsigned tail = atomic_load_explicit(&queue->tail, memory_order_relaxed);
+    if (tail == atomic_load_explicit(&queue->head, memory_order_acquire))
+        return false;
+    *edge = queue->edges[tail & (OSUM_LIVE_QUEUE_SIZE - 1u)];
+    atomic_store_explicit(&queue->tail, tail + 1u, memory_order_release);
+    return true;
+}
+
+void osum_live_discard(struct osum_live_queue *queue)
+{
+    atomic_store_explicit(&queue->tail,
+                          atomic_load_explicit(&queue->head, memory_order_acquire),
+                          memory_order_release);
+}
+
+void osum_live_report(const struct osum_live_edge *edge,
+                      uint8_t report[OSUM_REPORT_SIZE])
+{
+    memset(report, 0, OSUM_REPORT_SIZE);
+    report[0] = OSUM_MAGIC;
+    report[1] = OSUM_VERSION;
+    report[2] = OSUM_LIVE_EDGE;
+    report[3] = OSUM_FLAG_LIVE;
+    osum_be32_store(report + 12, OSUM_EVENT_SIZE);
+    osum_be32_store(report + OSUM_PACKET_HEADER_SIZE, edge->sequence);
+    osum_be64_store(report + OSUM_PACKET_HEADER_SIZE + 4, edge->timestamp_us);
+    report[OSUM_PACKET_HEADER_SIZE + 12] = edge->lane;
+    report[OSUM_PACKET_HEADER_SIZE + 13] = edge->action;
+}
+
 uint32_t osum_request_length(uint8_t message_type, bool *known)
 {
     *known = true;

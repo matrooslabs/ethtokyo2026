@@ -80,6 +80,48 @@ static void test_framing(void)
     assert(next == 0 && offset == source.length && reports == 14584);
 }
 
+static void test_live_events(void)
+{
+    struct osum_live_queue queue;
+    struct osum_live_edge edge;
+    uint8_t report[OSUM_REPORT_SIZE];
+    osum_live_queue_init(&queue);
+    assert(!osum_live_dequeue(&queue, &edge));
+    for (unsigned i = 0; i < OSUM_LIVE_QUEUE_SIZE; ++i)
+        assert(osum_live_enqueue(&queue, 0x0102030405060708ULL + i,
+                                 (uint8_t)(i & 3), (uint8_t)(i & 1)));
+    assert(!osum_live_enqueue(&queue, 99, 2, 0)); /* bounded overflow consumes seq */
+    assert(osum_live_dequeue(&queue, &edge));
+    assert(edge.sequence == 0 && edge.timestamp_us == 0x0102030405060708ULL);
+    assert(osum_live_enqueue(&queue, 0x1122334455667788ULL, 3, 1));
+    for (unsigned i = 1; i < OSUM_LIVE_QUEUE_SIZE; ++i) {
+        assert(osum_live_dequeue(&queue, &edge));
+        assert(edge.sequence == i && edge.timestamp_us == 0x0102030405060708ULL + i);
+    }
+    assert(osum_live_dequeue(&queue, &edge));
+    assert(edge.sequence == OSUM_LIVE_QUEUE_SIZE + 1 &&
+           edge.timestamp_us == 0x1122334455667788ULL && edge.lane == 3 && edge.action == 1);
+    assert(!osum_live_dequeue(&queue, &edge));
+
+    memset(report, 0xff, sizeof(report));
+    osum_live_report(&edge, report);
+    const uint8_t expected_header[16] = {
+        OSUM_MAGIC, OSUM_VERSION, OSUM_LIVE_EDGE, OSUM_FLAG_LIVE,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, OSUM_EVENT_SIZE
+    };
+    assert(!memcmp(report, expected_header, sizeof(expected_header)));
+    assert(osum_be32_load(report + 16) == OSUM_LIVE_QUEUE_SIZE + 1);
+    assert(osum_be64_load(report + 20) == 0x1122334455667788ULL);
+    assert(report[28] == 3 && report[29] == 1);
+    for (size_t i = 30; i < sizeof(report); ++i) assert(report[i] == 0);
+
+    assert(osum_live_enqueue(&queue, 1, 0, 0));
+    osum_live_discard(&queue); /* transport disconnect must not replay stale edges */
+    assert(!osum_live_dequeue(&queue, &edge));
+    assert(osum_live_enqueue(&queue, 2, 0, 1));
+    assert(osum_live_dequeue(&queue, &edge) && edge.sequence == OSUM_LIVE_QUEUE_SIZE + 3);
+}
+
 static void test_vectors(void)
 {
     struct osum_crypto *crypto = osum_crypto_create("tests/vendor-hid/vectors/srs-g1-be.bin");
@@ -173,6 +215,19 @@ static void test_session_states(void)
     assert(osum_session_set_header(session, header, &detail) == 0);
     assert(osum_session_start(session) == 0);
     osum_session_capture_edge(session, 0, 0);
+    osum_session_input_lost(session, OSUM_INVALID_EVENT);
+    struct osum_session_status lost; osum_session_status(session, &lost);
+    assert(lost.state == OSUM_STATE_ERROR && lost.last_error == OSUM_INVALID_EVENT);
+    assert(osum_session_stop(session) != 0); /* omitted evdev edges can never be signed */
+    assert(osum_session_abort(session) == 0);
+    assert(osum_session_set_header(session, header, &detail) == 0);
+    assert(osum_session_start(session) == 0);
+    osum_session_input_lost(session, OSUM_EVENT_OVERFLOW);
+    osum_session_status(session, &lost);
+    assert(lost.state == OSUM_STATE_ERROR && lost.last_error == OSUM_EVENT_OVERFLOW);
+    assert(osum_session_abort(session) == 0);
+    assert(osum_session_set_header(session, header, &detail) == 0);
+    assert(osum_session_start(session) == 0);
     osum_session_capture_edge(session, 0, 0);
     struct osum_session_status status; osum_session_status(session, &status);
     assert(status.state == OSUM_STATE_ERROR && status.last_error == OSUM_INVALID_EVENT);
@@ -203,7 +258,7 @@ static void test_session_states(void)
 
 int main(void)
 {
-    test_framing(); test_vectors(); test_dev_signer(); test_session_states();
-    puts("PASS framing, session states, SHA/BN254 vectors, immutable low-s result");
+    test_framing(); test_live_events(); test_vectors(); test_dev_signer(); test_session_states();
+    puts("PASS framing, live sideband queue, session states, SHA/BN254 vectors, immutable low-s result");
     return 0;
 }

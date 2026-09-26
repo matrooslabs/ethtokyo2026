@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GET_INFO, GET_STATUS, GET_RESULT, GET_TRACE, SET_HEADER, START, REPORT_SIZE,
-  ResponseAssembler, decodeHex, encodeHex, parseInfo, parseStatus, requestReport } from '../src/lib/hardware/protocol.ts';
+  ResponseAssembler, decodeHex, encodeHex, parseInfo, parseLiveEvent, parseStatus, requestReport } from '../src/lib/hardware/protocol.ts';
 
 function response(type, id, payload, offset = 0, flags = 1) {
   const frame = new Uint8Array(REPORT_SIZE);
@@ -26,6 +26,49 @@ function infoPayload() {
   view.setUint32(124, 65);
   return bytes;
 }
+
+function liveEvent(seq = 0, timestampUs = 0n, lane = 0, action = 0) {
+  const frame = new Uint8Array(REPORT_SIZE);
+  const view = new DataView(frame.buffer);
+  frame.set([0x4d, 1, 0x30, 4]);
+  view.setUint32(12, 14);
+  view.setUint32(16, seq);
+  view.setBigUint64(20, timestampUs);
+  frame[28] = lane;
+  frame[29] = action;
+  return frame;
+}
+
+test('live Vendor HID event accepts initial zero, maximal sequence, 64-bit timestamp and both edges', () => {
+  assert.deepEqual(parseLiveEvent(liveEvent()), { seq: 0, timestampUs: 0n, lane: 0, action: 0 });
+  const frame = liveEvent(0xffffffff, 0x123456789abcdef0n, 3, 1);
+  const prefixed = new Uint8Array(REPORT_SIZE + 2);
+  prefixed.set(frame, 1);
+  assert.deepEqual(parseLiveEvent(prefixed.subarray(1, 65)), {
+    seq: 0xffffffff, timestampUs: 0x123456789abcdef0n, lane: 3, action: 1,
+  });
+  assert.equal(parseLiveEvent(response(GET_STATUS, 9, new Uint8Array(16))), null);
+  assert.equal(parseLiveEvent(new Uint8Array()), null);
+});
+
+test('matching live reports fail closed on length, magic, version, flags, IDs, offset, size and payload', () => {
+  for (const mutate of [
+    (frame) => frame.subarray(0, 63),
+    (frame) => { frame[0] = 0; },
+    (frame) => { frame[1] = 2; },
+    (frame) => { frame[3] = 1; },
+    (frame) => { frame[7] = 1; },
+    (frame) => { frame[11] = 1; },
+    (frame) => { frame[15] = 13; },
+    (frame) => { frame[28] = 4; },
+    (frame) => { frame[29] = 2; },
+    (frame) => { frame[30] = 1; },
+    (frame) => { frame[63] = 1; },
+  ]) {
+    const frame = liveEvent(1, 123n, 2, 1);
+    assert.throws(() => parseLiveEvent(mutate(frame) || frame), /live event/);
+  }
+});
 
 test('WebHID no-ID command uses exact zero-padded 64-byte big-endian frame', () => {
   const frame = requestReport(GET_INFO, 0x12345678);

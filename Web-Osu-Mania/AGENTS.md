@@ -10,6 +10,7 @@ Sources (read the latest version before significant UI work):
 ## Product truth
 - Name: **versu!**; all site copy in English. Four-key rhythm game. A Sui 1 USDC purchase grants 3 paid plays. Starting one uses one credit, even if interrupted; gameplay never resumes. Only a World ID-verified human with an approved HID device can enter. The highest Sui-verified score wins the Sui pot.
 - The first screen's job: show four lanes, their keys D/F/J/K, the hit line, the cost/credits, and the next playable action. History and claiming stay available without HID.
+- Free practice and paid play both open the SAME preplay screen for note scroll speed, visual effects and keybinds. Moving sliders costs nothing; only confirming a new paid start burns a credit. Never hide personal controls for paid runs or allow paid gameplay resume.
 
 ## Non-negotiable UI filter
 - Each sentence must answer one player question or enable the next action. Delete marketing copy, repeated rules, pseudo-profound slogans, explanatory framework names, and decorative labels. Errors say what failed and what to do next.

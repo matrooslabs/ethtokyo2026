@@ -13,6 +13,10 @@ initrd="$(realpath "$3")"
 keys="$(realpath "$4")"
 trusted="$(realpath "$5")"
 out="$(realpath -m "$6")"
+case "$keys/" in "$(dirname "$project")/"*)
+    echo 'Boot signing key must be outside the ethtokyo2026 checkout' >&2
+    exit 1 ;;
+esac
 mkimage="$project/sources/boot-firmware/build/u-boot/tools/mkimage"
 checker="$project/sources/boot-firmware/build/u-boot/tools/fit_check_sign"
 for file in "$image" "$dtb" "$initrd" "$keys/boot.key" "$keys/boot.crt" "$trusted" "$mkimage" "$checker"; do

@@ -2,6 +2,7 @@
 #define OSUMANIA_PROTOCOL_H
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -15,12 +16,14 @@
 #define OSUM_STATUS_SIZE 16u
 #define OSUM_EVENT_SIZE 14u
 #define OSUM_MAX_EVENTS 50000u
+#define OSUM_LIVE_QUEUE_SIZE 1024u
 #define OSUM_RX_MAX OSUM_HEADER_SIZE
 
 #define OSUM_MAGIC 0x4du
 #define OSUM_VERSION 0x01u
 #define OSUM_FLAG_RESPONSE 0x01u
 #define OSUM_FLAG_ERROR 0x02u
+#define OSUM_FLAG_LIVE 0x04u
 
 enum osum_message_type {
     OSUM_GET_INFO = 0x01,
@@ -31,6 +34,7 @@ enum osum_message_type {
     OSUM_ABORT = 0x13,
     OSUM_GET_RESULT = 0x20,
     OSUM_GET_TRACE = 0x21,
+    OSUM_LIVE_EDGE = 0x30,
 };
 
 enum osum_state {
@@ -102,6 +106,30 @@ struct osum_tx {
     osum_read_fn read;
     void *context;
 };
+
+/* One evdev producer and one vendor-HID consumer. Sequence is per daemon vendor
+ * lifetime, not per paid capture; rejected edges still consume a sequence. */
+struct osum_live_edge {
+    uint32_t sequence;
+    uint64_t timestamp_us;
+    uint8_t lane;
+    uint8_t action;
+};
+
+struct osum_live_queue {
+    atomic_uint head;
+    atomic_uint tail;
+    uint32_t next_sequence; /* producer only */
+    struct osum_live_edge edges[OSUM_LIVE_QUEUE_SIZE];
+};
+
+void osum_live_queue_init(struct osum_live_queue *queue);
+bool osum_live_enqueue(struct osum_live_queue *queue, uint64_t timestamp_us,
+                       uint8_t lane, uint8_t action);
+bool osum_live_dequeue(struct osum_live_queue *queue, struct osum_live_edge *edge);
+void osum_live_discard(struct osum_live_queue *queue);
+void osum_live_report(const struct osum_live_edge *edge,
+                      uint8_t report[OSUM_REPORT_SIZE]);
 
 uint16_t osum_be16_load(const uint8_t value[2]);
 uint32_t osum_be32_load(const uint8_t value[4]);

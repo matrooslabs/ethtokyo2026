@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-kit-react";
 import type { Transaction } from "@mysten/sui/transactions";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { HomeKeysGuide } from "@/components/homeKeysGuide";
 import HardwareGate from "@/components/hardware/hardwareGate";
 import SuiConnectButton from "@/components/sui/suiConnectButton";
 import WorldVerification from "@/components/identity/worldVerification";
+import QuickSetup from "./quickSetup";
 import { GameOverlay } from "@/components/game/gameOverlay";
 import { useBridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { getBundledBeatmapFile } from "@/lib/bundledBeatmap";
@@ -32,7 +33,9 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
   const [identityReady, setIdentityReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [screen, setScreen] = useState<"home" | "claim">("home");
+  const [screen, setScreen] = useState<"home" | "setup" | "claim">("home");
+  const [setupPaid, setSetupPaid] = useState(false);
+  const actionLock = useRef(false);
   const address = account?.address || "0x0";
   const tokenLabel = import.meta.env.VITE_SUI_NETWORK === "mainnet" ? "USDC" : "test USDC";
   const updateIdentity = useCallback((ready: boolean) => setIdentityReady(ready), []);
@@ -94,7 +97,8 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
   }
 
   async function purchase() {
-    if (!canBuy || !competition) return;
+    if (!canBuy || !competition || actionLock.current) return;
+    actionLock.current = true;
     setBusy(true);
     setMessage("");
     try {
@@ -108,11 +112,16 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
+      actionLock.current = false;
     }
   }
 
   async function beginPaidRun() {
-    if (!canStart || !account || !competition) return;
+    if (!canStart || !account || !competition || actionLock.current) {
+      setMessage("Check the wallet, controller, and plays before starting.");
+      return;
+    }
+    actionLock.current = true;
     setBusy(true);
     setMessage("");
     let spent = false;
@@ -160,13 +169,19 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
     } finally {
       setBusy(false);
       if (spent) void state.refetch();
+      actionLock.current = false;
     }
   }
 
   function practice() {
-    if (!hardware.ready) return;
+    if (!hardware.ready) {
+      setScreen("home");
+      setMessage("Connect the controller before practicing.");
+      return;
+    }
     useGameStore.getState().setBeatmapSet(beatmapSet);
     useGameStore.getState().startGame(beatmap.id);
+    setScreen("home");
   }
 
   return (
@@ -191,6 +206,9 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
               (error) => setMessage(String(error))).finally(() => setBusy(false));
           }}>Claim eligible refund</button>}
         </section>
+      ) : screen === "setup" ? (
+        <QuickSetup beatmap={beatmap} beatmapSet={beatmapSet} paid={setupPaid} busy={busy}
+          onBack={() => setScreen("home")} onStart={setupPaid ? () => void beginPaidRun() : practice} />
       ) : (
         <>
           <section className="arena-hero">
@@ -220,7 +238,7 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
                     <p role="status">{competition ? `${remaining} plays left` : "Loading round…"}</p>
                     {remaining > 0n ? (
                       <div className="arena-play-row">
-                        <button className="arena-primary" disabled={!canStart || busy} onClick={() => void beginPaidRun()}>Play (1 credit)</button>
+                        <button className="arena-primary" disabled={!canStart || busy} onClick={() => { setSetupPaid(true); setScreen("setup"); }}>Set up paid run</button>
                         <button className="arena-text-button" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy more plays</button>
                       </div>
                     ) : (
@@ -231,7 +249,7 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
                 )}
               </div>
             )}
-            {hardware.ready && <button className="arena-text-button" onClick={practice}>Free practice</button>}
+            {hardware.ready && <button className="arena-text-button" onClick={() => { setSetupPaid(false); setScreen("setup"); }}>Free practice</button>}
           </section>
           <section className="arena-standings" aria-label="Verified leaderboard">
             <div className="arena-section-heading"><h2>Leaderboard</h2><p>{beatmapSet.title}</p></div>

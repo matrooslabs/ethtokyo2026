@@ -7,8 +7,9 @@ case "$profile" in
     debug) config=radxa_zero3_rt_debug_defconfig; out="$project/output-debug" ;;
     optee-debug) config=radxa_zero3_optee_debug_defconfig; out="$project/output-optee-debug" ;;
     optee-runtime) config=radxa_zero3_optee_runtime_defconfig; out="$project/output-optee-runtime" ;;
+    signed-lab) config=radxa_zero3_signed_lab_defconfig; out="$project/output-signed-lab" ;;
     hardware-root) config=radxa_zero3_hardware_root_defconfig; out="$project/output-hardware-root" ;;
-    *) echo "Usage: $0 [production|debug|optee-debug|optee-runtime|hardware-root]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [production|debug|optee-debug|optee-runtime|signed-lab|hardware-root]" >&2; exit 2 ;;
 esac
 if [ "$profile" = hardware-root ]; then
     : "${OSUMANIA_PROVISIONING_RECORD:?hardware-root requires externally reviewed provisioning record}"
@@ -17,9 +18,20 @@ if [ "$profile" = hardware-root ]; then
     echo 'REFUSED hardware-root image: RK3566 ROM secure boot, authenticated BL32 and debug-port lock are not verified; secure RNG driver is also missing. An OTP HUK with replaceable SD firmware is extractable.' >&2
     exit 1
 fi
+if [ "$profile" = signed-lab ]; then
+    : "${BOOT_SIGN_KEY_DIR:?signed-lab requires external boot signing key directory}"
+    keydir="$(realpath "$BOOT_SIGN_KEY_DIR")"
+    case "$keydir/" in "$(dirname "$project")/"*)
+        echo 'Boot signing private key must remain outside the ethtokyo2026 checkout' >&2
+        exit 1 ;;
+    esac
+    for part in boot.key boot.crt boot.pubkey; do
+        test -s "$BOOT_SIGN_KEY_DIR/$part" || { echo "Missing boot signing input: $part" >&2; exit 1; }
+    done
+fi
 "$project/scripts/fetch.sh"
 make -C "$project/sources/buildroot" BR2_EXTERNAL="$project" O="$out" "$config"
-if [ "$profile" = optee-debug ] || [ "$profile" = optee-runtime ] || [ "$profile" = hardware-root ]; then
+if [ "$profile" = optee-debug ] || [ "$profile" = optee-runtime ] || [ "$profile" = signed-lab ] || [ "$profile" = hardware-root ]; then
     make -C "$project/sources/buildroot" BR2_EXTERNAL="$project" O="$out" toolchain -j"${JOBS:-$(nproc)}"
     optee_log_args=()
     if [ "$profile" = optee-runtime ] || [ "$profile" = hardware-root ]; then
@@ -27,6 +39,7 @@ if [ "$profile" = optee-debug ] || [ "$profile" = optee-runtime ] || [ "$profile
     fi
     mode=dev
     if [ "$profile" = hardware-root ]; then mode=hardware; fi
+    if [ "$profile" = signed-lab ]; then mode=signed-lab; fi
     env "${optee_log_args[@]}" CROSS_COMPILE64="$out/host/bin/aarch64-buildroot-linux-gnu-" \
         "$project/scripts/build-firmware-optee.sh" "$mode"
 fi

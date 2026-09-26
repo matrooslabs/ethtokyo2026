@@ -147,7 +147,7 @@ export default function QuickSetup({
             Settings
           </MacWindowTitle>
           <Suspense fallback={<p>Loading settings…</p>}>
-            <SidebarContent />
+            <SidebarContent paid={paid} />
           </Suspense>
         </DialogContent>
       </Dialog>
