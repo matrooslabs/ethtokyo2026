@@ -17,7 +17,7 @@ import { defaultSettings } from "@/stores/settingsStore";
 import { encodeMods } from "@/lib/replay";
 import { useGameStore } from "@/stores/gameStore";
 import {
-  buyPlays, claimPrize, configured, readCompetition, readRankings,
+  buyPlays, claimPrize, configured, readCompetition, readRankings, readRounds,
   refund, startPaid, suiDeployment, type Ranking,
 } from "@/lib/sui/competition";
 import type { Beatmap, BeatmapSet } from "@/lib/beatmapTypes";
@@ -34,6 +34,7 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [screen, setScreen] = useState<"home" | "setup" | "claim">("home");
+  const [claimId, setClaimId] = useState(suiDeployment.competitionId);
   const [setupPaid, setSetupPaid] = useState(false);
   const actionLock = useRef(false);
   const address = account?.address || "0x0";
@@ -69,15 +70,28 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
     refetchInterval: 12000,
     retry: false,
   });
+  const rounds = useQuery({
+    queryKey: ["sui-competition-rounds", suiDeployment.packageId],
+    enabled: configured && screen === "claim",
+    queryFn: () => readRounds(client),
+  });
+  const claimState = useQuery({
+    queryKey: ["sui-claim-round", claimId, address],
+    enabled: configured && screen === "claim",
+    queryFn: () => readCompetition(client, address, claimId),
+    refetchInterval: 12000,
+    retry: false,
+  });
+  const selectedRound = claimState.data;
   const competition = state.data;
   const remaining = competition?.remaining ?? 0n;
   const correctDevice = !!competition && hardware.info?.deviceAddress.toLowerCase() === competition.device.toLowerCase();
   const now = Date.now();
-  const canBuy = !!account && (identityReady || remaining > 0n) && hardware.ready && correctDevice && !!competition && !!scorer.data && now < competition.salesDeadlineMs;
+  const canBuy = !!account && (identityReady || competition?.attested) && hardware.ready && correctDevice && !!competition && !!scorer.data && now < competition.salesDeadlineMs;
   const canStart = !!account && hardware.ready && correctDevice && remaining > 0n && !!competition && !!scorer.data && now < competition.startsDeadlineMs;
-  const canClaim = !!competition && competition.hasWinner && !competition.prizePaid && now > competition.scoreDeadlineMs && now <= competition.claimDeadlineMs;
-  const canRefund = !!account && !!competition && !competition.prizePaid && now > competition.scoreDeadlineMs &&
-    (!competition.hasWinner || now > competition.claimDeadlineMs);
+  const canClaim = !!selectedRound && selectedRound.hasWinner && !selectedRound.prizePaid && now > selectedRound.scoreDeadlineMs && now <= selectedRound.claimDeadlineMs;
+  const canRefund = !!account && !!selectedRound && !selectedRound.prizePaid && now > selectedRound.scoreDeadlineMs &&
+    (!selectedRound.hasWinner || now > selectedRound.claimDeadlineMs);
 
   useEffect(() => {
     const home = () => setScreen("home");
@@ -92,7 +106,8 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
     if (!confirmed.Transaction || !confirmed.Transaction.status.success) {
       throw new Error("The Sui transaction failed. Check your wallet's activity.");
     }
-    await state.refetch();
+    if (screen === "claim") await claimState.refetch();
+    else await state.refetch();
     return confirmed.Transaction;
   }
 
@@ -192,17 +207,29 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
           <button className="arena-text-button" onClick={() => setScreen("home")}>Back to leaderboard</button>
           <h1>Claim the prize</h1>
           <p>After the round, send the pot to the top verified wallet.</p>
-          <strong>{competition ? Number(competition.pot) / 1_000_000 : "—"} {tokenLabel}</strong>
-          <p>Winning wallet: {competition?.hasWinner ? competition.winner : "No verified winner yet"}</p>
+          {configured && <label className="arena-date" htmlFor="claim-round">
+            Round
+            <select id="claim-round" value={claimId} onChange={(event) => setClaimId(event.target.value)}>
+              {[
+                { id: suiDeployment.competitionId, closeMs: competition?.scoreDeadlineMs || 0 },
+                ...(rounds.data || []).filter((item) => item.id !== suiDeployment.competitionId),
+              ].map((item) => <option value={item.id} key={item.id}>
+                {item.closeMs ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" }).format(item.closeMs) : "Current round"}
+              </option>)}
+            </select>
+          </label>}
+          {rounds.isError && <p role="status">Past rounds unavailable. The current round is still accessible.</p>}
+          <strong>{selectedRound ? Number(selectedRound.pot) / 1_000_000 : "—"} {tokenLabel}</strong>
+          <p className="break-all">Winning wallet: {selectedRound?.hasWinner ? selectedRound.winner : "No verified winner yet"}</p>
           {!account && <SuiConnectButton />}
           <button className="arena-primary" disabled={!account || !canClaim || busy} onClick={() => {
             setBusy(true);
-            void transact(claimPrize()).then(() => setMessage("Prize sent to the winning Sui wallet."),
+            void transact(claimPrize(claimId)).then(() => setMessage("Prize sent to the winning Sui wallet."),
               (error) => setMessage(String(error))).finally(() => setBusy(false));
           }}>Claim winner’s prize</button>
           {canRefund && <button className="arena-secondary" disabled={busy} onClick={() => {
             setBusy(true);
-            void transact(refund(address)).then(() => setMessage("Your payments were refunded on Sui."),
+            void transact(refund(address, claimId)).then(() => setMessage("Your payments were refunded on Sui."),
               (error) => setMessage(String(error))).finally(() => setBusy(false));
           }}>Claim eligible refund</button>}
         </section>
@@ -227,15 +254,20 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
           <section className="arena-entry" aria-label="Enter competition">
             {!configured && <p role="alert">Competition unavailable.</p>}
             {configured && scorer.isError && <p role="alert">Scoring unavailable. Try again later.</p>}
-            {(!hardware.ready || (competition && !correctDevice)) && <HardwareGate hardware={hardware} />}
-            {hardware.ready && competition && !correctDevice && <p role="alert">Wrong controller for this round. Choose another device.</p>}
-            {configured && hardware.ready && (!competition || correctDevice) && (
+            {configured ? (
               <div className="arena-entry-step">
-                {!account ? <SuiConnectButton /> : remaining === 0n && !identityReady ? (
+                {!account ? <SuiConnectButton /> : !competition ? (
+                  <p role={state.isError ? "alert" : "status"}>{state.isError ? "Could not load this Sui round." : "Loading round…"}</p>
+                ) : !identityReady && !competition.attested ? (
                   <WorldVerification onReady={updateIdentity} />
+                ) : !hardware.ready || !correctDevice ? (
+                  <>
+                    <HardwareGate hardware={hardware} />
+                    {hardware.ready && !correctDevice && <p role="alert">Choose the controller for this round.</p>}
+                  </>
                 ) : (
                   <>
-                    <p role="status">{competition ? `${remaining} plays left` : "Loading round…"}</p>
+                    <p role="status">{String(remaining)} plays left</p>
                     {remaining > 0n ? (
                       <div className="arena-play-row">
                         <button className="arena-primary" disabled={!canStart || busy} onClick={() => { setSetupPaid(true); setScreen("setup"); }}>Set up paid run</button>
@@ -248,7 +280,7 @@ export default function DailyCompetition({ beatmap, beatmapSet }: {
                   </>
                 )}
               </div>
-            )}
+            ) : !hardware.ready ? <HardwareGate hardware={hardware} /> : null}
             {hardware.ready && <button className="arena-text-button" onClick={() => { setSetupPaid(false); setScreen("setup"); }}>Free practice</button>}
           </section>
           <section className="arena-standings" aria-label="Verified leaderboard">

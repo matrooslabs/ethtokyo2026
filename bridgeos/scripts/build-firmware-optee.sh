@@ -112,7 +112,7 @@ if [ "$mode" != dev ]; then
         -d CMD_BOOTI -d CMD_BOOTZ -d CMD_GO -d CMD_ELF -d CMD_SOURCE \
         -d CMD_BOOTEFI -d BOOTM_EFI -d BOOTM_ELF \
         --set-val BOOTDELAY -2 \
-        --set-str BOOTCOMMAND 'mmc dev 1 && ext4load mmc 1:1 0x10000000 /boot/kernel.itb && bootm 0x10000000'
+        --set-str BOOTCOMMAND 'if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi'
 fi
 make -C "$uboot" olddefconfig CROSS_COMPILE="$uboot_cross"
 if [ "$mode" != dev ]; then
@@ -128,7 +128,7 @@ if [ "$mode" != dev ]; then
         ! grep -qx "$forbidden" "$uboot/.config" || { echo "Unsigned boot path still enabled: $forbidden" >&2; exit 1; }
     done
     grep -qx 'CONFIG_BOOTDELAY=-2' "$uboot/.config" || { echo 'Autoboot must be uninterruptible' >&2; exit 1; }
-    grep -Fqx 'CONFIG_BOOTCOMMAND="mmc dev 1 && ext4load mmc 1:1 0x10000000 /boot/kernel.itb && bootm 0x10000000"' "$uboot/.config" || {
+    grep -Fqx 'CONFIG_BOOTCOMMAND="if mmc dev 1; then if ext4load mmc 1:1 0x10000000 /boot/kernel.itb; then bootm 0x10000000; fi; fi"' "$uboot/.config" || {
         echo 'Signed boot command not selected' >&2; exit 1;
     }
     # Compile DTBs before binman; the patched U-Boot build rule inserts the
@@ -165,7 +165,27 @@ else
     }
     cp "$uboot/u-boot.itb" "$out/u-boot.itb"
     cp "$uboot/u-boot.dtb" "$out/u-boot.dtb"
-    cp "$uboot/spl/u-boot-spl-pubkey.dtb" "$out/u-boot-spl-pubkey.dtb"
+    # Rockchip mkimage aligns SPL to 4 KiB: binman's logical map omits
+    # that padding. Binman also relocates SPL symbols near its tail.
+    # Extract the actual FDT after the compiled SPL prefix.
+    python3 - "$uboot/idbloader.img" "$uboot/spl/u-boot-spl-nodtb.bin" "$out/u-boot-spl-pubkey.dtb" <<'PY'
+import pathlib
+import struct
+import sys
+idblock, code, output = map(pathlib.Path, sys.argv[1:])
+data, spl = idblock.read_bytes(), code.read_bytes()
+magic = b'\xd0\x0d\xfe\xed'
+positions = [i for i in range(len(data)) if data.startswith(magic, i)]
+if len(positions) != 1:
+    raise SystemExit('Expected one actual SPL public-key DTB inside idblock')
+position = positions[0]
+if position < len(spl) or data[position - len(spl):position][:4096] != spl[:4096]:
+    raise SystemExit('SPL public-key FDT is not attached to the compiled SPL prefix')
+size = struct.unpack_from('>I', data, position + 4)[0]
+if size < 64 or position + size > len(data):
+    raise SystemExit('Invalid embedded SPL FDT length')
+output.write_bytes(data[position:position + size])
+PY
     [ "$(fdtget -t s "$out/u-boot-spl-pubkey.dtb" /signature/key-boot required)" = conf ] || {
         echo 'Final SPL DTB lost its required firmware key' >&2; exit 1;
     }
@@ -187,6 +207,14 @@ else
       "$signer" sb --idb idbloader.img
       "$signer" vb --idb idbloader.img
     )
+    python3 - "$out/idbloader.img" "$out/u-boot-spl-pubkey.dtb" <<'PY'
+import pathlib
+import sys
+idblock, trusted = map(pathlib.Path, sys.argv[1:])
+data, dtb = idblock.read_bytes(), trusted.read_bytes()
+if data.count(b'\xd0\x0d\xfe\xed') != 1 or dtb not in data:
+    raise SystemExit('Rockchip idblock signer changed embedded SPL public key')
+PY
     fit_offset="$(sed -n 's/^CONFIG_SPL_PAD_TO=//p' "$uboot/.config")"
     [ "$fit_offset" = 0x7f8000 ] || {
         echo 'Signed image FIT offset no longer matches U-Boot SPL layout' >&2; exit 1;

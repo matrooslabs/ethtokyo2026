@@ -6,11 +6,15 @@ Sources (read the latest version before significant UI work):
 - Anthropic's [frontend-design skill](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md): subject-specific identity, deliberate hierarchy, restrained motion, and explicit anti-template critique.
 - [Impeccable](https://github.com/pbakaus/impeccable): `distill`, `clarify`, `critique`, and live browser iteration; use its principles, not a default template or an unreviewed installer/hook.
 - [Vercel Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines/blob/main/command.md): accessibility, focus, layout, touch, and clear action copy.
+- [World ID's official IDKit skill](https://docs.world.org/world-id/SKILL.md): reuse the existing Portal app/RP/action, server-only RP signing and proof verification, durable nullifier uniqueness, matching environments, and a real success plus denial/cancel demo. Never request signing keys in chat.
 
 ## Product truth
 - Name: **versu!**; all site copy in English. Four-key rhythm game. A Sui 1 USDC purchase grants 3 paid plays. Starting one uses one credit, even if interrupted; gameplay never resumes. Only a World ID-verified human with an approved HID device can enter. The highest Sui-verified score wins the Sui pot.
+- User flow: connect a wallet for Sui payment and prize destination → verify the **person** with World ID → check Bridge hardware → buy a 3-play pack on Sui → adjust speed/personalization → start a run. A wallet address is not proof of a unique person; never treat wallet connection as human verification.
 - The first screen's job: show four lanes, their keys D/F/J/K, the hit line, the cost/credits, and the next playable action. History and claiming stay available without HID.
 - Free practice and paid play both open the SAME preplay screen for note scroll speed, visual effects and keybinds. Moving sliders costs nothing; only confirming a new paid start burns a credit. Never hide personal controls for paid runs or allow paid gameplay resume.
+- Do not try to identify ordinary keyboard origin in the browser or suppress other keyboards. Bridge connection gates both play modes, but the local visual score can reflect any keyboard. **Only the registered Bridge device's signed trace determines paid on-chain scores.** Label local results accordingly; never claim unverified local scores rank.
+- A wallet already attested on Sui for the current round must be able to buy another pack without repeating the World proof; the on-chain binding, not a browser flag, is authority.
 
 ## Non-negotiable UI filter
 - Each sentence must answer one player question or enable the next action. Delete marketing copy, repeated rules, pseudo-profound slogans, explanatory framework names, and decorative labels. Errors say what failed and what to do next.

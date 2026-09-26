@@ -84,7 +84,6 @@ export class Game {
   public app = new Application();
   public state: GameState = "WAIT";
   public showHud: boolean;
-  public readonly hardwareOnly: boolean;
 
   public settings: Settings;
   public mods: Settings["mods"];
@@ -187,7 +186,6 @@ export class Game {
     onPaidStart?: () => Promise<void>,
   ) {
     gsap.registerPlugin(PixiPlugin);
-    this.hardwareOnly = replayData === null;
     this.onPaidStart = onPaidStart;
 
     this.resize = this.resize.bind(this);
@@ -208,10 +206,6 @@ export class Game {
     if (useGameStore.getState().paidAttempt) {
       this.settings.mods = structuredClone(defaultSettings.mods);
       this.settings.retryOnFail = false;
-    }
-    if (this.hardwareOnly) {
-      this.settings.mods.autoplay = false;
-      this.settings.touch.enabled = false;
     }
 
     // If watching a replay, there should be no unpause delay
@@ -631,7 +625,7 @@ export class Game {
 
   private update(time: Ticker) {
     this.fps?.update(time.FPS);
-    if (!this.hardwareOnly) this.inputSystem.updateGamepadInputs();
+    this.inputSystem.updateGamepadInputs();
 
     if (this.inputSystem.pauseTapped && !this.finished) {
       this.setIsPaused((prev) => !prev);

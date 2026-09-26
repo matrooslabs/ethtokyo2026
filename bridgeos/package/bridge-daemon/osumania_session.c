@@ -287,13 +287,13 @@ out:
     atomic_fetch_sub_explicit(&session->producers, 1u, memory_order_release);
 }
 
-void osum_session_input_lost(struct osum_session *session, enum osum_error error)
+void osum_session_input_lost(struct osum_session *session)
 {
     if (!session || !atomic_load_explicit(&session->accepting, memory_order_acquire))
         return;
     atomic_fetch_add_explicit(&session->producers, 1u, memory_order_acquire);
     if (atomic_load_explicit(&session->accepting, memory_order_acquire))
-        fail_capture(session, error);
+        fail_capture(session, OSUM_INVALID_EVENT);
     atomic_fetch_sub_explicit(&session->producers, 1u, memory_order_release);
 }
 

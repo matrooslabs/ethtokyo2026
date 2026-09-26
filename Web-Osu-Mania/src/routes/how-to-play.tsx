@@ -27,9 +27,9 @@ function HowToPlayPage() {
       <section id="entry" className="arena-guide scroll-mt-20">
         <h2>Start a run</h2>
         <ol>
-          <li>Connect the approved four-key controller on a desktop browser.</li>
-          <li>Connect a Sui wallet and verify with World ID. Canceling verification takes no payment.</li>
-          <li>Buy 3 plays for 1 {coinLabel}. Starting a run spends 1; leaving ends it.</li>
+          <li>Connect your Sui wallet, then verify your identity with World ID.</li>
+          <li>Connect the approved controller on a desktop browser.</li>
+          <li>Buy 3 plays for 1 {coinLabel}. Set your speed before starting; each start uses 1 play.</li>
         </ol>
       </section>
       <section id="results" className="arena-guide scroll-mt-20">

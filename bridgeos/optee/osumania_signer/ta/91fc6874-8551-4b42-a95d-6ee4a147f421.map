@@ -2279,7 +2279,7 @@ LOAD /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/ex
 LOAD /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a
 LOAD /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libdl.a
 END GROUP
-LOAD /home/ynext/ethtokyo2026/bridgeos/output-optee-runtime/host/bin/../lib/gcc/aarch64-buildroot-linux-gnu/14.3.0/libgcc.a
+LOAD /home/ynext/ethtokyo2026/bridgeos/output-signed-lab/host/lib/gcc/aarch64-buildroot-linux-gnu/14.3.0/libgcc.a
 LOAD /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a
 OUTPUT(91fc6874-8551-4b42-a95d-6ee4a147f421.elf elf64-littleaarch64)
 LOAD linker stubs
@@ -2780,82 +2780,82 @@ LOAD linker stubs
  .debug_str     0x0000000000020dd4     0x5697 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(base64.o)
 
 .debug_line_str
-                0x0000000000000000      0xc96
+                0x0000000000000000      0xc69
  .debug_line_str
-                0x0000000000000000      0xc96 ./osumania_signer_ta.o
-                                        0x33c (size before relaxing)
+                0x0000000000000000      0xc69 ./osumania_signer_ta.o
+                                        0x30f (size before relaxing)
  .debug_line_str
-                0x0000000000000c96      0x212 ./keccak256.o
+                0x0000000000000c69      0x1e5 ./keccak256.o
  .debug_line_str
-                0x0000000000000c96      0x16d ./third_party/micro-ecc/uECC.o
+                0x0000000000000c69      0x16d ./third_party/micro-ecc/uECC.o
  .debug_line_str
-                0x0000000000000c96      0x2ac ./device_root_dev.o
+                0x0000000000000c69      0x27f ./device_root_dev.o
  .debug_line_str
-                0x0000000000000c96      0x3dc ./user_ta_header.o
+                0x0000000000000c69      0x3af ./user_ta_header.o
  .debug_line_str
-                0x0000000000000c96      0x235 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(stack_check.o)
+                0x0000000000000c69      0x208 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(stack_check.o)
  .debug_line_str
-                0x0000000000000c96      0x1ad /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memcpy.o)
+                0x0000000000000c69      0x180 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memcpy.o)
  .debug_line_str
-                0x0000000000000c96      0x1ad /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memset.o)
+                0x0000000000000c69      0x180 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memset.o)
  .debug_line_str
-                0x0000000000000c96      0x23f /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(trace.o)
+                0x0000000000000c69      0x212 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(trace.o)
  .debug_line_str
-                0x0000000000000c96      0x201 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(snprintk.o)
+                0x0000000000000c69      0x1d4 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(snprintk.o)
  .debug_line_str
-                0x0000000000000c96      0x1b6 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memchr.o)
+                0x0000000000000c69      0x189 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memchr.o)
  .debug_line_str
-                0x0000000000000c96      0x1b6 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strlen.o)
+                0x0000000000000c69      0x189 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strlen.o)
  .debug_line_str
-                0x0000000000000c96      0x282 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(trace_ext.o)
+                0x0000000000000c69      0x255 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(trace_ext.o)
  .debug_line_str
-                0x0000000000000c96      0x34a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api.o)
+                0x0000000000000c69      0x31d /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api.o)
  .debug_line_str
-                0x0000000000000c96      0x2e6 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_objects.o)
+                0x0000000000000c69      0x2b9 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_objects.o)
  .debug_line_str
-                0x0000000000000c96      0x372 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_operations.o)
+                0x0000000000000c69      0x345 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_operations.o)
  .debug_line_str
-                0x0000000000000c96      0x2b7 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_panic.o)
+                0x0000000000000c69      0x28a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_panic.o)
  .debug_line_str
-                0x0000000000000c96      0x2e8 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_system_pta.o)
+                0x0000000000000c69      0x2bb /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_system_pta.o)
  .debug_line_str
-                0x0000000000000c96      0x3a4 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(user_ta_entry.o)
+                0x0000000000000c69      0x377 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(user_ta_entry.o)
  .debug_line_str
-                0x0000000000000c96       0x84 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(utee_syscalls_a64.o)
+                0x0000000000000c69       0x84 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(utee_syscalls_a64.o)
  .debug_line_str
-                0x0000000000000c96      0x29a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(abort.o)
+                0x0000000000000c69      0x26d /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(abort.o)
  .debug_line_str
-                0x0000000000000c96      0x28a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(assert.o)
+                0x0000000000000c69      0x25d /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(assert.o)
  .debug_line_str
-                0x0000000000000c96      0x40c /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_arith_mpi.o)
+                0x0000000000000c69      0x3df /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_arith_mpi.o)
  .debug_line_str
-                0x0000000000000c96      0x3b2 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_property.o)
+                0x0000000000000c69      0x385 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tee_api_property.o)
  .debug_line_str
-                0x0000000000000c96      0x2cf /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tcb.o)
+                0x0000000000000c69      0x2a2 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutee.a(tcb.o)
  .debug_line_str
-                0x0000000000000c96      0x44b /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(bignum.o)
+                0x0000000000000c69      0x41e /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(bignum.o)
  .debug_line_str
-                0x0000000000000c96      0x43e /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(bignum_core.o)
+                0x0000000000000c69      0x411 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(bignum_core.o)
  .debug_line_str
-                0x0000000000000c96      0x42a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(constant_time.o)
+                0x0000000000000c69      0x3fd /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(constant_time.o)
  .debug_line_str
-                0x0000000000000c96      0x3ef /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(platform_util.o)
+                0x0000000000000c69      0x3c2 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libmbedtls.a(platform_util.o)
  .debug_line_str
-                0x0000000000000c96      0x2e2 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(bget_malloc.o)
+                0x0000000000000c69      0x2b5 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(bget_malloc.o)
  .debug_line_str
-                0x0000000000000c96      0x1b6 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(snprintf.o)
+                0x0000000000000c69      0x189 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(snprintf.o)
  .debug_line_str
-                0x0000000000000c96      0x1b9 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memmove.o)
+                0x0000000000000c69      0x18c /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(memmove.o)
  .debug_line_str
-                0x0000000000000c96      0x1b6 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strcmp.o)
+                0x0000000000000c69      0x189 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strcmp.o)
  .debug_line_str
-                0x0000000000000c96      0x1f1 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strlcpy.o)
+                0x0000000000000c69      0x1c4 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(strlcpy.o)
  .debug_line_str
-                0x0000000000000c96      0x297 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(mempool.o)
+                0x0000000000000c69      0x26a /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(mempool.o)
  .debug_line_str
-                0x0000000000000c96      0x1d9 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(consttime_memcmp.o)
+                0x0000000000000c69      0x1ac /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(consttime_memcmp.o)
  .debug_line_str
-                0x0000000000000c96      0x1a4 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(base64.o)
+                0x0000000000000c69      0x177 /home/ynext/ethtokyo2026/bridgeos/sources/optee-os/out/arm-plat-rockchip/export-ta_arm64/lib/libutils.a(base64.o)
 
 .comment        0x0000000000000000       0x22
  .comment       0x0000000000000000       0x22 ./osumania_signer_ta.o

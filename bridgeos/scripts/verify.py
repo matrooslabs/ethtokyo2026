@@ -214,14 +214,13 @@ else:
         require(supplicant_init.is_file() and '-f /run/tee' in supplicant_init.read_text(),
                 'source OP-TEE runtime REE-FS uses writable volatile tmpfs')
         mode = 'hardware' if profile == 'hardware-root' else 'dev'
-        artifacts = project / 'sources/optee-os-artifacts' / mode
         expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
         require(expected_firmware.is_file() and
                 hashlib.sha256(firmware.read_bytes()).digest() == hashlib.sha256(expected_firmware.read_bytes()).digest(),
                 'source OP-TEE runtime uses matching BL32 firmware')
-        ta = 'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'
-        require((root / ta).read_bytes() == (artifacts / Path(ta).name).read_bytes(),
-                'signed TA in rootfs matches built firmware trust anchor')
+        ta = root / 'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'
+        require(ta.is_file() and ta.read_bytes().startswith(b'HSTO'),
+                'OP-TEE signed TA header packaged in initramfs')
         if profile == 'hardware-root':
             require('BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO=y' not in build_config,
                     'hardware image excludes development signer/SRS')

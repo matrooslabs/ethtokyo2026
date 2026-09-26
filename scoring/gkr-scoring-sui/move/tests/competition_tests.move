@@ -31,6 +31,8 @@ fun setup(): (ts::Scenario, mania_gkr::registry::OrganizerCap, sui::clock::Clock
     competition::attest_identity(&mut c, &cap, PLAYER, HUMAN);
     // A retried backend transaction does not consume a second identity.
     competition::attest_identity(&mut c, &cap, PLAYER, HUMAN);
+    assert!(competition::is_attested(&c, PLAYER));
+    assert!(!competition::is_attested(&c, OTHER));
     ts::return_shared(c);
     transfer::public_transfer(cap, ORGANIZER);
     sc.next_tx(PLAYER);

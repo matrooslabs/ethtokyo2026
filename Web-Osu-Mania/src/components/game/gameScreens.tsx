@@ -120,15 +120,15 @@ const GameScreens = ({
   }, [isPaused, game, paidAttempt, hardware.abortRecording]);
 
   useEffect(() => {
-    if (!paidAttempt || results) return;
+    if (results || replayData) return;
     const disconnected = () => {
-      toast.error("Device disconnected. This play was used; the run cannot resume.");
+      toast.error(paidAttempt ? "Controller disconnected. This play was used." : "Controller disconnected. Practice ended.");
       useGameStore.getState().closeGame();
     };
     if (hardware.disconnectSignal.aborted) disconnected();
     else hardware.disconnectSignal.addEventListener("abort", disconnected, { once: true });
     return () => hardware.disconnectSignal.removeEventListener("abort", disconnected);
-  }, [hardware.disconnectSignal, paidAttempt, results]);
+  }, [hardware.disconnectSignal, paidAttempt, replayData, results]);
 
   // Event listeners
   useEffect(() => {

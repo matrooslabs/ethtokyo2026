@@ -4,6 +4,8 @@
 
 **Minimum sufficient credential:** IDKit v4 Proof of Human. The prize needs uniqueness, not a legal name, age, nationality, or document. Passport/NFC would demand unnecessary identity assurance; a selfie risk score would not provide the same unique-person guarantee. The browser presents the proof request; the Cloudflare Worker validates the complete IDKit result through the World Developer Portal, checks action/nonce/environment/wallet signal, persists the nullifier binding in D1, and issues a Sui on-chain identity attestation. An unverified client response grants nothing.
 
+**D1 storage choice:** SQLite does not preserve 256-bit `NUMERIC(78,0)` exactly. The server converts each World nullifier to a canonical lowercase, zero-padded 64-hex-digit `TEXT` value and enforces `PRIMARY KEY(round, nullifier)` plus `UNIQUE(round, wallet)`. This preserves full 256-bit equality without floating-point collisions.
+
 **Alternative path observed:** With no D1/Portal configuration, `POST /api/identity/challenge` returned HTTP 503 `identity_not_configured` in the running app. No wallet can buy plays because the Sui vault also requires the attested binding. The missing-controller browser surface blocks playing. Cancellation, denial, and duplicate-human rejection have not been exercised with real World credentials.
 
 **Time to first successful IDKit verification:** Not yet observed. This workstation is not authenticated with Cloudflare, has no World Developer Portal app/RP/action/signing key, and has no real D1 database binding. Claiming a successful verification or a prize-qualified live demo would be false.

@@ -284,6 +284,11 @@ public fun remaining_plays<T>(c: &Competition<T>, wallet: address): u64 {
     c.people[c.wallets[wallet]].plays
 }
 
+/// A wallet already bound for this round can buy another pack without re-running IDKit.
+public fun is_attested<T>(c: &Competition<T>, wallet: address): bool {
+    c.wallets.contains(wallet)
+}
+
 public fun leader<T>(c: &Competition<T>): (bool, address, u64) {
     (c.has_winner, c.winner, c.high_score)
 }

@@ -4,6 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import { parseOsz } from "@/lib/beatmapParser";
 import { getBundledBeatmapFile } from "@/lib/bundledBeatmap";
+import { generateAutoReplay } from "@/lib/replay";
 import { loadAssets } from "@/osuMania/assets";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -21,6 +22,8 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
   const backgroundDim = useSettingsStore.use.backgroundDim();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const replayData = useGameStore.use.replayData();
+  const setReplayData = useGameStore.use.setReplayData();
+  const mods = useSettingsStore.use.mods();
   const [beatmapData, setBeatmapData] = useState<BeatmapData | null>(null);
   const [key, setKey] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState("Loading Beatmap...");
@@ -97,6 +100,15 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
           }
         }
 
+        if (!paidAttempt && !replay && mods.autoplay) {
+          const autoReplay = generateAutoReplay(
+            parsedBeatmapData,
+            parsedBeatmapData.beatmapHash,
+            mods,
+          );
+          setReplayData(autoReplay);
+        }
+
         await loadAssets();
 
         setBeatmapData(parsedBeatmapData);
@@ -112,7 +124,7 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
     };
 
     loadBeatmap();
-  }, [beatmapId, closeGame]);
+  }, [beatmapId, closeGame, setReplayData, mods]);
 
   // Clean up object URLs
   useEffect(() => {
