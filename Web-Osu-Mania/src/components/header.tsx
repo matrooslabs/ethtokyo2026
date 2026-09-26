@@ -1,7 +1,10 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export default function Header() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   return (
     <header className="arena-header">
       <Link
@@ -30,7 +33,15 @@ export default function Header() {
         >
           Leaderboard
         </Link>
-        <Link to="/faq">How to play</Link>
+        <Link to="/how-to-play" activeProps={{ className: "active" }}>
+          How to play
+        </Link>
+        <Link
+          to="/faq"
+          className={pathname.startsWith("/faq") ? "active" : undefined}
+        >
+          FAQ
+        </Link>
         <ConnectButton
           accountStatus="address"
           chainStatus="none"
