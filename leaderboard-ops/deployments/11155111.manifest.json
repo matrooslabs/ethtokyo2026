@@ -1,0 +1,1765 @@
+{
+  "version": 1,
+  "chainId": 11155111,
+  "deployer": "0xCE33E6089EE2ae29136226d6b9F91beEc6Bb2BAc",
+  "srsId": "0x5d94edcfeaf0d7af402a632e7bcd42e9f4be43dbdd891b9dd8f033cfbcd99d14",
+  "security": "INSECURE known-tau development SRS; demo only",
+  "transactions": {
+    "deploy:GkrRelation": {
+      "hash": "0x659dc8477a3634060884a33f7c5af0cf887f8303aa656f8ba08b92185fe16343",
+      "nonce": 0,
+      "dataHash": "0x9b15ddac9609e8166e9462ad491d3aa5ed56b42bef60cf05be637bbd3ad74644",
+      "blockNumber": "11784152",
+      "gasUsed": "2294109"
+    },
+    "deploy:GkrScoreVerifier": {
+      "hash": "0x3aaccddc635c9be9f01c6275b60608e503c84b41bf90867840d9fb7df4b32f47",
+      "nonce": 1,
+      "dataHash": "0xb9f7bb9d1a5e92eb01fa55859760440b401b75625d06b5bbe39af40f4191df1d",
+      "blockNumber": "11784153",
+      "gasUsed": "6499680"
+    },
+    "deploy:ManiaGkrRegistry": {
+      "hash": "0xbc561d85f45a6602ccd68c5e17562c40203b2c4dec5a612ad6e3c5ee4d9274cc",
+      "nonce": 2,
+      "dataHash": "0x8b8215aed570edde074ba478a5aab59779e75f1fe09758a195795e6b4b85726a",
+      "blockNumber": "11784154",
+      "gasUsed": "2603511"
+    },
+    "deploy:DailyLeaderboard": {
+      "hash": "0x05ca22debd62d383baf093464eafe1c930bc4f4fa77fb3cfc998766467eadcd1",
+      "nonce": 3,
+      "dataHash": "0x700979a7dc3a22d578697d67469522532686ede692104bf6bd38efc0132c24b0",
+      "blockNumber": "11784156",
+      "gasUsed": "1032909"
+    },
+    "wire:leaderboard": {
+      "hash": "0x6d21788be37d1baad3ffa8bdb732b013bc7572d909fd6089d69163b5e3903a25",
+      "nonce": 4,
+      "dataHash": "0x8297c66dc9e00873c6b09559dbcd4bc56f4ad64d2a91689fd25acb5cddb84dff",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "blockNumber": "11784158",
+      "gasUsed": "48835"
+    }
+  },
+  "contracts": {
+    "GkrRelation": "0x93eff2b8c83337831ad573152f2073742fa4b558",
+    "GkrScoreVerifier": "0x7c8752f2c8f19df8cd144424c1986be5095b9b1d",
+    "ManiaGkrRegistry": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+    "DailyLeaderboard": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd"
+  },
+  "token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "entryFee": "1000000",
+  "deploymentBlock": "11784156",
+  "abi": {
+    "GkrRelation": [
+      {
+        "type": "function",
+        "name": "rowPoly",
+        "inputs": [
+          {
+            "name": "inp",
+            "type": "tuple",
+            "internalType": "struct GkrRelation.Input",
+            "components": [
+              {
+                "name": "bits",
+                "type": "uint256[7]",
+                "internalType": "uint256[7]"
+              },
+              {
+                "name": "r",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+              },
+              {
+                "name": "rp",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+              },
+              {
+                "name": "z",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+              },
+              {
+                "name": "chi",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+              },
+              {
+                "name": "claims",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
+              },
+              {
+                "name": "al",
+                "type": "uint256[9]",
+                "internalType": "uint256[9]"
+              },
+              {
+                "name": "gamma",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "lambda",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "beta",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "kz",
+                "type": "uint256[5]",
+                "internalType": "uint256[5]"
+              },
+              {
+                "name": "m",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "n",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "duration",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "total",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "pure"
+      }
+    ],
+    "GkrScoreVerifier": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "relation_",
+            "type": "address",
+            "internalType": "contract GkrRelation"
+          },
+          {
+            "name": "smax_",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "one",
+            "type": "uint256[4]",
+            "internalType": "uint256[4]"
+          },
+          {
+            "name": "tau",
+            "type": "uint256[4]",
+            "internalType": "uint256[4]"
+          },
+          {
+            "name": "shift",
+            "type": "uint256[4][]",
+            "internalType": "uint256[4][]"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "checkChart",
+        "inputs": [
+          {
+            "name": "chart",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "commitment",
+            "type": "uint256[2]",
+            "internalType": "uint256[2]"
+          },
+          {
+            "name": "proof",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "info",
+            "type": "tuple",
+            "internalType": "struct GkrScoreVerifier.ChartInfo",
+            "components": [
+              {
+                "name": "chartHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "m",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bits",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "components",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maxEnd",
+                "type": "uint64",
+                "internalType": "uint64"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "relation",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract GkrRelation"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "smax",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "srsId",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "verify",
+        "inputs": [
+          {
+            "name": "st",
+            "type": "tuple",
+            "internalType": "struct GkrScoreVerifier.Statement",
+            "components": [
+              {
+                "name": "mode",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "sessionDigest",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "n",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "duration",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "chartCommitment",
+                "type": "uint256[2]",
+                "internalType": "uint256[2]"
+              },
+              {
+                "name": "m",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "chartBits",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "components",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maxEnd",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "traceCommitment",
+                "type": "uint256[2]",
+                "internalType": "uint256[2]"
+              },
+              {
+                "name": "laneBits",
+                "type": "uint8[4]",
+                "internalType": "uint8[4]"
+              },
+              {
+                "name": "counts",
+                "type": "uint32[5]",
+                "internalType": "uint32[5]"
+              }
+            ]
+          },
+          {
+            "name": "proof",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "events",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "judgements",
+            "type": "uint256[6]",
+            "internalType": "uint256[6]"
+          },
+          {
+            "name": "score",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      }
+    ],
+    "ManiaGkrRegistry": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "verifier_",
+            "type": "address",
+            "internalType": "contract GkrScoreVerifier"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "INPUT_POLICY_A",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "INPUT_POLICY_B",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "MODE_CALLDATA",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint8",
+            "internalType": "uint8"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "MODE_COMMITTED",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint8",
+            "internalType": "uint8"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "RULESET_ID",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "devices",
+        "inputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "bitstreamHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "active",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getChart",
+        "inputs": [
+          {
+            "name": "chartHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Chart",
+            "components": [
+              {
+                "name": "commitment",
+                "type": "uint256[2]",
+                "internalType": "uint256[2]"
+              },
+              {
+                "name": "m",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "bits",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "components",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "maxEnd",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "registered",
+                "type": "bool",
+                "internalType": "bool"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getSession",
+        "inputs": [
+          {
+            "name": "id",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Session",
+            "components": [
+              {
+                "name": "header",
+                "type": "tuple",
+                "internalType": "struct ManiaGkrRegistry.Header",
+                "components": [
+                  {
+                    "name": "chainId",
+                    "type": "uint64",
+                    "internalType": "uint64"
+                  },
+                  {
+                    "name": "verifier",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "matchId",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "sessionId",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "challenge",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "player",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "device",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "chartHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "rulesetId",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "bitstreamHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "inputPolicyHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  }
+                ]
+              },
+              {
+                "name": "mode",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "expiresAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "consumed",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "score",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "judgements",
+                "type": "uint32[6]",
+                "internalType": "uint32[6]"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "leaderboard",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IDailyScoreReceiver"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "openPaidSession",
+        "inputs": [
+          {
+            "name": "chartHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "device",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "id",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "openSession",
+        "inputs": [
+          {
+            "name": "matchId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "chartHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "device",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "mode",
+            "type": "uint8",
+            "internalType": "uint8"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "id",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "organizer",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "paidSessions",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "registerChart",
+        "inputs": [
+          {
+            "name": "chart",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "commitment",
+            "type": "uint256[2]",
+            "internalType": "uint256[2]"
+          },
+          {
+            "name": "proof",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "chartHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "sessionDigestV1",
+        "inputs": [
+          {
+            "name": "h",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Header",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "verifier",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "matchId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sessionId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "challenge",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "player",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "device",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "chartHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "rulesetId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bitstreamHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "inputPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "n",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "duration",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "sessionDigestV2",
+        "inputs": [
+          {
+            "name": "h",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Header",
+            "components": [
+              {
+                "name": "chainId",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "verifier",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "matchId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "sessionId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "challenge",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "player",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "device",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "chartHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "rulesetId",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "bitstreamHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "inputPolicyHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          },
+          {
+            "name": "n",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "duration",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "tc",
+            "type": "uint256[2]",
+            "internalType": "uint256[2]"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "setDevice",
+        "inputs": [
+          {
+            "name": "signer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bitstreamHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "active",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "setLeaderboard",
+        "inputs": [
+          {
+            "name": "leaderboard_",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "submitCalldata",
+        "inputs": [
+          {
+            "name": "id",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "events",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "sub",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Submission",
+            "components": [
+              {
+                "name": "duration",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "laneBits",
+                "type": "uint8[4]",
+                "internalType": "uint8[4]"
+              },
+              {
+                "name": "counts",
+                "type": "uint32[5]",
+                "internalType": "uint32[5]"
+              }
+            ]
+          },
+          {
+            "name": "proof",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "sig",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "submitCommitted",
+        "inputs": [
+          {
+            "name": "id",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "n",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "traceCommitment",
+            "type": "uint256[2]",
+            "internalType": "uint256[2]"
+          },
+          {
+            "name": "sub",
+            "type": "tuple",
+            "internalType": "struct ManiaGkrRegistry.Submission",
+            "components": [
+              {
+                "name": "duration",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "laneBits",
+                "type": "uint8[4]",
+                "internalType": "uint8[4]"
+              },
+              {
+                "name": "counts",
+                "type": "uint32[5]",
+                "internalType": "uint32[5]"
+              }
+            ]
+          },
+          {
+            "name": "proof",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "sig",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "traceRoot",
+        "inputs": [
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "events",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "verifier",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract GkrScoreVerifier"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "ChartRegistered",
+        "inputs": [
+          {
+            "name": "chartHash",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "notes",
+            "type": "uint64",
+            "indexed": false,
+            "internalType": "uint64"
+          },
+          {
+            "name": "components",
+            "type": "uint64",
+            "indexed": false,
+            "internalType": "uint64"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "LeaderboardConfigured",
+        "inputs": [
+          {
+            "name": "leaderboard",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "ScoreAccepted",
+        "inputs": [
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "score",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "SessionOpened",
+        "inputs": [
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "device",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "mode",
+            "type": "uint8",
+            "indexed": false,
+            "internalType": "uint8"
+          }
+        ],
+        "anonymous": false
+      }
+    ],
+    "DailyLeaderboard": [
+      {
+        "type": "constructor",
+        "inputs": [
+          {
+            "name": "token_",
+            "type": "address",
+            "internalType": "contract IEntryToken"
+          },
+          {
+            "name": "registry_",
+            "type": "address",
+            "internalType": "contract IPaidSessionRegistry"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "ENTRY_FEE",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "claim",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "currentDay",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "endAt",
+        "inputs": [
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "pure"
+      },
+      {
+        "type": "function",
+        "name": "enter",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "device",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "expectedDayId",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "entries",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "payer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "scored",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "recordVerifiedScore",
+        "inputs": [
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "score",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "records",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "exists",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "bestScore",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "refund",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "refundablePayments",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "registry",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IPaidSessionRegistry"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "rounds",
+        "inputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "totalPaid",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "totalRefunded",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "leader",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "highestScore",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "prizeClaimed",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "token",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "contract IEntryToken"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "event",
+        "name": "EntryPaid",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "indexed": true,
+            "internalType": "uint64"
+          },
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "payer",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          },
+          {
+            "name": "device",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "indexed": false,
+            "internalType": "uint256"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "EntryRefunded",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "indexed": true,
+            "internalType": "uint64"
+          },
+          {
+            "name": "payer",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "indexed": false,
+            "internalType": "uint256"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "LeaderChanged",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "indexed": true,
+            "internalType": "uint64"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "indexed": false,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "score",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "PrizeClaimed",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "indexed": true,
+            "internalType": "uint64"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "indexed": false,
+            "internalType": "uint256"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "event",
+        "name": "ScoreRecorded",
+        "inputs": [
+          {
+            "name": "beatmapId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "dayId",
+            "type": "uint64",
+            "indexed": true,
+            "internalType": "uint64"
+          },
+          {
+            "name": "sessionId",
+            "type": "bytes32",
+            "indexed": true,
+            "internalType": "bytes32"
+          },
+          {
+            "name": "player",
+            "type": "address",
+            "indexed": false,
+            "internalType": "address"
+          },
+          {
+            "name": "score",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          },
+          {
+            "name": "bestScore",
+            "type": "uint32",
+            "indexed": false,
+            "internalType": "uint32"
+          }
+        ],
+        "anonymous": false
+      }
+    ]
+  },
+  "ready": true
+}

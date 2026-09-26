@@ -1,0 +1,16 @@
+{
+  "manifest":"leaderboard-ops/deployments/11155111.manifest.json",
+  "rpcUrl":"https://ethereum-sepolia-rpc.publicnode.com",
+  "host":"127.0.0.1",
+  "port":8788,
+  "allowedOrigins":["http://localhost:3000"],
+  "confirmations":2,
+  "captureMode":"hardware",
+  "hardwareUrl":"http://127.0.0.1:8790",
+  "relayerKeyFile":"./.priv-key",
+  "proverBinary":"scoring/gkr-scoring/target/release/mania-gkr",
+  "srsFile":"scoring/gkr-scoring/artifacts/dev-srs-22.bin",
+  "provingBufferSeconds":180,
+  "provingBufferMeasured":false,
+  "charts":[]
+}

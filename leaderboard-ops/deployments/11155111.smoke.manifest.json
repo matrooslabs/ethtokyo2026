@@ -1,0 +1,112 @@
+{
+  "chainId": 11155111,
+  "board": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+  "payer": "0xCE33E6089EE2ae29136226d6b9F91beEc6Bb2BAc",
+  "device": "0x62Fcc677d9e1f5C7A83816c1Fb5B927896B7448A",
+  "playerB": "0xd23aB5CDb857DC616A3370f5127C6d407cc6c095",
+  "dayId": "20722",
+  "simulation": "Software device signs synthetic fixture inputs; not physical hardware",
+  "transactions": {
+    "chart": {
+      "hash": "0x6af24b2b96ce5779665b27b818a57fb0f21566275ada585ae9d4203dd94360b4",
+      "dataHash": "0x8acdc735b7ea0945bec4a431a3ddc47ad3ec7dd2d0ad1dda16dfdec8314d807f",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "378393",
+      "blockNumber": "11784164"
+    },
+    "refund-chart": {
+      "hash": "0x586fbf5fce4af904bd76a7431f0e4ea342728bc640dca4c697c3f20e534d9174",
+      "dataHash": "0x02179d36f50049868292033983a789d645c76fe7467a833c0aa0bae7d3e38d09",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "492703",
+      "blockNumber": "11784167"
+    },
+    "device": {
+      "hash": "0x98742a835726062d136347ee1012eb6f65198cfcaa8f4191ccae2173736f257e",
+      "dataHash": "0xad8c3fd673332d73ad310c1da926d5d47d785e77ad9603a2bb261891f2e9e25f",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "67274",
+      "blockNumber": "11784170"
+    },
+    "approve": {
+      "hash": "0xfc5830689371bc8f3211e4ab53da66c51992e5fe6a6a7612d47b3228eb117d66",
+      "dataHash": "0x355eb6658b6a06d04a3702c052a8ae2c35fb09627c986d488d1be29efb661c61",
+      "to": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+      "gasUsed": "55437",
+      "blockNumber": "11784172"
+    },
+    "enter:low": {
+      "hash": "0x2401a68c651b93935a3f8b1d28ff30009c5edb3bbb83fa246b52aa5602b4997e",
+      "dataHash": "0x646e3d6f83e9f25fa1de876442914ab6f6b831b7bafc8cd07b74a70a8a045a5c",
+      "to": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+      "gasUsed": "497578",
+      "blockNumber": "11784174"
+    },
+    "enter:high": {
+      "hash": "0xfbf27ee1e21bf35d04203fc35d63de0eecef14c8e5b996c3ced55eeaf05abb72",
+      "dataHash": "0x646e3d6f83e9f25fa1de876442914ab6f6b831b7bafc8cd07b74a70a8a045a5c",
+      "to": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+      "gasUsed": "429178",
+      "blockNumber": "11784176"
+    },
+    "enter:tie": {
+      "hash": "0x91e3c1696d5af05e88cb21a8b0bad3840cae1c8741964ed2534f73bb841ad2d5",
+      "dataHash": "0x3ac1ee3ec58197fdd63b1c68f5cf8f1768086adb9748c774e716a11b80a4dd08",
+      "to": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+      "gasUsed": "429178",
+      "blockNumber": "11784179"
+    },
+    "enter:late": {
+      "hash": "0xeead9554640428304e2ca0dbd50dbce9f21aa8e22119b30b9a7b0755afedde1c",
+      "dataHash": "0x646e3d6f83e9f25fa1de876442914ab6f6b831b7bafc8cd07b74a70a8a045a5c",
+      "to": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+      "gasUsed": "429178",
+      "blockNumber": "11784182"
+    },
+    "enter:refund": {
+      "hash": "0x6cfdeb1623a1a8951e56c09f6322f87183d6689e016d18a59ed982bb09960d2d",
+      "dataHash": "0x47d44a761fd6fd22fc52fa93f2fb5b7d4239a6c84856364cd36d0e83ca0c546d",
+      "to": "0x35319a0232dfe355d1ab26641d0f77482b3ea1dd",
+      "gasUsed": "458578",
+      "blockNumber": "11784184"
+    },
+    "score:low": {
+      "hash": "0xfe63f6e37455c5922e2f055c766b80482e4e9dcead28383839780d00febfa68b",
+      "dataHash": "0x3be18f0d695a5c1435cdba629c66faa800ce3332e62a94f3909f6fe35083e253",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "1732619",
+      "blockNumber": "11784186"
+    },
+    "score:high": {
+      "hash": "0xba9d6c7522243f3cd42e6ec114c2fc21be823c768898db04d252060a65bb2ce0",
+      "dataHash": "0xe35b8c478df4a9c2d47544b22aaf7adff7423a9c21ad43a02b202d7477635bec",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "1696068",
+      "blockNumber": "11784189"
+    },
+    "score:tie": {
+      "hash": "0x052373270dddc4c5190c3f24abb2a8e2edaa80d097b2a67fa0f3570a0be9e4ac",
+      "dataHash": "0xb30331927836135b19204fdd2b86f820046c48efa3367674624ac8e471a35f7f",
+      "to": "0xebbfa066ee5f1ccd4b4de76014a6a5c2a6c5ddf4",
+      "gasUsed": "1707255",
+      "blockNumber": "11784192"
+    }
+  },
+  "sessions": {
+    "low": "0xfe8c3acef13a81152ac5ffab8bc5218cdd07fff877d4659a3778a63465e7a87a",
+    "high": "0x4276b88c948bf8821fd6aab52933e96498673d045dc8991e6d0f5d179fa70463",
+    "tie": "0x255a28e022683bf11776dddec657bf5d557151cfee73bddcc5954ebdbad2e899",
+    "late": "0x6b0c9ceff6492b5d5cff753cf3e92882f04d3c090dd0d1aa7654b070036b9372",
+    "refund": "0x077aeef798836610953d017c158d91cad25d8a0b4f5706d69371ee3ef14127ac"
+  },
+  "startedUtc": "2026-09-26T05:31:21.737Z",
+  "provingMs": {
+    "low": 232.52724999998463,
+    "high": 282.7567079999717,
+    "tie": 225.47125000000233
+  },
+  "verifiedPaidProofAndTie": true,
+  "settlementVerified": false,
+  "claimableAtUtc": "2026-09-27T00:00:00.000Z",
+  "checkedUtc": "2026-09-26T05:37:26.859Z"
+}

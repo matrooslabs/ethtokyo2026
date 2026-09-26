@@ -1,0 +1,7 @@
+node_modules/
+deployments/*.json
+!deployments/*.manifest.json
+*.key
+
+# Local Anvil addresses are ephemeral; keep evidence in reports.
+deployments/31337*.json
