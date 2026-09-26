@@ -1,0 +1,1 @@
+{"name":"leaderboard-ops","private":true,"type":"module","scripts":{"deploy":"node deploy.mjs","smoke":"node smoke.mjs","test":"node --test"},"dependencies":{"viem":"^2.38.0"}}

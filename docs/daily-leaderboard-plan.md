@@ -1,6 +1,6 @@
 # Daily beatmap leaderboard execution plan
 
-Status: execution started. Coordinator maintains this file; workers report evidence in `docs/reports/`.
+Status: contracts, GKR integration, indexer and Sepolia paid-proof smoke verified; browser verification and remaining draft PRs in progress. Coordinator maintains this file; workers report evidence in `docs/reports/`.
 
 ## Approved rules
 
@@ -48,7 +48,7 @@ Depends on PR 2 event ABI; may overlap PR 3.
 
 Integrate wallet and phone-wallet QR payment; start paid play only after confirmed entry; show UTC deadlines, personal best, rankings and pots. Cut off new entries using song duration plus measured proving buffer. Show proof progress/errors; direct-chain claims/refunds and payment tracking independent of indexer.
 
-Acceptance: two-wallet flow with repeated attempts, tie, UTC rollover, no-score refund and delayed/unavailable indexer; complete selected-network demo with actual hardware/prover before final completion.
+Acceptance: two-wallet flow with repeated attempts, tie, UTC rollover, no-score refund and delayed/unavailable indexer; complete selected-network software-demo prover flow. Physical hardware integration and verification were explicitly removed from scope by the user.
 
 Depends on PRs 3 and 4.
 
@@ -64,12 +64,16 @@ Depends on PRs 3 and 4.
 
 | PR | Implementation | Verification | Link |
 | --- | --- | --- | --- |
-| 1 | Pending | Pending | Pending |
-| 2 | Pending | Pending | Pending |
-| 3 | Pending | Pending | Pending |
-| 4 | Pending | Pending | Pending |
-| 5 | Pending | Pending | Pending |
+| 1 | Complete | Contract and boundary tests pass | [#2](https://github.com/matrooslabs/ethtokyo2026/pull/2) |
+| 2 | Complete | Real GKR proof integration; 36 Foundry test executions pass | [#3](https://github.com/matrooslabs/ethtokyo2026/pull/3) |
+| 3 | Complete | Anvil full settlement; Sepolia paid proof/tie pass; live midnight settlement pending | [#6](https://github.com/matrooslabs/ethtokyo2026/pull/6) |
+| 4 | Complete | 14 tests pass; Sepolia reconciliation: 6 reads, no mismatches | [#4](https://github.com/matrooslabs/ethtokyo2026/pull/4) |
+| 5 | Implemented; browser verification in progress | Unit/type/build checks and browser flow being completed | Pending |
 
 Target network: Ethereum Sepolia, explicitly selected by the user. Deployment signer: local `./.priv-key`, explicitly authorized by the user; never log or commit its contents. GitHub access verified.
 
-External gates to establish: funded deployer/organizer, USDC, registered hardware device and accessible proof-generation path, wallet QR project configuration.
+Additional support PR [#5](https://github.com/matrooslabs/ethtokyo2026/pull/5) removes SP1, preserves the shared scoring core/fixtures and adds sealed-input GKR proving. GKR tests: 29 pass; shared core: 15 pass.
+
+Deployer and test USDC funded; real GKR proving and Sepolia submission verified. User supplied the WalletConnect project ID; browser QR verification is in progress. Physical hardware is out of scope at the user’s request. Live claim/refund verification must wait until 2026-09-27T00:00:00Z; local time-controlled verification already passes.
+
+Demo trust limits: software signing does not attest physical gameplay, and the development known-tau SRS is not production-sound. No production security claim is made.
