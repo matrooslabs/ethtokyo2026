@@ -1,5 +1,4 @@
-//! Standalone prove server: HTTP layer. This file is identical in `gkr-scoring` and
-//! `gkr-scoring-sui`; only `prover.rs` differs.
+//! Raw proof HTTP API. Shares its prover and semaphore with paid competition routes.
 //!
 //! | Request | Response |
 //! |---|---|
@@ -52,10 +51,15 @@ fn error(code: StatusCode, text: impl std::fmt::Display) -> Response {
     (code, Json(serde_json::json!({"error": text.to_string()}))).into_response()
 }
 
+#[cfg(test)]
 pub fn router(prover: Arc<dyn Prove>, token: Option<String>) -> Router {
+    router_with_busy(prover, token, Arc::new(Semaphore::new(1)))
+}
+
+pub fn router_with_busy(prover: Arc<dyn Prove>, token: Option<String>, busy: Arc<Semaphore>) -> Router {
     let shared = Arc::new(Shared {
         prover,
-        busy: Arc::new(Semaphore::new(1)),
+        busy,
         token_hash: token.map(|t| sha256(t.as_bytes())),
     });
     Router::new()
@@ -81,7 +85,7 @@ pub async fn serve(listener: tokio::net::TcpListener, router: Router) -> Result<
         let _ = tokio::signal::ctrl_c().await;
     };
     tokio::select! {
-        result = axum::serve(listener, router) => result?,
+        result = axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()) => result?,
         _ = stop => eprintln!("prove server stopping"),
     }
     Ok(())

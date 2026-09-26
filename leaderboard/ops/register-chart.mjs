@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
-import {parseOsu} from '../bridge/chart.mjs';import {clients,root,repoPath,readJSON,save} from './common.mjs';
+import {parseOsu} from './chart.mjs';import {clients,root,repoPath,readJSON,save} from './common.mjs';
 const file=process.argv[2];if(!file)throw Error('Usage: node register-chart.mjs path/to/map.osu');
 const parsed=parseOsu(await fs.readFile(repoPath(file)));const dir=await fs.mkdtemp(path.join(os.tmpdir(),'register-chart-'));
 try{const input=readJSON(path.join(root,'scoring/fixtures/demo.json'));input.chart=parsed.chart;const tmp=path.join(dir,'play.json');await fs.writeFile(tmp,JSON.stringify(input));

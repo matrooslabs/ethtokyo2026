@@ -1,1 +1,10 @@
 /.priv-key
+/.env
+/.env.*
+!/.env.example
+!/.env.sui.example
+
+# Local leftovers from the retired Node service; migrate checkpoints before removal.
+/leaderboard/bridge/node_modules/
+/leaderboard/bridge/data/
+/leaderboard/bridge/*.key

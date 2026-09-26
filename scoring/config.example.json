@@ -1,0 +1,12 @@
+{
+  "manifest": "leaderboard/ops/deployments/11155111.manifest.json",
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "allowedOrigins": ["http://localhost:3000"],
+  "confirmations": 2,
+  "captureMode": "hardware",
+  "hardwareUrl": "http://127.0.0.1:8790",
+  "relayerKeyFile": "./.priv-key",
+  "provingBufferSeconds": 180,
+  "provingBufferMeasured": false,
+  "charts": []
+}

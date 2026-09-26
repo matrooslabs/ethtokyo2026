@@ -1,5 +1,8 @@
 # ETH Tokyo 2026
 
+Shared configuration for all components: copy [`.env.example`](.env.example) to `.env` and follow the [environment and startup guide](docs/environment.md).
+For the Sui proof stack, use [`.env.sui.example`](.env.sui.example) and the [Sui startup instructions](docs/environment.md#sui-proof-stack).
+
 - [osu! application](Web-Osu-Mania/): game projects, assets, tests, and build configuration.
 - [scoring](scoring/README.md): scoring and proof generation
     - [Shared scoring core](scoring/crates/scoring-core/) and [canonical scoring specification](scoring/SCORING_SPEC.md).
@@ -13,7 +16,7 @@ Each attempt pays 1 USDC into its chart’s UTC-day pot. The first accepted high
 
 - [Execution plan and draft PRs](docs/daily-leaderboard-plan.md)
 - [Deployment, Sepolia manifests and settlement smoke commands](leaderboard/ops/README.md)
-- [Local proof bridge and software-demo configuration](leaderboard/bridge/README.md)
+- [Scoring server and software-demo configuration](scoring/crates/prove-server-evm/README.md)
 - [Indexer setup and API](leaderboard/indexer/README.md)
 - [Web wallet/payment/proof/claim setup](Web-Osu-Mania/DAILY_LEADERBOARD.md)
 

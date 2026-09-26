@@ -1,4 +1,4 @@
-import { bridgeRequest } from "@/lib/leaderboard/bridge";
+import { scoringRequest } from "@/lib/leaderboard/scoring";
 import { encodeMods } from "@/lib/replay";
 import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
@@ -115,7 +115,7 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
 
         if (paidAttempt) {
           setLoadingMessage("Starting signed capture…");
-          const started = await bridgeRequest<{
+          const started = await scoringRequest<{
             sessionId: string;
             captureMode: string;
           }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);

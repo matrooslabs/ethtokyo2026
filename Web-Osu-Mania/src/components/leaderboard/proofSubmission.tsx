@@ -4,7 +4,7 @@ import { competitionChain } from "@/lib/walletConfig";
 import { acceptedScore } from "@/lib/leaderboard/receipts";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import type { PlayResults } from "@/types";
-import { bridgeRequest, BridgeError, type ProofJob, type PaidAttempt } from "@/lib/leaderboard/bridge";
+import { scoringRequest, ScoringError, type ProofJob, type PaidAttempt } from "@/lib/leaderboard/scoring";
 import { leaderboardAbi, leaderboardAddress } from "@/lib/leaderboard/contracts";
 import { useGameStore } from "@/stores/gameStore";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,7 @@ export default function ProofSubmission({ results, beatmap, savedAttempt, savedP
       if (await readAccepted()) { markExistingAccepted(); return; }
       let jobId = localStorage.getItem(`paid-job:${attempt.sessionId}`);
       if (retryableFailure) {
-        const retried = await bridgeRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, { ...payload, retry: true });
+        const retried = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, { ...payload, retry: true });
         if (!retried.jobId) throw new Error("Prover returned no retry job identifier.");
         jobId = retried.jobId;
         localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);
@@ -68,8 +68,8 @@ export default function ProofSubmission({ results, beatmap, savedAttempt, savedP
         const block = await client.getBlock();
         if (Number(block.timestamp) >= (attempt.dayId + 1) * 86400) throw new Error("The UTC deadline passed before proof submission. Check the round for payout or refund eligibility.");
         setMessage("Sending captured gameplay for proof generation…");
-        await bridgeRequest(`/sessions/${attempt.sessionId}/start`, attempt);
-        const started = await bridgeRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
+        await scoringRequest(`/sessions/${attempt.sessionId}/start`, attempt);
+        const started = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
         if (!started.jobId) throw new Error("Prover returned no job identifier.");
         jobId = started.jobId;
         localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);
@@ -77,14 +77,14 @@ export default function ProofSubmission({ results, beatmap, savedAttempt, savedP
       let recovered = false;
       while (alive.current) {
         let current: ProofJob;
-        try { current = await bridgeRequest<ProofJob>(`/jobs/${encodeURIComponent(jobId)}`); }
+        try { current = await scoringRequest<ProofJob>(`/jobs/${encodeURIComponent(jobId)}`); }
         catch (error) {
-          if (!(error instanceof BridgeError) || error.status !== 404 || recovered) throw error;
+          if (!(error instanceof ScoringError) || error.status !== 404 || recovered) throw error;
           if (await readAccepted()) { markExistingAccepted(); return; }
-          // The bridge restarted before persisting a job. Resume only this same paid session.
+          // The scoring server restarted before persisting a job. Resume only this same paid session.
           recovered = true;
-          await bridgeRequest(`/sessions/${attempt.sessionId}/start`, attempt);
-          const resumed = await bridgeRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
+          await scoringRequest(`/sessions/${attempt.sessionId}/start`, attempt);
+          const resumed = await scoringRequest<{ jobId: string }>(`/sessions/${attempt.sessionId}/proof`, payload);
           if (!resumed.jobId) throw new Error("Prover returned no recovery job identifier.");
           jobId = resumed.jobId;
           localStorage.setItem(`paid-job:${attempt.sessionId}`, jobId);

@@ -1,4 +1,7 @@
 //! Standalone GKR prove server: one binary, POST a play and get its proof back as JSON.
+mod capture;
+mod chain;
+mod competition;
 mod http;
 mod prover;
 
@@ -15,6 +18,12 @@ struct Args {
     /// SRS file. `mania-gkr srs --smax N` makes an INSECURE dev SRS; use a ceremony .ptau in production.
     #[arg(long, default_value = "artifacts/dev-srs-22.bin")]
     srs: PathBuf,
+    /// Enable paid game routes using this JSON config (or SCORING_CONFIG).
+    #[arg(long)]
+    competition_config: Option<PathBuf>,
+    /// Base directory for paths inside the competition config.
+    #[arg(long, default_value = ".")]
+    project_root: PathBuf,
 }
 
 fn main() -> Result<()> {
@@ -29,12 +38,27 @@ fn main() -> Result<()> {
         "PROVER_API_TOKEN must be at least 32 bytes"
     );
     let start = Instant::now();
-    let prover = prover::GkrProver::new(Srs::load(&args.srs)?);
-    eprintln!("SRS loaded in {:.0} ms", start.elapsed().as_secs_f64() * 1e3);
+    let prover: Arc<dyn http::Prove> = Arc::new(prover::GkrProver::new(Srs::load(&args.srs)?));
+    eprintln!(
+        "SRS loaded in {:.0} ms",
+        start.elapsed().as_secs_f64() * 1e3
+    );
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(args.bind).await?;
-        eprintln!("GKR prove server on http://{}", listener.local_addr()?);
-        http::serve(listener, http::router(Arc::new(prover), token)).await
+        let bind = listener.local_addr()?;
+        let busy = Arc::new(tokio::sync::Semaphore::new(1));
+        let mut router = http::router_with_busy(prover.clone(), token, busy.clone());
+        if let Some(config) = args
+            .competition_config
+            .or_else(|| std::env::var_os("SCORING_CONFIG").map(PathBuf::from))
+        {
+            let state =
+                competition::Competition::load(&config, &args.project_root, bind, prover, busy)?;
+            router = router.merge(competition::router(state));
+            eprintln!("Paid competition routes enabled");
+        }
+        eprintln!("GKR prove server on http://{bind}");
+        http::serve(listener, router).await
     })
 }

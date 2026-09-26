@@ -1,5 +1,5 @@
-//! Standalone prove server: HTTP layer. This file is identical in `gkr-scoring` and
-//! `gkr-scoring-sui`; only `prover.rs` differs.
+//! Standalone Sui prove server HTTP layer. The EVM server additionally hosts
+//! paid competition routes; this server exposes the raw Sui proof API.
 //!
 //! | Request | Response |
 //! |---|---|

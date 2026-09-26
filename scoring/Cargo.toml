@@ -16,6 +16,9 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
+alloy = { version = "1", default-features = false, features = ["contract", "provider-http", "rpc-types", "signer-local", "reqwest-rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4"] }
 mania-scoring-core = { path = "crates/scoring-core" }
 mania-gkr = { path = "crates/gkr-evm" }
 mania-gkr-sui = { path = "crates/gkr-sui" }

@@ -21,7 +21,7 @@ import {
   getChartSetup,
   getChartForDisplay,
   type PaidAttempt,
-} from "@/lib/leaderboard/bridge";
+} from "@/lib/leaderboard/scoring";
 import {
   canEnter,
   dateDay,

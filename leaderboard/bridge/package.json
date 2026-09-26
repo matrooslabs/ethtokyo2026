@@ -1,1 +1,0 @@
-{"name":"leaderboard-bridge","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node --test test/*.test.mjs"},"dependencies":{"viem":"^2.38.0"}}

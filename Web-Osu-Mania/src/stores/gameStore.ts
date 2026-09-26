@@ -1,4 +1,4 @@
-import type { PaidAttempt } from "@/lib/leaderboard/bridge";
+import type { PaidAttempt } from "@/lib/leaderboard/scoring";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { walletConfig } from "@/lib/walletConfig";
 import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";

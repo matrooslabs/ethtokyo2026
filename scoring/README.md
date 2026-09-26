@@ -8,7 +8,7 @@ Dependency versions and build profiles are defined in the workspace manifest.
 | `crates/scoring-core` | `mania-scoring-core` | Canonical input types, scoring rules, trace hashing, and session digests |
 | `crates/gkr-evm` | `mania-gkr` | BN254 proof engine, EVM encoding, CLI, and FPGA examples |
 | `crates/gkr-sui` | `mania-gkr-sui` | BLS12-381 proof engine, Sui encoding, and CLI |
-| `crates/prove-server-evm` | `mania-gkr-prove-server` | EVM HTTP proving service ([API](crates/prove-server-evm/README.md)) |
+| `crates/prove-server-evm` | `mania-gkr-prove-server` | EVM proof, paid-session, and relayer service ([API](crates/prove-server-evm/README.md)) |
 | `crates/prove-server-sui` | `mania-gkr-sui-prove-server` | Sui HTTP proving service ([API](crates/prove-server-sui/README.md)) |
 
 Both engines depend on the scoring core; each server depends on its chain's

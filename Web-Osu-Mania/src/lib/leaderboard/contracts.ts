@@ -14,5 +14,5 @@ export const leaderboardAbi = parseAbi([
 ]);
 const configured = import.meta.env.VITE_LEADERBOARD_ADDRESS;
 export const leaderboardAddress: Address | undefined = configured && isAddress(configured) ? configured : undefined;
-export const bridgeUrl = (import.meta.env.VITE_PROVER_BRIDGE_URL || "").replace(/\/$/, "");
+export const scoringUrl = (import.meta.env.VITE_SCORING_URL || "").replace(/\/$/, "");
 export const indexerUrl = (import.meta.env.VITE_LEADERBOARD_INDEXER_URL || "").replace(/\/$/, "");

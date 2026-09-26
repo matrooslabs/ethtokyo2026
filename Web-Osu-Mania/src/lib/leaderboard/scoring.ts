@@ -1,6 +1,6 @@
 import { competitionChain } from "@/lib/walletConfig";
 import { isAddress, isHex, size, type Address, type Hex } from "viem";
-import { bridgeUrl, leaderboardAddress } from "./contracts";
+import { scoringUrl, leaderboardAddress } from "./contracts";
 export type ChartSetup = {
   chartHash: Hex; webBeatmapHash: string; device: Address; durationSeconds: number;
   provingBufferSeconds: number; chainId: number; leaderboard: Address;
@@ -14,22 +14,22 @@ export type ProofJob = {
   jobId?: string; status: "queued" | "capturing" | "proving" | "submitting" | "confirmed" | "failed";
   message?: string; transactionHash?: Hex; retryable?: boolean;
 };
-export class BridgeError extends Error {
+export class ScoringError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
-export async function bridgeRequest<T>(path: string, body?: unknown): Promise<T> {
-  if (!bridgeUrl) throw new Error("Paid play needs a configured prover bridge.");
-  const response = await fetch(`${bridgeUrl}${path}`, {
+export async function scoringRequest<T>(path: string, body?: unknown): Promise<T> {
+  if (!scoringUrl) throw new Error("Paid play needs a configured scoring server.");
+  const response = await fetch(`${scoringUrl}${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000),
   });
   const result = await response.json();
-  if (!response.ok) throw new BridgeError(result && typeof result === "object" && "error" in result ? String(result.error) : `Prover bridge returned ${response.status}`, response.status);
+  if (!response.ok) throw new ScoringError(result && typeof result === "object" && "error" in result ? String(result.error) : `Scoring server returned ${response.status}`, response.status);
   return result as T;
 }
 export async function getChartSetup(hash: string): Promise<ChartSetup> {
-  const chart = await bridgeRequest<ChartSetup>(`/charts/${encodeURIComponent(hash)}`);
+  const chart = await scoringRequest<ChartSetup>(`/charts/${encodeURIComponent(hash)}`);
   if (chart.webBeatmapHash !== hash || !isHex(chart.chartHash) || size(chart.chartHash) !== 32 ||
     !isAddress(chart.device) || chart.chainId !== competitionChain.id ||
     chart.leaderboard?.toLowerCase() !== leaderboardAddress?.toLowerCase() ||

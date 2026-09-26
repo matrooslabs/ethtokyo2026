@@ -1,6 +1,6 @@
 # Daily leaderboard operations
 
-These commands run from the repository root. Install dependencies with `npm ci --prefix leaderboard/ops` and `npm ci --prefix leaderboard/bridge`. Build contracts with `forge build --root scoring/gkr-scoring/contracts`. Build the prover with `cargo build --release --manifest-path scoring/crates/gkr-evm/Cargo.toml`.
+These commands run from the repository root. Install dependencies with `npm ci --prefix leaderboard/ops`. Build contracts with `forge build --root scoring/gkr-scoring/contracts`. Build the prover with `cargo build --release --manifest-path scoring/crates/gkr-evm/Cargo.toml`.
 
 ## Deployment
 
@@ -16,11 +16,11 @@ Do not delete an interrupted journal and restart on a funded public account: fir
 
 ## Chart and device enrollment
 
-Register exact web `.osu` files with `node leaderboard/ops/register-chart.mjs map.osu` (same signer/RPC configuration). This checks 4K format, converts notes into canonical microseconds, uses the real KZG chart registration prover, registers on-chain, and writes `<source-sha256>.chart.json`. Add its `osuFile`, `chartHash` and the registered device address to bridge `charts` configuration. The exact-byte source hash identifies the web file; the canonical chart hash identifies the on-chain competition.
+Register exact web `.osu` files with `node leaderboard/ops/register-chart.mjs map.osu` (same signer/RPC configuration). This checks 4K format, converts notes into canonical microseconds, uses the real KZG chart registration prover, registers on-chain, and writes `<source-sha256>.chart.json`. Add its `osuFile`, `chartHash` and the registered device address to scoring server `charts` configuration. The exact-byte source hash identifies the web file; the canonical chart hash identifies the on-chain competition.
 
 Only the registry organizer may call `setDevice(address,bytes32,bool)`. Use the actual device signer and bitstream SHA-256, not the player's or deployment wallet. Revoking/changing a device also invalidates its pending sessions. The organizer cannot choose a winner or withdraw pots. The leaderboard address can only be configured once.
 
-Run `npm run smoke --prefix leaderboard/ops` for the smoke harness (see script environment settings). Local settlement tests advance Anvil time; Sepolia never time-travels and requires real UTC midnight for claim/refund.
+Start the EVM scoring HTTP server with the deployment's SRS before running the smoke harness. Set `PROVER_URL` (default `http://127.0.0.1:8091`) and, if configured on the server, `PROVER_API_TOKEN`. Run `npm run smoke --prefix leaderboard/ops` (see script environment settings). Local settlement tests advance Anvil time; Sepolia never time-travels and requires real UTC midnight for claim/refund.
 
 For the existing Sepolia smoke round, resume after `2026-09-27T00:00:00Z` with `SMOKE_SETTLE_ONLY=1 npm run smoke --prefix leaderboard/ops`. Keep the original ignored smoke journal and demo signer files: this checks and settles the recorded sessions rather than buying new entries. The committed smoke manifest records completed paid-proof checks and explicitly marks live settlement pending.
 

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { encodeFunctionData, keccak256, decodeEventLog, parseAbi, toHex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { artifact, clients, root, repoPath, readJSON, save } from './common.mjs';
-import { prove } from '../bridge/proof.mjs';
+import { prove } from './proof.mjs';
 const {id,account,publicClient:pc,wallet}=clients();
 assert.equal(await pc.getChainId(),id,'RPC chain mismatch');
 const deployment=readJSON(repoPath(process.env.DEPLOYMENT_FILE||`leaderboard/ops/deployments/${id}.json`));
@@ -72,7 +72,7 @@ if(process.env.SMOKE_SETTLE_ONLY!=='1'){
   if(!session.consumed){
    const input=readJSON(path.join(root,'scoring/fixtures',label==='low'?'demo.json':'perfect.json'));
    const started=performance.now();
-   const output=await prove({binary:path.join(root,'scoring/target/release/mania-gkr'),srs:path.join(root,'scoring/gkr-scoring/artifacts/dev-srs-22.bin'),input,header:session.header});
+   const output=await prove({url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input,header:session.header});
    state.provingMs??={};state.provingMs[label]=performance.now()-started;save(file,state);
    const signature=await device.sign({hash:output.digest});
    await send(`score:${label}`,registry,regAbi,'submitCalldata',[state.sessions[label],output.events,output.sub,output.proof,signature]);
@@ -99,7 +99,7 @@ if((await pc.getBlock()).timestamp>=deadline){
  await expectRevert(board,boardAbi,'claim',[chart.chartHash,day],'no claimable prize');
  await expectRevert(board,boardAbi,'refund',[noScore.chartHash,day],'nothing to refund');
  const late=await read(registry,regAbi,'getSession',[state.sessions.late]);
- const lateProof=await prove({binary:path.join(root,'scoring/target/release/mania-gkr'),srs:path.join(root,'scoring/gkr-scoring/artifacts/dev-srs-22.bin'),input:readJSON(path.join(root,'scoring/fixtures/perfect.json')),header:late.header});
+ const lateProof=await prove({url:process.env.PROVER_URL||'http://127.0.0.1:8091',token:process.env.PROVER_API_TOKEN,expectedSrsId:deployment.srsId,input:readJSON(path.join(root,'scoring/fixtures/perfect.json')),header:late.header});
  const lateSignature=await device.sign({hash:lateProof.digest});
  // At midnight the strict paid cutoff rejects an otherwise valid proof.
  await expectRevert(registry,regAbi,'submitCalldata',[state.sessions.late,lateProof.events,lateProof.sub,lateProof.proof,lateSignature],(await pc.getBlock()).timestamp===deadline?'paid round closed':'session expired');

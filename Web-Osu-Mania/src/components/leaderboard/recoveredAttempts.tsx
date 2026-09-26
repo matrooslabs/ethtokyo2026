@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import type { PaidAttempt } from "@/lib/leaderboard/bridge";
+import type { PaidAttempt } from "@/lib/leaderboard/scoring";
 import ProofSubmission, { type ProofPayload } from "./proofSubmission";
 export default function RecoveredAttempts({ chartHash }: { chartHash: string }) {
   const { address } = useAccount();

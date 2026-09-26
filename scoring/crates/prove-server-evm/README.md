@@ -1,86 +1,121 @@
-# GKR prove server
+# EVM scoring HTTP server
 
-PlayInput을 JSON으로 보내면 GKR/sumcheck proof를 JSON으로 돌려주는 **단일 binary** HTTP 서버입니다.
+One Rust process handles scoring proofs and the paid-game workflow. It loads the
+SRS once and calls the proof engine in-process; there is no separate Node bridge,
+prover subprocess, or internal HTTP hop.
 
-## 빌드와 실행
+## Run
 
-`scoring/gkr-scoring/` 기준 (Rust workspace: `scoring/Cargo.toml`).
-
-```sh
-cargo build --release --locked -p mania-gkr -p mania-gkr-prove-server
-../target/release/mania-gkr srs --smax 22 --out artifacts/dev-srs-22.bin   # INSECURE 개발용 SRS
-../target/release/mania-gkr-prove-server                                    # 127.0.0.1:8091
-```
-
-| 옵션 | 기본값 |
-|---|---|
-| `--bind` | `127.0.0.1:8091` |
-| `--srs` | `artifacts/dev-srs-22.bin` |
-
-개발용 SRS는 τ가 알려져 있어 proof를 위조할 수 있습니다. 운영에서는 `mania-gkr srs --ptau ... --smax 22`로 만든
-ceremony SRS를 사용하세요([README](../../gkr-scoring/README.md)). SRS의 `smax`보다 큰 채보는 `500`으로 실패합니다.
-
-## API
-
-| 요청 | 응답 |
-|---|---|
-| `GET /healthz` | `{"status":"ok"}` |
-| `GET /v1/info` | proof system, 검증 키 ID, 사용 가능한 mode |
-| `POST /v1/prove` `{"mode": …, "input": PlayInput}` | **proof JSON** (아래) |
-
-`input`은 `scoring/fixtures/*.json`과 같은 `PlayInput`입니다. 요청은 proof가 끝날 때까지 기다렸다가
-결과를 같은 응답으로 돌려받습니다(job ID나 polling 없음).
+From the repository root:
 
 ```sh
-python3 -c "import json;print(json.dumps({'mode':'committed','input':json.load(open('../fixtures/perfect.json'))}))" > /tmp/request.json
-curl -s -X POST http://127.0.0.1:8091/v1/prove -H 'Content-Type: application/json' \
-  --data-binary @/tmp/request.json > proof.json
+cargo build --release --locked --manifest-path scoring/Cargo.toml -p mania-gkr-prove-server
+mkdir -p scoring/data
+cp scoring/config.example.json scoring/data/config.json
+# Configure the manifest, RPC, signer files, charts, capture mode and measured buffer.
+scoring/target/release/mania-gkr-prove-server --bind 127.0.0.1:8091 \
+  --srs scoring/gkr-scoring/artifacts/dev-srs-22.bin \
+  --competition-config scoring/data/config.json
 ```
 
-오류는 `{"error": "..."}`입니다.
+`SCORING_CONFIG` is an alternative to `--competition-config`. Omit both to run
+only the raw proving API. Paths inside the JSON are relative to `--project-root`
+(default: current working directory). The config file and `--srs` paths themselves
+are relative to the working directory. The SRS must match the deployment manifest.
 
-| 코드 | 의미 |
-|---|---|
-| 401 | `PROVER_API_TOKEN`을 설정한 서버에 token 없음/불일치 |
-| 400/413/415/422 | 잘못된 JSON·필드, 16 MiB 초과, 지원하지 않는 mode, 채점 검증에 실패한 입력 |
-| 503 | 다른 proof 실행 중. 잠시 후 재시도 |
-| 500 | proving 실패 |
+Point the web app's `VITE_SCORING_URL` at `http://127.0.0.1:8091` and allow its exact
+origin (normally `http://localhost:3000`) in `allowedOrigins`.
 
-## 동작
+## Configuration
 
-- **하나의 binary.** proving 키/SRS를 시작할 때 한 번 메모리에 올리고, 요청마다 같은 프로세스 안에서 proof를 만듭니다.
-- **입력 검증.** proving 전에 native 채점(`core::evaluate`)으로 입력을 검증합니다.
-- **자체 검증.** 반환 전에 proof를 검증하고, 결과가 native 채점 결과와 같은지 확인합니다.
-- **한 번에 proof 하나.** 요청한 client가 연결을 끊어도 시작된 proof는 끝까지 실행되고, 그동안 새 요청은 `503`을 받습니다.
-- **종료.** SIGINT/SIGTERM을 받으면 실행 중인 proof를 기다리지 않고 종료합니다.
-- **보안.** 기본은 `127.0.0.1`에만 바인딩합니다. 다른 기기에서 접속하려면 `PROVER_API_TOKEN`(32바이트 이상)을
-  설정해야 하며, 그러면 `/healthz`를 제외한 요청에 `Authorization: Bearer <token>`이 필요합니다.
-  외부 공개 시에는 HTTPS reverse proxy 뒤에서 실행하세요.
-- **범위 밖.** CORS, 작업 큐, 결과 보관은 하지 않습니다.
-- **코드 구성.** HTTP 계층 `src/http.rs`는 `prove-server-evm`, `prove-server-sui`에서 같은 파일이고,
-  `src/prover.rs`만 proof system별로 다릅니다.
+See [`scoring/config.example.json`](../../config.example.json). Configure:
 
-mode: `calldata`(모드 A, `submitCalldata`), `committed`(모드 B, `submitCommitted`).
+- `manifest`, `rpcUrl`, and `confirmations` for the deployment.
+- `relayerKeyFile`, containing the funded transaction-signing key.
+- `charts`: entries with `osuFile`, canonical `chartHash`, and registered `device`.
+- `captureMode`: `hardware`, or explicit `software-demo` with a distinct `demoDeviceKeyFile`.
+- `hardwareUrl` and optional `hardwareToken` for a real device adapter.
+- `provingBufferSeconds` and `provingBufferMeasured: true` after measuring the actual workflow.
+- Optional `jobStoreFile`; default is `scoring/data/jobs-<chain>-<leaderboard>.json`.
 
-## 응답
+Paid routes are a single-user loopback demo. Startup refuses non-loopback binds
+when competition config is enabled. Host, peer, Origin, and JSON checks protect
+these routes. Keep the signer service on the same machine as the web client;
+public multi-user hosting needs a separate authorization design.
 
-`mania-gkr prove` 출력과 같은 필드에 `srsId`를 더한 JSON입니다.
+`PROVER_API_TOKEN` optionally protects the raw `/v1/*` endpoints and must contain
+at least 32 bytes when set. It is required for non-loopback raw-only servers.
+Paid browser routes use the loopback/origin checks, not a token embedded in the web
+app. `/healthz` remains unauthenticated. Default SRS without flags is
+`artifacts/dev-srs-22.bin`, relative to the working directory.
 
-| 필드 | 내용 |
-|---|---|
-| `mode`, `srsId` | `Calldata`/`Committed`, SRS 검증 키 ID |
-| `result` | `score`, `achieved_points`, `maximum_points`, `judgements` |
-| `laneBits`, `counts`, `proof` | proof 공개값과 proof word 목록 (각 32-byte hex) |
-| `chartCommitment`, `traceCommitment`, `sessionDigest` | 채보·trace commitment(모드 B), 서명 대상 digest |
-| `timings` | 단계별 proving 시간 (ms) |
+## APIs
 
-모드 B에서는 trace commitment를 입력 이벤트로 계산합니다(소프트웨어 장치).
+| Route | Behavior |
+| --- | --- |
+| `GET /healthz` | Process health |
+| `GET /v1/info` | Proof system, loaded SRS ID and supported modes |
+| `POST /v1/prove` | `{ "mode": "calldata" or "committed", "input": PlayInput }` → proof JSON |
+| `GET /charts/:exactByteSha256` | Registered chart/device and fresh paid-play readiness |
+| `POST /sessions/:id/start` | Validate confirmed payment, player/chart/day/device and arm capture |
+| `POST /sessions/:id/proof` | Submit replay or request hardware seal; return a job ID |
+| `GET /jobs/:id` | Proof/submission progress and confirmed transaction hash |
 
-## 테스트와 검증 상태
+Raw proof responses retain `mode`, `srsId`, native `result`, `laneBits`, `counts`,
+`proof`, commitments, `sessionDigest`, and timing fields. Raw requests are limited
+to 16 MiB; paid requests to 8 MiB. One shared semaphore prevents overlapping raw
+and paid proofs. Native input validation and proof verification run before return.
+
+The paid workflow checks the session/payment receipt and registered device, builds
+or authenticates the gameplay input, proves it, then relays `submitCalldata`.
+Software replay timestamps are converted to canonical microseconds with the
+independently checked chart delay; scoring modifiers and invalid key transitions
+are rejected. Hardware mode ignores browser replay and preserves the original
+signed header, event count, duration and trace hash.
+
+Jobs checkpoint submitted transaction hashes and reconcile them after restart.
+Interrupted work without a submitted transaction can be regenerated for the same
+paid session. Failed, unsubmitted jobs require explicit `retry: true`; jobs with
+transaction hashes are reconciliation-only and are never automatically resent.
+Run one scoring process per job store and physical device.
+
+## Hardware adapter
+
+- `GET /health` → `{ "ready": true, "device": "0x..." }`.
+- `POST /sessions/:id/start` receives `{header, chart}`. Header uint64 fields are
+  decimal strings; the adapter arms that exact session and synchronizes the song clock.
+- `POST /sessions/:id/seal` receives `{}` and returns `{input, signature}`. `input`
+  is the canonical Rust `PlayInput`; `signature` is a 65-byte secp256k1 signature
+  over the raw session digest. Input must come from physical capture.
+
+This is an adapter protocol, not a bundled hardware driver. Software signing does
+not establish physical gameplay attestation.
+
+## Migrating from the removed Node bridge
+
+Move the private JSON to `scoring/data/config.json`. Remove `host`, `port`,
+`proverUrl`, `proverApiToken`, `proverBinary`, and `srsFile`; pass bind/SRS as server
+flags. Rename `BRIDGE_CONFIG` to `SCORING_CONFIG`, and
+`VITE_PROVER_BRIDGE_URL` to `VITE_SCORING_URL` (port 8091).
+
+To preserve jobs, set `jobStoreFile` to the previous checkpoint path or copy that
+file to the new location. The Rust loader accepts the old array-based checkpoint
+format and writes native JSON maps on the next save. Keep old signer/data files
+until migration is complete. Stop the old process before starting this one.
+
+## Validation
 
 ```sh
-cargo test --release --locked -p mania-gkr-prove-server
+cargo test --locked --manifest-path scoring/Cargo.toml -p mania-gkr-prove-server
+npm ci --prefix leaderboard/ops
+npm test --prefix leaderboard/ops
+# Uses a temporary authenticated raw server; no chain transactions.
+PROVER_HTTP_INTEGRATION=1 npm test --prefix leaderboard/ops
 ```
 
-- HTTP 계층 테스트 2개와 실제 proving 테스트 1개가 통과했습니다. proving 테스트는 개발용 SRS로 `demo.json`을 두 mode로 증명하고, 점수·판정이 native 결과와 같은지 확인합니다.
-- 2026-09-26 실제 binary로 `curl` 요청을 보내 확인했습니다: `demo.json`, `committed` → HTTP 200, 약 0.1초, 987,500점.
+Paid end-to-end tests use `SCORING_E2E=1` with an isolated, already deployed Anvil
+and registered chart/device. Override `E2E_RPC`, `E2E_MANIFEST`, `E2E_KEY_FILE`,
+`E2E_DEVICE_KEY_FILE`, and `E2E_SRS_FILE`. The test starts the Rust server itself,
+exercises payment → proof → on-chain acceptance and restart recovery. Set
+`E2E_CAPTURE_MODE=hardware` to exercise the seal path with a named adapter test
+double; this does not claim validation on physical hardware.

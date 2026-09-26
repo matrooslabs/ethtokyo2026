@@ -67,7 +67,7 @@ try {
   await page.getByRole('button',{name:/Daily competition demo/}).click();
   await page.getByText('Daily prize · Foundry').waitFor({timeout:30000});
   await page.getByRole('checkbox').filter({visible:true}).last().check();
-  console.log('bridge ready and software demo acknowledged');
+  console.log('scoring server ready and software demo acknowledged');
   if(settlement){
     await page.getByText('Rankings (top 20)',{exact:true}).click();
     await page.getByText(/lag 777 blocks/).waitFor();
