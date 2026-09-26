@@ -1,0 +1,21 @@
+--- upstream/README.md
++++ osu-old/README.md
+@@ -4,7 +4,6 @@
+ 
+ # osu!
+ 
+-[![Build status](https://github.com/ppy/osu/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/ppy/osu/actions/workflows/ci.yml)
+ [![GitHub release](https://img.shields.io/github/release/ppy/osu.svg)](https://github.com/ppy/osu/releases/latest)
+ [![CodeFactor](https://www.codefactor.io/repository/github/ppy/osu/badge)](https://www.codefactor.io/repository/github/ppy/osu)
+ [![dev chat](https://discordapp.com/api/guilds/188630481301012481/widget.png?style=shield)](https://discord.gg/ppy)
+--- upstream/osu.Game/Utils/SentryLogger.cs
++++ osu-old/osu.Game/Utils/SentryLogger.cs
+@@ -63,7 +63,7 @@
+                 options.IsEnvironmentUser = false;
+                 options.IsGlobalModeEnabled = true;
+                 options.CacheDirectoryPath = storage?.GetFullPath(string.Empty);
+-                // The reported release needs to match version as reported to Sentry in .github/workflows/sentry-release.yml
++                // Keep the release identifier consistent with the version reported to Sentry.
+                 options.Release = $"osu@{game.Version.Split('-').First()}";
+             });
+ 
