@@ -1,35 +1,47 @@
 import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
-import type { BeatmapSet as BeatmapSetData } from "@/lib/beatmapTypes";
-import { useGameStore } from "@/stores/gameStore";
+import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { useEffect, useState } from "react";
-import BeatmapSet from "./beatmapSet/beatmapSet";
-const Main = () => {
-  const beatmapId = useGameStore.use.beatmapId();
-  const [beatmapSet, setBeatmapSet] = useState<BeatmapSetData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+import DailyCompetition from "./leaderboard/dailyCompetition";
 
+export default function Main() {
+  const [beatmapSet, setBeatmapSet] = useState<BeatmapSet | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    getBundledBeatmapSet().then(setBeatmapSet, (cause) => {
+    getBundledBeatmapSet().then(setBeatmapSet, (cause) =>
       setError(
         cause instanceof Error
           ? cause.message
           : "Could not load bundled beatmap.",
-      );
-    });
+      ),
+    );
   }, []);
-
+  const beatmap = beatmapSet?.beatmaps.find((map) => map.cs === 4);
+  if (!beatmapSet || !beatmap)
+    return (
+      <div className="arena-loading">
+        <span className="arena-eyebrow">ONE BEATMAP. ONE TOP SPOT.</span>
+        <h1>Find your rhythm.</h1>
+        <p role={error ? "alert" : "status"}>
+          {error ||
+            (beatmapSet
+              ? "No 4K chart is available in the bundled beatmap."
+              : "Getting the arena ready…")}
+        </p>
+        {error && (
+          <button
+            className="arena-primary"
+            onClick={() => window.location.reload()}
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    );
   return (
-    <div hidden={!!beatmapId}>
-      <h1 className="mb-4 text-2xl font-semibold">Built-in beatmap</h1>
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : beatmapSet ? (
-        <BeatmapSet beatmapSet={beatmapSet} />
-      ) : (
-        <p role="status">Loading beatmap...</p>
-      )}
-    </div>
+    <DailyCompetition
+      beatmap={beatmap}
+      beatmapSet={beatmapSet}
+      stopPreview={() => {}}
+    />
   );
-};
-
-export default Main;
+}

@@ -1,8 +1,9 @@
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useGameStore } from "../../stores/gameStore";
+import type { ArenaSnapshot } from "./arenaHud";
 import GameModal from "./gameModal";
 
-export const GameOverlay = () => {
+export const GameOverlay = ({ arena }: { arena?: ArenaSnapshot }) => {
   const beatmapId = useGameStore.use.beatmapId();
 
   return (
@@ -12,7 +13,7 @@ export const GameOverlay = () => {
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">Game Window</DialogTitle>
-        <GameModal />
+        <GameModal arena={arena} />
       </DialogContent>
     </Dialog>
   );

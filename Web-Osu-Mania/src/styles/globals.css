@@ -1,6 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Varela+Round&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&family=Roboto+Mono:wght@400;500&family=Varela+Round&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./arena.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

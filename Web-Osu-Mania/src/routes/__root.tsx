@@ -14,8 +14,8 @@ import {
 } from "@tanstack/react-router";
 import appCss from "../styles/globals.css?url";
 
-const title = "Web osu!mania";
-const description = "Play osu!mania beatmaps in your web browser.";
+const title = "osu! arena · ETH Tokyo";
+const description = "One beatmap. One top spot. Play osu!mania, compete for the daily leaderboard, and win the USDC prize pot.";
 const ogImageUrl = `https://webosumania.com/opengraph-image.png`;
 
 export const Route = createRootRoute({

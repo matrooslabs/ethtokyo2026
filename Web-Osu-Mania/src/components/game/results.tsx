@@ -233,7 +233,9 @@ const Results = ({
                 Average Hit Error
               </h3>
               <span className="text-3xl">
-                {Math.abs(averageError).toFixed(2)} ms{" "}
+                {Number.isFinite(averageError)
+                  ? `${Math.abs(averageError).toFixed(2)} ms`
+                  : "—"}{" "}
                 {averageError < 0 && "late"}
                 {averageError > 0 && "early"}
               </span>
@@ -243,7 +245,9 @@ const Results = ({
               <h3 className="text-muted-foreground mb-3 text-2xl font-medium">
                 Unstable Rate
               </h3>
-              <span className="text-3xl">{unstableRate.toFixed(2)}</span>
+              <span className="text-3xl">
+                {Number.isFinite(unstableRate) ? unstableRate.toFixed(2) : "—"}
+              </span>
             </div>
           </div>
         </div>
