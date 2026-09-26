@@ -3,7 +3,6 @@ import ManiaIcon from "./maniaIcon";
 import MobileSidebar from "./mobileSidebar";
 import NavLink from "./navLink";
 import SocialButtons from "./socialButtons";
-import WalletConnectButton from "./walletConnectButton";
 
 const Header = () => {
   return (
@@ -34,8 +33,6 @@ const Header = () => {
 
         <div className="ml-auto flex items-center gap-2">
           <SocialButtons className="hidden lg:block" />
-          <WalletConnectButton />
-
           <MobileSidebar />
         </div>
       </div>
