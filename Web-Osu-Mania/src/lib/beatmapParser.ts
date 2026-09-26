@@ -129,6 +129,7 @@ export const parseOsz = async (
   replayMods?: EncodedMods,
   replayColumnMap?: number[],
   isLocalSource = false,
+  paidCapture = false,
 ): Promise<BeatmapData> => {
   const zipReader = new ZipReader(new BlobReader(blob));
   const entries = await zipReader.getEntries();
@@ -170,7 +171,7 @@ export const parseOsz = async (
     : useSettingsStore.getState().mods;
 
   const outputLatency = (Howler.ctx.outputLatency ?? 0) * 1000;
-  const audioOffset = useSettingsStore.getState().audioOffset - outputLatency;
+  const audioOffset = paidCapture ? 0 : useSettingsStore.getState().audioOffset - outputLatency;
 
   // Parse .osu file sections
   const metadata = parseMetadata(lines);
@@ -181,6 +182,7 @@ export const parseOsz = async (
     mods,
     audioOffset,
     replayColumnMap,
+    paidCapture,
   );
   const timingPoints = parseTimingPoints(
     lines,
@@ -333,6 +335,7 @@ export function parseHitObjects(
   mods: Settings["mods"],
   audioOffset: number,
   replayColumnMap?: number[],
+  paidCapture = false,
 ) {
   // https://osu.ppy.sh/wiki/en/Client/File_formats/osu_%28file_format%29#holds-(osu!mania-only)
   const hitObjects: HitObject[] = [];
@@ -414,7 +417,7 @@ export function parseHitObjects(
   });
 
   // Ensure at least 1 second (unaffected by playback rate) before the song starts
-  const delay =
+  const delay = paidCapture ? 0 :
     Math.max(1000 - hitObjects[0].time / mods.playbackRate, 0) *
     mods.playbackRate;
 

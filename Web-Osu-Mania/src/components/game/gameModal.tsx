@@ -1,4 +1,6 @@
-import { scoringRequest } from "@/lib/leaderboard/scoring";
+import { prepare } from "@/lib/leaderboard/capture";
+import { usePublicClient } from "wagmi";
+import { competitionChain } from "@/lib/walletConfig";
 import { encodeMods } from "@/lib/replay";
 import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
@@ -15,6 +17,7 @@ import type { ArenaSnapshot } from "./arenaHud";
 import GameScreens from "./gameScreens";
 
 const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
+  const client = usePublicClient({chainId:competitionChain.id});
   const paidAttempt = useGameStore.use.paidAttempt();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -85,6 +88,7 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
           paidAttempt ? encodeMods(defaultSettings.mods) : replay?.mods,
           replay?.columnMap,
           true,
+          !!paidAttempt,
         );
 
         if (paidAttempt) {
@@ -115,18 +119,8 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
 
         if (paidAttempt) {
           setLoadingMessage("Starting signed capture…");
-          const started = await scoringRequest<{
-            sessionId: string;
-            captureMode: string;
-          }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);
-          if (
-            started.sessionId !== paidAttempt.sessionId ||
-            started.captureMode !== paidAttempt.captureMode
-          ) {
-            throw new Error(
-              "Capture session does not match the confirmed paid entry.",
-            );
-          }
+          if (!client) throw new Error('Chain client unavailable');
+          await prepare(paidAttempt, client);
         }
         setBeatmapData(parsedBeatmapData);
       } catch (error: any) {

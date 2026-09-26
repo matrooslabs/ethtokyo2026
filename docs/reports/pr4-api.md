@@ -11,14 +11,14 @@ List responses: `{ items: [...], total: number, limit: number, offset: number, n
 | `/charts/:chartHash` | Same chart summary plus snapshot fields |
 | `/charts/:chartHash/rounds` | Paginated rounds, newest day first |
 | `/charts/:chartHash/days/:dayId` | Round: `chartHash`, `dayId`, `pot` (total deposited), `remainingPot`, `entries`, `acceptedScores`, `leader` (ranking row or null), `claimed`, `totalPayouts`, `totalRefunds`, plus snapshot fields |
-| `/charts/:chartHash/days/:dayId/rankings` | One row per player with accepted score: `rank`, `player`, `score`, `sessionId`, `acceptedAt: { blockNumber, transactionIndex, logIndex, transactionHash }` |
+| `/charts/:chartHash/days/:dayId/rankings` | One row per scored attempt, including repeated players: `rank`, `player`, `score`, `sessionId`, `acceptedAt: { blockNumber, transactionIndex, logIndex, transactionHash }` |
 | `/attempts?chartHash=&dayId=&wallet=` | Paginated attempts in entry order: `sessionId`, `payer`, `player`, `chartHash`, `dayId`, `amount`, `entryAt`, `score` (null until accepted), `acceptedAt` (null until accepted) |
 | `/wallets/:address/attempts` | Same as attempts, matching payer **or** player |
 | `/wallets/:address/history` | Paginated entry, score, leader, payout and refund events in canonical chain order, `type`, event-specific fields and `position` |
 | `/wallets/:address/bests` | Paginated best daily scores with `chartHash`, `dayId` and ranking row |
 | `/settlements?chartHash=&dayId=&wallet=` | Paginated payouts/refunds: `type` (`payout` or `refund`), `chartHash`, `dayId`, `recipient`, `amount`, `position` |
 
-Rankings sort score descending, then first acceptance of that best score by block number, transaction index and log index ascending. Zero is a real accepted score. An equal later score never replaces the earlier best. Refunds belong to the payer, which may differ from the player.
+Rankings include every scored attempt and sort score descending, then acceptance by block number, transaction index and log index ascending. Each attempt gets its own rank, even for the same wallet or equal scores. Zero is a real accepted score; unpaid or unscored sessions do not rank. The wallet bests endpoint returns only the highest-ranked attempt per chart/day. Refunds belong to the payer, which may differ from the player.
 
 The indexer is eventually consistent. `/status` remains available during RPC failure; `lastError` and reconciliation expose failures. Chain claims/refunds and eligibility must use the contract directly. The API does not create sessions, accept scores, or initiate payments. Chart metadata comes from an operator-supplied JSON map keyed by canonical chart hash; unconfigured metadata is null.
 

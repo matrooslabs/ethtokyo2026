@@ -27,7 +27,7 @@ export function project(events, metadata = {}) {
     const key = roundKey(chartHash, dayId);
     if (!rounds.has(key)) rounds.set(key, {
       chartHash, dayId, pot: '0', remainingPot: '0', entries: 0, acceptedScores: 0,
-      claimed: false, totalPayouts: '0', totalRefunds: '0', bests: new Map(),
+      claimed: false, totalPayouts: '0', totalRefunds: '0', bests: new Map(), rankings: [],
     });
     const round = rounds.get(key);
     if (type === 'entry') {
@@ -49,6 +49,7 @@ export function project(events, metadata = {}) {
       attempt.score = event.score;
       attempt.acceptedAt = position;
       round.acceptedScores++;
+      round.rankings.push({ player: event.player, score: event.score, sessionId: event.sessionId, acceptedAt: position });
       const previous = round.bests.get(event.player);
       if (!previous || BigInt(event.score) > BigInt(previous.score)) round.bests.set(event.player, {
         player: event.player, score: event.score, sessionId: event.sessionId, acceptedAt: position,
@@ -76,7 +77,7 @@ export function project(events, metadata = {}) {
     history.push(event);
   }
   for (const round of rounds.values()) {
-    round.rankings = [...round.bests.values()].sort(rankingOrder).map((row, i) => ({ rank: i + 1, ...row }));
+    round.rankings = round.rankings.sort(rankingOrder).map((row, i) => ({ rank: i + 1, ...row }));
     round.leader = round.rankings[0] ?? null;
     delete round.bests;
     if (!charts.has(round.chartHash)) charts.set(round.chartHash, {

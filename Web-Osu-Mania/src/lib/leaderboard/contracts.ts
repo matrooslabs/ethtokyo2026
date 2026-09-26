@@ -13,6 +13,24 @@ export const leaderboardAbi = parseAbi([
   "event ScoreRecorded(bytes32 indexed beatmapId,uint64 indexed dayId,bytes32 indexed sessionId,address player,uint32 score,uint32 bestScore)",
 ]);
 const configured = import.meta.env.VITE_LEADERBOARD_ADDRESS;
-export const leaderboardAddress: Address | undefined = configured && isAddress(configured) ? configured : undefined;
-export const scoringUrl = (import.meta.env.VITE_SCORING_URL || "").replace(/\/$/, "");
-export const indexerUrl = (import.meta.env.VITE_LEADERBOARD_INDEXER_URL || "").replace(/\/$/, "");
+export const leaderboardAddress: Address | undefined =
+  configured && isAddress(configured) ? configured : undefined;
+export const scoringUrl = (import.meta.env.VITE_SCORING_URL || "").replace(
+  /\/$/,
+  "",
+);
+export const indexerUrl = (
+  import.meta.env.VITE_LEADERBOARD_INDEXER_URL || ""
+).replace(/\/$/, "");
+export const registryAbi = parseAbi([
+  "struct Header { uint64 chainId; address verifier; bytes32 matchId; bytes32 sessionId; bytes32 challenge; address player; address device; bytes32 chartHash; bytes32 rulesetId; bytes32 bitstreamHash; bytes32 inputPolicyHash; }",
+  "struct Session { Header header; uint8 mode; uint64 expiresAt; bool consumed; uint32 score; uint32[6] judgements; }",
+  "struct Submission { uint64 duration; uint8[4] laneBits; uint32[5] counts; }",
+  "function PAID_SESSION_MODE() view returns (uint8)",
+  "function getSession(bytes32 id) view returns (Session)",
+  "function devices(address) view returns (bytes32 bitstreamHash,bool active)",
+  "function submitCommitted(bytes32 id,uint32 n,bytes32 root,uint256[2] traceCommitment,Submission sub,uint256[] proof,bytes sig)",
+]);
+const registry = import.meta.env.VITE_REGISTRY_ADDRESS;
+export const registryAddress: Address | undefined =
+  registry && isAddress(registry) ? registry : undefined;

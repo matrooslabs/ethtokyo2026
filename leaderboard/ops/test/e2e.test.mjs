@@ -1,50 +1,74 @@
-import {createServer} from 'node:http';import {rustHeader,traceRoot,sessionDigest} from '../proof.mjs';import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawn} from 'node:child_process';
-import {createPublicClient,createWalletClient,http,defineChain,parseEventLogs,parseAbi} from 'viem';import {privateKeyToAccount} from 'viem/accounts';import {parseOsu,canonicalChartHash} from '../chart.mjs';
-// Opt-in: uses an already deployed isolated Anvil, never a public network.
-test(`HTTP paid ${process.env.E2E_CAPTURE_MODE==='hardware'?'hardware-adapter TEST DOUBLE':'software-demo'} flow with real Rust proof and chain acceptance`, {skip:process.env.SCORING_E2E!=='1',timeout:120000},async()=>{
- const root=path.resolve(import.meta.dirname,'../../..');const manifest=JSON.parse(fs.readFileSync(process.env.E2E_MANIFEST||path.join(root,'leaderboard/ops/deployments/31337.manifest.json')));assert.equal(manifest.chainId,31337);
- const rpc=process.env.E2E_RPC||'http://127.0.0.1:19549';const chain=defineChain({id:31337,name:'Anvil',nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:{default:{http:[rpc]}}});
- const account=privateKeyToAccount(fs.readFileSync(process.env.E2E_KEY_FILE||'/tmp/daily-leaderboard-anvil.key','utf8').trim());const deviceKey=process.env.E2E_DEVICE_KEY_FILE||path.join(root,'leaderboard/ops/deployments/31337.software-device.key');const device=privateKeyToAccount(fs.readFileSync(deviceKey,'utf8').trim());
- const pc=createPublicClient({chain,transport:http(rpc)}),wallet=createWalletClient({chain,account,transport:http(rpc)});assert.equal(await pc.getChainId(),31337);
- fs.mkdirSync(path.join(root,'scoring/data'),{recursive:true});const dir=fs.mkdtempSync(path.join(root,'scoring/data/e2e-')); let child,adapter;const captureMode=process.env.E2E_CAPTURE_MODE==='hardware'?'hardware':'software-demo';
- try{
- const osu=Buffer.from('osu file format v14\n[General]\nMode:3\n[Difficulty]\nCircleSize:4\n[Metadata]\nTitle:Daily scoring test\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:\n192,192,1500,128,0,2000:0:0:0:0:\n320,192,1500,1,0,0:0:0:0:\n448,192,2500,1,0,0:0:0:0:\n');const chart=parseOsu(osu),chartHash=canonicalChartHash(chart.chart);const osuFile=path.join(dir,'test.osu');fs.writeFileSync(osuFile,osu);
- const board=manifest.contracts.DailyLeaderboard,registry=manifest.contracts.ManiaGkrRegistry,babi=manifest.abi.DailyLeaderboard,rabi=manifest.abi.ManiaGkrRegistry;
- async function write(address,abi,functionName,args){const hash=await wallet.writeContract({address,abi,functionName,args});const r=await pc.waitForTransactionReceipt({hash});assert.equal(r.status,'success');return r;}
- const tokenABI=parseAbi(['function mint(address,uint256)','function approve(address,uint256) returns(bool)']);await write(manifest.token,tokenABI,'mint',[account.address,1000000n]);await write(manifest.token,tokenABI,'approve',[board,1000000n]);
- const day=await pc.readContract({address:board,abi:babi,functionName:'currentDay'});const entry=await write(board,babi,'enter',[chartHash,account.address,device.address,day]);const event=parseEventLogs({abi:babi,eventName:'EntryPaid',logs:entry.logs})[0];assert.ok(event);const id=event.args.sessionId;
- if(captureMode==='hardware'){
-  let header,sealCalls=0;const fixture=JSON.parse(fs.readFileSync(path.join(root,'scoring/fixtures/demo.json')));
-  adapter=createServer(async(req,res)=>{let data='';for await(const b of req)data+=b;res.setHeader('content-type','application/json');
-   if(req.url==='/health')return res.end(JSON.stringify({ready:true,device:device.address}));
-   if(req.url.endsWith('/start')){header=JSON.parse(data).header;return res.end('{}');}
-   if(req.url.endsWith('/seal')){if(sealCalls++===0){res.writeHead(503);return res.end('{}');}const rootHash=traceRoot(header.sessionId,fixture.events);const input={...fixture,header:rustHeader(header),footer:{...fixture.footer,trace_root:[...Buffer.from(rootHash.slice(2),'hex')]}};const digest=sessionDigest(header,input.events.length,input.footer.duration_us,rootHash);const signature=await device.sign({hash:digest});return res.end(JSON.stringify({input,signature}));}
-   res.writeHead(404);res.end('{}');
-  });await new Promise(r=>adapter.listen(19551,'127.0.0.1',r));
- }
- const config={jobStoreFile:path.join(dir,'jobs.json'),manifest:process.env.E2E_MANIFEST||'leaderboard/ops/deployments/31337.manifest.json',rpcUrl:rpc,confirmations:1,allowedOrigins:[],captureMode,hardwareUrl:'http://127.0.0.1:19551',demoDeviceKeyFile:deviceKey,relayerKeyFile:process.env.E2E_KEY_FILE||'/tmp/daily-leaderboard-anvil.key',provingBufferSeconds:180,provingBufferMeasured:true,charts:[{osuFile:path.relative(root,osuFile),chartHash,device:device.address}]};const configFile=path.join(dir,'config.json');fs.writeFileSync(configFile,JSON.stringify(config));
- async function launch(){let stderr='';child=spawn(path.join(root,'scoring/target/release/mania-gkr-prove-server'),['--bind','127.0.0.1:19550','--srs',process.env.E2E_SRS_FILE||path.join(root,'scoring/gkr-scoring/artifacts/dev-srs-22.bin'),'--competition-config',configFile,'--project-root',root],{cwd:os.tmpdir(),detached:true,env:process.env,stdio:['ignore','pipe','pipe']});child.stderr.on('data',b=>stderr+=b);await new Promise((resolve,reject)=>{child.stderr.on('data',b=>{if(b.toString().includes('GKR prove server on'))resolve();});child.once('exit',()=>reject(Error(stderr)));});}
- async function stop(){if(!child)return;const ended=new Promise(r=>child.once('exit',r));process.kill(-child.pid,'SIGTERM');await ended;child=null;}
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {spawn,execFileSync} from 'node:child_process';
+import {createPublicClient,createWalletClient,http,defineChain,parseEventLogs,concat,encodePacked,toHex,sha256} from 'viem';
+import {privateKeyToAccount} from 'viem/accounts';
+import {eventBytes,traceRoot,headerFields} from '../proof.mjs';
+import {parseOsu,canonicalChartHash} from '../chart.mjs';
+// Test keys and simulated device exist only in this opt-in, isolated Anvil test.
+test('Mode B paid entry -> original signed capture -> HTTP proof -> wallet submission, restart and conflict recovery', {skip:process.env.SCORING_E2E!=='1',timeout:180000},async()=>{
+ const root=path.resolve(import.meta.dirname,'../../..'),rpc=process.env.E2E_RPC||'http://127.0.0.1:19549';
+ const chain=defineChain({id:31337,name:'Anvil',nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:{default:{http:[rpc]}}});
+ const account=privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
+ const device=privateKeyToAccount(`0x${'00'.repeat(31)}4d`);
+ const pc=createPublicClient({chain,transport:http(rpc)}),wallet=createWalletClient({chain,account,transport:http(rpc)});
+ assert.equal(await pc.getChainId(),31337);
+ const artifact=name=>JSON.parse(fs.readFileSync(path.join(root,`scoring/gkr-scoring/contracts/out/${name}.sol/${name}.json`)));
+ async function deploy(name,args=[]){const a=artifact(name);const hash=await wallet.deployContract({abi:a.abi,bytecode:a.bytecode.object,args});const r=await pc.waitForTransactionReceipt({hash});assert.equal(r.status,'success');return {address:r.contractAddress,abi:a.abi};}
+ async function write(c,functionName,args){const {request}=await pc.simulateContract({...c,functionName,args,account});const hash=await wallet.writeContract(request);const r=await pc.waitForTransactionReceipt({hash});assert.equal(r.status,'success');return r;}
+ const vk=JSON.parse(fs.readFileSync(path.join(root,'scoring/gkr-scoring/artifacts/forge/vk.json')));
+ const relation=await deploy('GkrRelation');const verifier=await deploy('GkrScoreVerifier',[relation.address,BigInt(vk.smax),vk.g2One.map(BigInt),vk.g2Tau.map(BigInt),Array.from({length:vk.g2Shift.length/4},(_,i)=>vk.g2Shift.slice(i*4,i*4+4).map(BigInt))]);
+ const registry=await deploy('ManiaGkrRegistry',[verifier.address]),token=await deploy('DemoUSDC'),board=await deploy('DailyLeaderboard',[token.address,registry.address]);
+ await write(registry,'setLeaderboard',[board.address]);
+ const fixture=JSON.parse(fs.readFileSync(path.join(root,'scoring/gkr-scoring/artifacts/forge/case-demo-b.json')));
+ await write(registry,'registerChart',[fixture.chart.bytes,fixture.chart.commitment.map(BigInt),fixture.chart.proof.map(BigInt)]);
+ const bitstream=toHex(123,{size:32});await write(registry,'setDevice',[device.address,bitstream,true]);
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mode-b-e2e-'));let child;
+ try {
+ const osu=Buffer.from('osu file format v14\n[General]\nMode:3\n[Difficulty]\nCircleSize:4\n[HitObjects]\n64,192,1000,1,0\n192,192,1500,128,0,2000:0:0:0:0:\n320,192,1500,1,0\n448,192,2500,1,0\n');
+ const chart=parseOsu(osu),chartHash=canonicalChartHash(chart.chart);assert.equal(chartHash,fixture.chart.chartHash);
+ const osuFile=path.join(dir,'chart.osu');fs.writeFileSync(osuFile,osu);
+ const manifest={chainId:31337,srsId:vk.srsId,token:token.address,contracts:{ManiaGkrRegistry:registry.address,DailyLeaderboard:board.address,GkrScoreVerifier:verifier.address}};
+ const manifestFile=path.join(dir,'manifest.json');fs.writeFileSync(manifestFile,JSON.stringify(manifest));
+ const binary=path.join(root,'scoring/target/release/mania-gkr-prove-server'),srs=path.join(root,'scoring/gkr-scoring/artifacts/dev-srs-22.bin');
+ const hardwareSrs={...JSON.parse(execFileSync(binary,['--srs',srs,'--hardware-bank-points','260'],{encoding:'utf8'})),developmentOnly:true};
+ const config={manifest:manifestFile,rpcUrl:rpc,allowedOrigins:['http://localhost:3000'],confirmations:1,provingBufferSeconds:180,provingBufferMeasured:true,charts:[{osuFile,chartHash,device:device.address}],jobStoreFile:path.join(dir,'jobs.json'),hardwareSrs};
+ const configFile=path.join(dir,'config.json');fs.writeFileSync(configFile,JSON.stringify(config));
+ async function launch(){child=spawn(binary,['--srs',srs,'--bind','127.0.0.1:19550','--competition-config',configFile,'--project-root',root],{stdio:['ignore','pipe','pipe'],env:{...process.env,PROVER_API_TOKEN:undefined,SCORING_CONFIG:undefined}});await new Promise((resolve,reject)=>{let output='';child.stderr.on('data',b=>{output+=b;if(output.includes('GKR prove server on'))resolve();});child.once('exit',()=>reject(Error(output)));});}
+ async function stop(){if(child){const exited=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await exited;child=undefined;}}
+ const badConfig=path.join(dir,'bad-bank.json');fs.writeFileSync(badConfig,JSON.stringify({...config,hardwareSrs:{...hardwareSrs,bankHash:toHex(0,{size:32})}}));
+ assert.throws(()=>execFileSync(binary,['--srs',srs,'--bind','127.0.0.1:19550','--competition-config',badConfig,'--project-root',root],{stdio:'pipe'}),/pinned G1 bank hash mismatch/);
  await launch();
- const base='http://127.0.0.1:19550';const get=async route=>{const r=await fetch(base+route);return {status:r.status,body:await r.json()};};const post=async(route,body)=>{const r=await fetch(base+route,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
- const ready=await get(`/charts/${chart.webBeatmapHash}`);assert.equal(ready.body.ready,true,JSON.stringify(ready.body));assert.equal(ready.body.chartHash,chartHash);
- const paid={sessionId:id,entryTxHash:entry.transactionHash,player:account.address,chartHash,dayId:Number(day),webBeatmapHash:chart.webBeatmapHash,captureMode};
- assert.equal((await post(`/sessions/${id}/start`,{...paid,player:device.address})).status,400);
- assert.equal((await post(`/sessions/${id}/start`,paid)).status,200);
- const replay={version:2,mods:{bits:0,rate:1},inputs:[[0,1000,true],[0,1000.001,false],[2,1500,true],[2,1500.001,false],[1,1510,true],[1,2030,false],[3,2500,true],[3,2500.001,false]]};
- if(captureMode==='software-demo')assert.equal((await post(`/sessions/${id}/proof`,{replay,timing:{chartDelayMs:42},webBeatmapHash:chart.webBeatmapHash})).status,400);
- let proof=await post(`/sessions/${id}/proof`,{replay,timing:{chartDelayMs:0},webBeatmapHash:chart.webBeatmapHash});assert.equal(proof.status,202,JSON.stringify(proof.body));
- if(captureMode==='hardware'){
-  let failed;for(let i=0;i<20;i++){failed=(await get(`/jobs/${proof.body.jobId}`)).body;if(failed.status==='failed')break;await new Promise(r=>setTimeout(r,100));}
-  assert.equal(failed.status,'failed');assert.equal(failed.retryable,true);assert.equal(failed.transactionHash,undefined);
-  const previousId=proof.body.jobId;const payload={replay,timing:{chartDelayMs:0},webBeatmapHash:chart.webBeatmapHash};
-  assert.equal((await post(`/sessions/${id}/proof`,payload)).body.jobId,previousId);
-  proof=await post(`/sessions/${id}/proof`,{...payload,retry:true});assert.equal(proof.status,202);assert.notEqual(proof.body.jobId,previousId);
- }
- let job;for(let i=0;i<120;i++){job=(await get(`/jobs/${proof.body.jobId}`)).body;if(['failed','confirmed'].includes(job.status))break;await new Promise(r=>setTimeout(r,500));}assert.equal(job.status,'confirmed',JSON.stringify(job));
- const recorded=await pc.readContract({address:board,abi:babi,functionName:'entries',args:[id]});assert.equal(recorded[4],true);
- const record=await pc.readContract({address:board,abi:babi,functionName:'records',args:[chartHash,day,account.address]});assert.equal(record[0],true);assert.equal(record[1],987500);
- await stop();await launch();const resumed=(await get(`/jobs/${proof.body.jobId}`)).body;assert.equal(resumed.status,'confirmed',JSON.stringify(resumed));assert.equal(resumed.transactionHash,job.transactionHash);
- console.log(JSON.stringify({scoringE2E:true,sessionId:id,transactionHash:job.transactionHash,score:record[1]}));
- }finally{if(child){const ended=new Promise(r=>child.once('exit',r));process.kill(-child.pid,'SIGTERM');await ended;}adapter?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ const base='http://127.0.0.1:19550';async function req(route,body,origin){const r=await fetch(base+route,{method:body?'POST':'GET',headers:{...(body?{'content-type':'application/json'}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};}
+ assert.equal((await req(`/charts/${chart.webBeatmapHash}`)).body.ready,true);
+ assert.equal((await req(`/charts/${chart.webBeatmapHash}`,undefined,'https://evil.example')).status,403);
+ await write(token,'mint',[account.address,1000000n]);await write(token,'approve',[board.address,1000000n]);
+ const day=await pc.readContract({...board,functionName:'currentDay'}),entry=await write(board,'enter',[chartHash,account.address,device.address,day]);
+ const id=parseEventLogs({abi:board.abi,eventName:'EntryPaid',logs:entry.logs})[0].args.sessionId;
+ const session=await pc.readContract({...registry,functionName:'getSession',args:[id]});assert.equal(session.mode,2);
+ const attempt={sessionId:id,entryTxHash:entry.transactionHash,player:account.address,chartHash,dayId:Number(day),webBeatmapHash:chart.webBeatmapHash,captureMode:'hardware',chainId:31337,registry:registry.address};
+ assert.equal((await req(`/sessions/${id}/start`,{...attempt,player:device.address})).status,400);
+ const start=await req(`/sessions/${id}/start`,attempt);assert.equal(start.status,200,JSON.stringify(start.body));
+ const h=session.header,packed=encodePacked(headerFields.map(([,t])=>t),headerFields.map(([n,t])=>t==='uint64'?BigInt(h[n]):h[n]));assert.equal(start.body.header,packed);
+ const input=JSON.parse(fs.readFileSync(path.join(root,'scoring/fixtures/demo.json'))),n=input.events.length,duration=input.footer.duration_us,rootHash=traceRoot(id,input.events),tc=fixture.traceCommitment;
+ const unsigned=concat([packed,encodePacked(['uint32','uint64','bytes32','uint256','uint256'],[n,BigInt(duration),rootHash,...tc.map(BigInt)])]);
+ const digest=sha256(concat([toHex('OSUMANIA_HARDWARE_SESSION_V2'),toHex(2,{size:2}),unsigned]));
+ const signature=await device.sign({hash:digest}),capture={result:concat([unsigned,signature]),trace:eventBytes(input.events),webBeatmapHash:chart.webBeatmapHash};
+ const proof=await req(`/sessions/${id}/proof`,capture);assert.equal(proof.status,202,JSON.stringify(proof.body));
+ assert.equal((await req(`/sessions/${id}/proof`,capture)).body.jobId,proof.body.jobId);
+ assert.equal((await req(`/sessions/${id}/proof`,{...capture,trace:'0x'})).status,400);
+ let job;for(let i=0;i<200;i++){job=(await req(`/jobs/${proof.body.jobId}`)).body;if(['ready','failed'].includes(job.status))break;await new Promise(r=>setTimeout(r,100));}
+ assert.equal(job.status,'ready',JSON.stringify(job));assert.equal(job.result.sessionDigest,digest);
+ await stop();await launch();assert.deepEqual((await req(`/jobs/${proof.body.jobId}`)).body.result.submission,job.result.submission);
+ const sub=job.result.submission,args=[id,sub.eventCount,sub.root,sub.commitment.map(BigInt),{duration:BigInt(sub.duration),laneBits:sub.laneBits,counts:sub.counts},sub.proof.map(BigInt),sub.signature];
+ const receipt=await write(registry,'submitCommitted',args);
+ assert.equal(parseEventLogs({abi:board.abi,eventName:'ScoreRecorded',logs:receipt.logs})[0].args.score,987500);
+ assert.equal((await pc.readContract({...registry,functionName:'getSession',args:[id]})).consumed,true);
+ await assert.rejects(pc.simulateContract({...registry,functionName:'submitCommitted',args,account}));
+ console.log(JSON.stringify({sessionId:id,transactionHash:receipt.transactionHash,score:987500,proofTimings:job.result.timings}));
+ await stop();
+ } finally {if(child){const ended=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');await ended;}fs.rmSync(dir,{recursive:true,force:true});}
 });

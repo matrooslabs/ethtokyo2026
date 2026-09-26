@@ -26,9 +26,13 @@ contract PaidRegistryTest is GkrScoreTest {
         chart = _registerChart(_case("demo-a")); device = vm.addr(DEVICE_KEY);
         registry.setDevice(device, BITSTREAM, true);
     }
+    uint32 private sealedN;
+    bytes32 private sealedRoot;
+    uint256[2] private sealedCommitment;
     function _signed(bytes32 id) internal returns (ManiaGkrRegistry.Submission memory sub, uint256[] memory proof, bytes memory sig) {
-        uint256[] memory out = _proveSession(id,"../../fixtures/demo.json","a");
+        uint256[] memory out = _proveSession(id,"../../fixtures/demo.json",registry.getSession(id).mode == 2 ? "b" : "a");
         (sub,proof) = _submission(out);
+        sealedN=uint32(out[12]); sealedRoot=bytes32(out[14]); sealedCommitment=[out[9],out[10]];
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(DEVICE_KEY,bytes32(out[11]));
         sig = abi.encodePacked(r,s,v);
     }
@@ -39,16 +43,15 @@ contract PaidRegistryTest is GkrScoreTest {
         bytes32 id = board.enter(chart,address(0xBEEF),device,day);
         require(registry.paidSessions(id),"paid binding");
         ManiaGkrRegistry.Session memory session = registry.getSession(id);
-        require(session.header.player == address(0xBEEF) && session.header.chartHash == chart && session.mode == 1,"session binding");
+        require(session.header.player == address(0xBEEF) && session.header.chartHash == chart && session.mode == 2,"session binding");
         require(session.expiresAt == board.endAt(day),"midnight expiry");
         (ManiaGkrRegistry.Submission memory sub,uint256[] memory proof,bytes memory sig) = _signed(id);
-        bytes memory events = _events("demo-a");
         uint256[] memory bad = _copy(proof); bad[0] ^= 1;
-        vm.expectRevert(); registry.submitCalldata(id,events,sub,bad,sig);
+        vm.expectRevert(); registry.submitCommitted(id,sealedN,sealedRoot,sealedCommitment,sub,bad,sig);
         require(!registry.getSession(id).consumed,"failed proof consumed");
         (,,,,bool scored) = board.entries(id); require(!scored,"failed proof recorded");
         uint256 beforeGas = gasleft();
-        registry.submitCalldata(id,events,sub,proof,sig);
+        registry.submitCommitted(id,sealedN,sealedRoot,sealedCommitment,sub,proof,sig);
         emit log_named_uint("paid submit execution gas (demo)",beforeGas-gasleft());
         require(registry.getSession(id).consumed,"not consumed");
         (bool exists,uint32 best) = board.records(chart,day,address(0xBEEF));
@@ -62,11 +65,10 @@ contract PaidRegistryTest is GkrScoreTest {
         (DailyLeaderboard board,) = _board(); (bytes32 chart,address device) = _chartDevice();
         uint64 day = board.currentDay(); bytes32 id=board.enter(chart,address(0xBEEF),device,day);
         (ManiaGkrRegistry.Submission memory sub,uint256[] memory proof,bytes memory sig)=_signed(id);
-        bytes memory events=_events("demo-a");
         registry.setDevice(device,BITSTREAM,false);
-        vm.expectRevert(); registry.submitCalldata(id,events,sub,proof,sig);
+        vm.expectRevert(); registry.submitCommitted(id,sealedN,sealedRoot,sealedCommitment,sub,proof,sig);
         registry.setDevice(device,BITSTREAM,true);
-        vm.warp(board.endAt(day)); vm.expectRevert(); registry.submitCalldata(id,events,sub,proof,sig);
+        vm.warp(board.endAt(day)); vm.expectRevert(); registry.submitCommitted(id,sealedN,sealedRoot,sealedCommitment,sub,proof,sig);
         require(!registry.getSession(id).consumed,"midnight consumed");
         (,,,,bool scored)=board.entries(id); require(!scored,"midnight recorded");
         board.refund(chart,day);
@@ -107,7 +109,7 @@ contract PaidRegistryTest is GkrScoreTest {
         (bytes32 chart,address device)=_chartDevice();
         bytes32 id=rejecting.enter(chart,address(0xBEEF),device,uint64((block.timestamp/1 days+1)*1 days));
         (ManiaGkrRegistry.Submission memory sub,uint256[] memory proof,bytes memory sig)=_signed(id);
-        vm.expectRevert(); registry.submitCalldata(id,_events("demo-a"),sub,proof,sig);
+        vm.expectRevert(); registry.submitCommitted(id,sealedN,sealedRoot,sealedCommitment,sub,proof,sig);
         ManiaGkrRegistry.Session memory session=registry.getSession(id);
         require(!session.consumed && session.score==0,"callback must rollback registry");
     }

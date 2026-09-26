@@ -78,7 +78,7 @@ const GameScreens = ({
     );
     gameInstance
       .main(containerRef.current, initialShowHud.current)
-      .then(() => setGame(gameInstance));
+      .then(() => setGame(gameInstance)).catch(e => { toast("Capture start failed", {description:String(e)}); useGameStore.getState().closeGame(); });
 
     return () => {
       Howler.stop();

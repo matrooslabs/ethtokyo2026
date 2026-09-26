@@ -1,15 +1,12 @@
 //! Typed contract boundary for the paid scoring workflow.
 use alloy::{
-    network::EthereumWallet,
     primitives::{Address, B256},
     providers::{DynProvider, Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
     sol,
 };
 use anyhow::{ensure, Context, Result};
 use mania_scoring_core::SessionHeader;
 use serde::Deserialize;
-use std::path::Path;
 
 sol! {
     #[derive(Debug)]
@@ -20,14 +17,14 @@ sol! {
     }
     struct RegisteredChart { uint256[2] commitment; uint64 m; uint8 bits; uint64 components; uint64 maxEnd; bool registered; }
     struct Session { Header header; uint8 mode; uint64 expiresAt; bool consumed; uint32 score; uint32[6] judgements; }
-    struct Submission { uint64 duration; uint8[4] laneBits; uint32[5] counts; }
     #[sol(rpc)]
     interface Registry {
+        function PAID_SESSION_MODE() external view returns (uint8);
+        function verifier() external view returns (address);
         function leaderboard() external view returns (address);
         function getChart(bytes32 chartHash) external view returns (RegisteredChart);
         function getSession(bytes32 id) external view returns (Session);
         function devices(address device) external view returns (bytes32 bitstreamHash, bool active);
-        function submitCalldata(bytes32 id, bytes events, Submission sub, uint256[] proof, bytes signature) external;
     }
     #[sol(rpc)]
     interface Board {
@@ -58,35 +55,17 @@ pub struct Contracts {
     pub verifier: Address,
 }
 
-pub fn signer(path: &Path) -> Result<PrivateKeySigner> {
-    let key = std::fs::read_to_string(path).context("read signer file")?;
-    key.trim()
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid signer key file"))
-}
-
 pub struct Chain {
     pub provider: DynProvider,
     pub manifest: Manifest,
-    pub relayer: Address,
     pub confirmations: u64,
 }
 impl Chain {
-    pub fn new(
-        rpc: &str,
-        manifest: Manifest,
-        signer: PrivateKeySigner,
-        confirmations: u64,
-    ) -> Result<Self> {
-        let relayer = signer.address();
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer))
-            .connect_http(rpc.parse()?)
-            .erased();
+    pub fn new(rpc: &str, manifest: Manifest, confirmations: u64) -> Result<Self> {
+        let provider = ProviderBuilder::new().connect_http(rpc.parse()?).erased();
         Ok(Self {
             provider,
             manifest,
-            relayer,
             confirmations,
         })
     }
@@ -99,7 +78,9 @@ impl Chain {
         let registry = Registry::new(c.registry, &self.provider);
         let board = Board::new(c.board, &self.provider);
         ensure!(
-            registry.leaderboard().call().await? == c.board
+            registry.PAID_SESSION_MODE().call().await? == 2
+                && registry.verifier().call().await? == c.verifier
+                && registry.leaderboard().call().await? == c.board
                 && board.registry().call().await? == c.registry
                 && board.token().call().await? == self.manifest.token
                 && Verifier::new(c.verifier, &self.provider)
@@ -149,7 +130,7 @@ impl Chain {
             entry.payer != Address::ZERO
                 && !entry.scored
                 && !session.consumed
-                && session.mode == 1
+                && session.mode == 2
                 && block.header.timestamp < session.expiresAt,
             "unknown, expired or consumed paid session"
         );
@@ -159,9 +140,22 @@ impl Chain {
                 && entry.dayId == day
                 && session.header.chartHash == chart
                 && session.header.player == player
-                && session.header.sessionId == id,
+                && session.header.sessionId == id
+                && session.header.chainId == self.manifest.chain_id
+                && session.header.verifier == c.registry
+                && session.header.inputPolicyHash
+                    == B256::from(mania_gkr::scoring::session::input_policy_v2()),
             "paid session binding mismatch"
         );
+        let device = Registry::new(c.registry, &self.provider)
+            .devices(session.header.device)
+            .call()
+            .await?;
+        ensure!(
+            device.active && device.bitstreamHash == session.header.bitstreamHash,
+            "device revoked or changed"
+        );
+        self.ready_chart(chart, session.header.device).await?;
         let receipt = self
             .provider
             .get_transaction_receipt(entry_tx)
@@ -189,13 +183,6 @@ impl Chain {
         );
         Ok(session)
     }
-    pub async fn scored(&self, id: B256) -> Result<bool> {
-        Ok(Board::new(self.manifest.contracts.board, &self.provider)
-            .entries(id)
-            .call()
-            .await?
-            .scored)
-    }
 }
 
 impl Header {
@@ -213,10 +200,5 @@ impl Header {
             bitstream_hash: self.bitstreamHash.0,
             input_policy_hash: self.inputPolicyHash.0,
         }
-    }
-    pub fn adapter_json(&self) -> serde_json::Value {
-        serde_json::json!({"chainId":self.chainId.to_string(),"verifier":self.verifier,"matchId":self.matchId,
-            "sessionId":self.sessionId,"challenge":self.challenge,"player":self.player,"device":self.device,
-            "chartHash":self.chartHash,"rulesetId":self.rulesetId,"bitstreamHash":self.bitstreamHash,"inputPolicyHash":self.inputPolicyHash})
     }
 }

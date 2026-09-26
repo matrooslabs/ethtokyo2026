@@ -4,6 +4,8 @@ import {
   ArcadeLobbyBar,
 } from "./arcadeIdentity";
 import MacWindowTitle from "../macWindowTitle";
+import { Button } from "@/components/ui/button";
+import { connectHardware, discardHardware, preflight, save } from "@/lib/leaderboard/capture";
 import { paidSession } from "@/lib/leaderboard/receipts";
 import RecoveredAttempts from "./recoveredAttempts";
 import { walletConnectConfigured, competitionChain } from "@/lib/walletConfig";
@@ -113,7 +115,6 @@ export default function DailyCompetition({
   const playButton = useRef<HTMLButtonElement>(null);
   const [message, setMessage] = useState("");
   const [txHash, setTxHash] = useState<Hex>();
-  const [demoAcknowledged, setDemoAcknowledged] = useState(false);
   useEffect(() => {
     setNow(Date.now() / 1000);
     const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
@@ -255,8 +256,7 @@ export default function DailyCompetition({
     const prepared = await getChartSetup(beatmap.sourceHash);
     if (!prepared.ready)
       throw new Error(prepared.reason || "Capture/prover is not ready.");
-    if (prepared.captureMode === "software-demo" && !demoAcknowledged)
-      throw new Error("Acknowledge the software-signer demo before entering.");
+    await preflight(prepared, client);
     const duration =
       Math.max(prepared.durationSeconds, beatmap.total_length) + 5;
     let block = await client.getBlock();
@@ -301,6 +301,7 @@ export default function DailyCompetition({
       throw new Error(
         "Entry closed while waiting for approval. No entry payment was made.",
       );
+    await preflight(await getChartSetup(beatmap.sourceHash), client);
     const day = dayOf(Number(block.timestamp));
     setMessage(
       "Confirm the 1 USDC entry in your wallet. Quick setup opens after two confirmations.",
@@ -324,6 +325,7 @@ export default function DailyCompetition({
       amount: ENTRY_FEE,
     });
     const attempt: PaidAttempt = {
+      chainId: prepared.chainId, registry: prepared.registry,
       sessionId,
       entryTxHash: receipt.transactionHash,
       player,
@@ -332,6 +334,7 @@ export default function DailyCompetition({
       webBeatmapHash: beatmap.sourceHash,
       captureMode: prepared.captureMode,
     };
+    await save({attempt});
     // Persist the receipt even if the prover/start subsequently fails; payment is already final.
     try {
       localStorage.setItem(
@@ -834,25 +837,18 @@ export default function DailyCompetition({
               </button>
             )}
           </div>
-          {chart?.captureMode === "software-demo" && (
-            <label className="arena-demo-check">
-              <input
-                type="checkbox"
-                checked={demoAcknowledged}
-                onChange={(event) => setDemoAcknowledged(event.target.checked)}
-              />
-              This demo uses a software signer, not physical hardware. I
-              understand.
-            </label>
-          )}
+          <div className="space-y-2">
+            <Button onClick={() => void connectHardware().then(status => setMessage(`Board state ${status.state}. IDLE=0; FINALIZED=3 can be recovered below; ERROR=255 requires discard.`)).catch(e => setMessage(String(e)))}>Connect / reconnect capture board</Button>
+            <Button onClick={() => { if (window.confirm('Discard the board recording/result permanently?')) void discardHardware().then(() => setMessage('Board reset to IDLE')).catch(e => setMessage(String(e))); }}>Discard board capture</Button>
+            {chart?.hardwareSrs && <p>Hardware capacity: {chart.hardwareSrs.maxEvents} events. {chart.hardwareSrs.developmentOnly ? 'Insecure development SRS — demo only.' : ''}</p>}
+          </div>
           <button
             className="arena-primary"
             disabled={
               busy ||
               !chart?.ready ||
               !room ||
-              !account.address ||
-              (chart.captureMode === "software-demo" && !demoAcknowledged)
+              !account.address
             }
             onClick={() => void run(enter)}
           >

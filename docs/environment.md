@@ -1,5 +1,8 @@
 # Shared application environment
 
+For the full install → deploy → register → run workflow, start with the
+[root README](../README.md). This page details the shared environment and Sui setup.
+
 Copy the root template once and fill in your WalletConnect project ID and any
 deployment-specific values:
 
@@ -37,8 +40,8 @@ After loading `.env`, run one command per terminal, from the repository root:
 Build the Rust binaries with
 `cargo build --manifest-path scoring/Cargo.toml --workspace --release --locked`.
 The paid EVM game calls the scoring HTTP server directly. With `SCORING_CONFIG`
-set, this same process checks sessions, captures gameplay, generates proofs and
-relays transactions. The Sui HTTP prover remains a separate interface; the browser
+set, this process validates paid sessions and original hardware captures, then
+returns Mode B proofs. The browser owns WebHID capture and wallet submission. The Sui HTTP prover remains a separate interface; the browser
 competition is wired to EVM.
 
 ## Paid scoring configuration
@@ -49,8 +52,8 @@ cp scoring/config.example.json scoring/data/config.json
 ```
 
 `SCORING_CONFIG` selects this file (or use `--competition-config`). Configure its
-`rpcUrl`, deployment `manifest`, `allowedOrigins`, `relayerKeyFile`, registered
-`charts`, and hardware adapter or explicit `software-demo` device key. Measure
+`rpcUrl`, new Mode B deployment `manifest`, `allowedOrigins`, registered
+`charts`, and approved `hardwareSrs` bank mapping. No server signing key is used. Measure
 `provingBufferSeconds` before setting `provingBufferMeasured: true`. Paths inside
 the JSON are relative to `--project-root` (default: working directory).
 
@@ -74,11 +77,13 @@ the template leaves this opt-in commented out. See [operations](../leaderboard/o
 The template's address and deployment block come from the committed
 [Sepolia manifest](../leaderboard/ops/deployments/11155111.manifest.json). For a
 different deployment, update both backend and `VITE_*` values and the scoring JSON.
-`KEY_FILE` configures operations, while the scoring server uses its own `relayerKeyFile`.
+`KEY_FILE` configures deployment operations only. The scoring server is read-only on chain.
 
-Keep `DEPLOYMENT_FILE` unset unless overriding a specific operation: deployment
-and smoke scripts read a private journal, while chart registration reads the
-public manifest. The defaults select the appropriate file for `CHAIN_ID`.
+For a new Mode B deployment, explicitly set
+`DEPLOYMENT_FILE=leaderboard/ops/deployments/${CHAIN_ID}.mode-b.json` on the deployment
+command. Use the corresponding `.mode-b.manifest.json` for chart registration.
+Deployment and smoke scripts read a private journal; chart registration reads
+the public manifest. Preserve historical journals and use a new indexer database.
 
 ## Sui proof stack
 
