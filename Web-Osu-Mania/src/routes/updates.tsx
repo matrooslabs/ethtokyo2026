@@ -44,7 +44,7 @@ function UpdatesPage() {
   const updates = Route.useLoaderData();
 
   return (
-    <div>
+    <div className="arena-document">
       {/* Hero */}
       <div className="border-border/50 relative border-b">
         {/* Polka bg with linear fade */}

@@ -116,7 +116,7 @@ const ResultsScreen = ({
   return (
     <>
       {/* Top of -1px since it wasn't covering the top for some reason */}
-      <div className="bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
+      <div className="arena-results bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
         <ProofSubmission results={playResults} beatmap={beatmapData} />
 
         {/* Hidden results at a fixed width for getting screenshots */}

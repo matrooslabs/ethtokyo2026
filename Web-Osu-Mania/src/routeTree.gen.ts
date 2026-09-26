@@ -10,17 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as FaqRouteImport } from './routes/faq'
+import { Route as HowToPlayRouteImport } from './routes/how-to-play'
 import { Route as UpdatesRouteImport } from './routes/updates'
+import { Route as FaqIndexRouteImport } from './routes/faq.index'
+import { Route as FaqGeneralRouteImport } from './routes/faq.general'
+import { Route as FaqSecurityRouteImport } from './routes/faq.security'
+import { Route as FaqTroubleshootingRouteImport } from './routes/faq.troubleshooting'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FaqRoute = FaqRouteImport.update({
-  id: '/faq',
-  path: '/faq',
+const HowToPlayRoute = HowToPlayRouteImport.update({
+  id: '/how-to-play',
+  path: '/how-to-play',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UpdatesRoute = UpdatesRouteImport.update({
@@ -28,35 +32,93 @@ const UpdatesRoute = UpdatesRouteImport.update({
   path: '/updates',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FaqIndexRoute = FaqIndexRouteImport.update({
+  id: '/faq/',
+  path: '/faq/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqGeneralRoute = FaqGeneralRouteImport.update({
+  id: '/faq/general',
+  path: '/faq/general',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqSecurityRoute = FaqSecurityRouteImport.update({
+  id: '/faq/security',
+  path: '/faq/security',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqTroubleshootingRoute = FaqTroubleshootingRouteImport.update({
+  id: '/faq/troubleshooting',
+  path: '/faq/troubleshooting',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
+  '/how-to-play': typeof HowToPlayRoute
   '/updates': typeof UpdatesRoute
+  '/faq/general': typeof FaqGeneralRoute
+  '/faq/security': typeof FaqSecurityRoute
+  '/faq/troubleshooting': typeof FaqTroubleshootingRoute
+  '/faq/': typeof FaqIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
+  '/how-to-play': typeof HowToPlayRoute
   '/updates': typeof UpdatesRoute
+  '/faq/general': typeof FaqGeneralRoute
+  '/faq/security': typeof FaqSecurityRoute
+  '/faq/troubleshooting': typeof FaqTroubleshootingRoute
+  '/faq': typeof FaqIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
+  '/how-to-play': typeof HowToPlayRoute
   '/updates': typeof UpdatesRoute
+  '/faq/general': typeof FaqGeneralRoute
+  '/faq/security': typeof FaqSecurityRoute
+  '/faq/troubleshooting': typeof FaqTroubleshootingRoute
+  '/faq/': typeof FaqIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/faq' | '/updates'
+  fullPaths:
+    | '/'
+    | '/how-to-play'
+    | '/updates'
+    | '/faq/general'
+    | '/faq/security'
+    | '/faq/troubleshooting'
+    | '/faq/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/faq' | '/updates'
-  id: '__root__' | '/' | '/faq' | '/updates'
+  to:
+    | '/'
+    | '/how-to-play'
+    | '/updates'
+    | '/faq/general'
+    | '/faq/security'
+    | '/faq/troubleshooting'
+    | '/faq'
+  id:
+    | '__root__'
+    | '/'
+    | '/how-to-play'
+    | '/updates'
+    | '/faq/general'
+    | '/faq/security'
+    | '/faq/troubleshooting'
+    | '/faq/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FaqRoute: typeof FaqRoute
+  HowToPlayRoute: typeof HowToPlayRoute
   UpdatesRoute: typeof UpdatesRoute
+  FaqGeneralRoute: typeof FaqGeneralRoute
+  FaqSecurityRoute: typeof FaqSecurityRoute
+  FaqTroubleshootingRoute: typeof FaqTroubleshootingRoute
+  FaqIndexRoute: typeof FaqIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +130,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/faq': {
-      id: '/faq'
-      path: '/faq'
-      fullPath: '/faq'
-      preLoaderRoute: typeof FaqRouteImport
+    '/how-to-play': {
+      id: '/how-to-play'
+      path: '/how-to-play'
+      fullPath: '/how-to-play'
+      preLoaderRoute: typeof HowToPlayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/updates': {
@@ -82,13 +144,45 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UpdatesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/faq/': {
+      id: '/faq/'
+      path: '/faq'
+      fullPath: '/faq/'
+      preLoaderRoute: typeof FaqIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq/general': {
+      id: '/faq/general'
+      path: '/faq/general'
+      fullPath: '/faq/general'
+      preLoaderRoute: typeof FaqGeneralRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq/security': {
+      id: '/faq/security'
+      path: '/faq/security'
+      fullPath: '/faq/security'
+      preLoaderRoute: typeof FaqSecurityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq/troubleshooting': {
+      id: '/faq/troubleshooting'
+      path: '/faq/troubleshooting'
+      fullPath: '/faq/troubleshooting'
+      preLoaderRoute: typeof FaqTroubleshootingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FaqRoute: FaqRoute,
+  HowToPlayRoute: HowToPlayRoute,
   UpdatesRoute: UpdatesRoute,
+  FaqGeneralRoute: FaqGeneralRoute,
+  FaqSecurityRoute: FaqSecurityRoute,
+  FaqTroubleshootingRoute: FaqTroubleshootingRoute,
+  FaqIndexRoute: FaqIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
