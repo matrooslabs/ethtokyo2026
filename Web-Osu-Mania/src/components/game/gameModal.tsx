@@ -184,8 +184,8 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
         <div className="flex w-full items-center text-center">
           <div className="to-primary h-px grow bg-linear-to-r from-transparent"></div>
 
-          <div className="bg-card rounded-xl border p-3 sm:p-6">
-            <h1 className="text-2xl text-white sm:text-4xl">
+          <div className="arena-game-loading bg-card border p-3 sm:p-6">
+            <h1 className="text-foreground text-2xl sm:text-4xl">
               {loadingMessage}
             </h1>
 

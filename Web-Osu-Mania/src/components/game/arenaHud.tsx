@@ -31,7 +31,7 @@ export default function ArenaHud({
           <Trophy size={20} /> Current prize pot
         </p>
         <div>
-          {arena.pot ?? "—"}
+          {arena.pot ?? "-"}
           <span>USDC</span>
         </div>
         <small>1st place takes the entire pot</small>

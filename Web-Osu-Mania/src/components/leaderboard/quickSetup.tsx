@@ -1,8 +1,9 @@
+import MacWindowTitle from "../macWindowTitle";
 import type { Beatmap, BeatmapSet } from "@/lib/beatmapTypes";
 import { defaultSettings, useSettingsStore } from "@/stores/settingsStore";
 import { ArrowLeft, LockKeyhole, Play } from "lucide-react";
 import { Suspense, lazy, useState, type CSSProperties } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 const SidebarContent = lazy(() => import("../sidebar"));
 
 export default function QuickSetup({
@@ -24,7 +25,7 @@ export default function QuickSetup({
   const keybinds = useSettingsStore.use.keybinds();
   const setSettings = useSettingsStore.use.setSettings();
   const keys = keybinds.keyModes[3].map(
-    (bind) => bind[0]?.replace(/^Key/, "") || "—",
+    (bind) => bind[0]?.replace(/^Key/, "") || "-",
   );
   return (
     <section className="arena-setup">
@@ -160,13 +161,12 @@ export default function QuickSetup({
       </button>
       <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <DialogContent className="arena-advanced" aria-describedby={undefined}>
-          <DialogTitle>Make it yours</DialogTitle>
-          <button
-            className="arena-text-button"
-            onClick={() => setAdvancedOpen(false)}
+          <MacWindowTitle
+            closeLabel="Close settings"
+            onClose={() => setAdvancedOpen(false)}
           >
-            Done
-          </button>
+            Settings & keybinds
+          </MacWindowTitle>
           <Suspense fallback={<p>Loading settings…</p>}>
             <SidebarContent />
           </Suspense>

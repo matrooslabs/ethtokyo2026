@@ -1,3 +1,4 @@
+import MacWindowTitle from "../macWindowTitle";
 import { paidSession } from "@/lib/leaderboard/receipts";
 import RecoveredAttempts from "./recoveredAttempts";
 import { walletConnectConfigured, competitionChain } from "@/lib/walletConfig";
@@ -34,7 +35,6 @@ import { useGameStore } from "@/stores/gameStore";
 import {
   Dialog,
   DialogContent,
-  DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
@@ -45,7 +45,6 @@ import {
   QrCode,
   Trophy,
   Wallet,
-  X,
 } from "lucide-react";
 import QuickSetup from "./quickSetup";
 import { GameOverlay } from "@/components/game/gameOverlay";
@@ -372,7 +371,7 @@ export default function DailyCompetition({
       Math.max(chart.durationSeconds, beatmap.total_length) + 5,
       chart.provingBufferSeconds,
     );
-  const pot = data ? formatUnits(data.round[0], 6) : "—";
+  const pot = data ? formatUnits(data.round[0], 6) : "-";
   const winner = data?.round[2];
   const hasWinner = !!winner && winner !== zeroAddress;
   const canClaim = closed && hasWinner && !data?.round[4];
@@ -426,10 +425,8 @@ export default function DailyCompetition({
       <div className="arena-section-heading">
         <div>
           <h2>{screen === "history" ? "Final standings" : "Leaderboard"}</h2>
-          <span>The score to beat is right here.</span>
         </div>
         <div className="arena-chart-name">
-          <i />
           {beatmapSet.title}
           <span className="arena-tag">4K</span>
         </div>
@@ -477,8 +474,8 @@ export default function DailyCompetition({
                   </div>
                 </td>
                 <td>{BigInt(row.score).toLocaleString()}</td>
-                <td aria-label="Accuracy not indexed">—</td>
-                <td aria-label="Combo not indexed">—</td>
+                <td aria-label="Accuracy not indexed">-</td>
+                <td aria-label="Combo not indexed">-</td>
               </tr>
             ))}
           </tbody>
@@ -489,24 +486,26 @@ export default function DailyCompetition({
           <Trophy size={30} />
           <h3>
             {rankingsQuery.isFetching
-              ? "Loading the leaderboard…"
+              ? "Loading scores…"
               : rankingsQuery.data
-                ? "The top spot is waiting."
-                : "Every great run starts here."}
+                ? "No scores. Yet."
+                : "Ready for a high score?"}
           </h3>
           <p>
-            {rankingsQuery.data
-              ? "No scores yet for this competition. Be the first to set the pace."
-              : "Live rankings are unavailable right now. Get ready with a practice run."}
+            {rankingsQuery.isFetching
+              ? "Fetching verified scores for this competition."
+              : rankingsQuery.data
+                ? "No scores yet for this competition. Be the first to set the pace."
+                : "Live rankings are unavailable right now. Get ready with a practice run."}
           </p>
         </div>
       )}
       <div className="arena-table-footer">
-        <span>
-          {rankingsQuery.data
-            ? `On-chain scores · Accuracy and combo are not indexed${rankingsQuery.data.status.lastError || Number(rankingsQuery.data.status.lag || 0) > 20 ? " · Rankings may be delayed" : ""}`
-            : "Live standings appear when the competition is connected."}
-        </span>
+        {rankingsQuery.data && (
+          <span>
+            {`On-chain scores · Accuracy and combo are not indexed${rankingsQuery.data.status.lastError || Number(rankingsQuery.data.status.lag || 0) > 20 ? " · Rankings may be delayed" : ""}`}
+          </span>
+        )}
         {screen === "home" && (
           <button
             className="arena-text-button pink"
@@ -532,17 +531,15 @@ export default function DailyCompetition({
       )}
       {screen === "home" && (
         <section className="arena-hero">
-          <div>
-            <p className="arena-eyebrow">ONE BEATMAP. ONE TOP SPOT.</p>
+          <div className="arena-hero-copy">
+            <p className="arena-eyebrow">ON-CHAIN RHYTHM ARCADE</p>
             <h1>
-              Feel the rhythm.
+              Hit the beat.
               <br />
-              Take the leaderboard.
+              <span>Take the pot.</span>
             </h1>
             <p className="arena-intro">
-              Put your timing to the test. Every play grows the prize pot.
-              <br />
-              Finish first and take it all.
+              Play for the highest score. Win the entire pot.
             </p>
             <div className="arena-play-row">
               <button
@@ -555,28 +552,37 @@ export default function DailyCompetition({
               </button>
               <div>
                 <strong>1 USDC per play</strong>
-                <p>Scan. Pay. Find your rhythm.</p>
               </div>
             </div>
           </div>
           <aside className="arena-pot">
-            <p className="arena-label">CURRENT PRIZE POT</p>
-            <div className="arena-pot-value">
-              {pot}
-              <span>USDC</span>
+            <img
+              className="arena-trophy-art"
+              src={`${import.meta.env.BASE_URL}art/arcade-trophy.webp`}
+              alt=""
+              width="1254"
+              height="1254"
+              fetchPriority="high"
+            />
+            <div className="arena-pot-content">
+              <p className="arena-label">CURRENT PRIZE POT</p>
+              <div className="arena-pot-value">
+                {pot}
+                <span>USDC</span>
+              </div>
+              <p className="arena-gold">1st place takes the entire pot</p>
+              <small>
+                {data
+                  ? `${competitionChain.name} · Daily competition`
+                  : "Awaiting live competition data"}
+              </small>
+              <button
+                className="arena-claim-link"
+                onClick={() => setScreen("claim")}
+              >
+                Claim prize <ArrowRight size={19} />
+              </button>
             </div>
-            <p className="arena-gold">1st place takes the entire pot</p>
-            <small>
-              {data
-                ? `${competitionChain.name} · Daily competition`
-                : "Awaiting live competition data"}
-            </small>
-            <button
-              className="arena-claim-link"
-              onClick={() => setScreen("claim")}
-            >
-              Claim prize <ArrowRight size={19} />
-            </button>
           </aside>
         </section>
       )}
@@ -677,14 +683,18 @@ export default function DailyCompetition({
               </p>
               <div className="arena-payment-total">
                 <span>Competition date</span>
-                <strong>{now ? utcDate(selectedDay) : "—"}</strong>
+                <strong>{now ? utcDate(selectedDay) : "-"}</strong>
               </div>
               <button
                 className="arena-primary"
                 disabled={!canClaim || busy}
                 onClick={() => void run(() => settle("claim"))}
               >
-                {busy ? "Confirming…" : `Claim ${pot} USDC`}
+                {busy
+                  ? "Confirming…"
+                  : data
+                    ? `Claim ${pot} USDC`
+                    : "Claim prize"}
               </button>
               {closed && !hasWinner && data && data.refundable > 0n && (
                 <button
@@ -732,11 +742,9 @@ export default function DailyCompetition({
       )}
       {screen === "home" && (
         <div className="arena-bottom">
-          <span>
-            {data?.personal[0]
-              ? `Your best: ${data.personal[1].toLocaleString()}`
-              : "One song. Equal rules. Your best run."}
-          </span>
+          {data?.personal[0] && (
+            <span>Your best: {data.personal[1].toLocaleString()}</span>
+          )}
           <button
             className="arena-text-button"
             disabled={!!pendingAttempt}
@@ -765,16 +773,13 @@ export default function DailyCompetition({
           className="arena-payment"
           aria-describedby="payment-description"
         >
-          <button
-            className="arena-dialog-close"
-            aria-label="Close payment"
+          <MacWindowTitle
+            closeLabel="Close payment"
             disabled={busy}
-            onClick={() => setPaymentOpen(false)}
+            onClose={() => setPaymentOpen(false)}
           >
-            <X size={20} />
-          </button>
-          <p className="arena-eyebrow">YOUR NEXT RUN STARTS HERE</p>
-          <DialogTitle>Pay once. Play your best.</DialogTitle>
+            Enter competition
+          </MacWindowTitle>
           <DialogDescription id="payment-description">
             Use your wallet to enter the game.
           </DialogDescription>
@@ -858,7 +863,7 @@ export default function DailyCompetition({
               setScreen("setup");
             }}
           >
-            Try free practice first <ArrowRight size={16} />
+            Free practice <ArrowRight size={16} />
           </button>
         </DialogContent>
       </Dialog>

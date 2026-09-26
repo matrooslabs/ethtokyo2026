@@ -8,11 +8,19 @@ export default function Header() {
         to="/"
         onClick={() => window.dispatchEvent(new Event("arena:home"))}
         className="arena-brand"
-        aria-label="osu! arena home"
       >
-        <span className="arena-logo">osu!</span>
+        <img
+          className="arena-logo"
+          src={`${import.meta.env.BASE_URL}favicon-96x96.png`}
+          alt=""
+          width="40"
+          height="40"
+          aria-hidden="true"
+        />
         <strong>osu! arena</strong>
-        <span className="arena-tag">ETH TOKYO</span>
+        <span className="arena-tag" aria-hidden="true">
+          ETH TOKYO
+        </span>
       </Link>
       <nav aria-label="Main navigation">
         <Link

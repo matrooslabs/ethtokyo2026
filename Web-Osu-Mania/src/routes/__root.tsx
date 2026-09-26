@@ -47,6 +47,18 @@ export const Route = createRootRoute({
     ],
     links: [
       {
+        rel: "preload",
+        href: `${import.meta.env.BASE_URL}art/arcade-trophy.webp`,
+        as: "image",
+      },
+      {
+        rel: "preload",
+        href: `${import.meta.env.BASE_URL}fonts/Silkscreen-Regular.ttf`,
+        as: "font",
+        type: "font/ttf",
+        crossOrigin: "anonymous",
+      },
+      {
         rel: "icon",
         type: "image/png",
         href: "/favicon-96x96.png",

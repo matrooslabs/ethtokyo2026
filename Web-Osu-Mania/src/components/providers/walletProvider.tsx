@@ -1,5 +1,9 @@
 import "@rainbow-me/rainbowkit/styles.css";
-import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
+import {
+  RainbowKitProvider,
+  darkTheme,
+  lightTheme,
+} from "@rainbow-me/rainbowkit";
 import { walletConfig } from "@/lib/walletConfig";
 import type { ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
@@ -9,12 +13,20 @@ const WalletProvider = ({ children }: { children: ReactNode }) => (
   <WagmiProvider config={walletConfig}>
     <ReactQueryProvider>
       <RainbowKitProvider
-        theme={darkTheme({
-          accentColor: "#FF66AA",
-          accentColorForeground: "#190C13",
-          borderRadius: "medium",
-          fontStack: "system",
-        })}
+        theme={{
+          lightMode: lightTheme({
+            accentColor: "#b7e65c",
+            accentColorForeground: "#191c16",
+            borderRadius: "none",
+            fontStack: "system",
+          }),
+          darkMode: darkTheme({
+            accentColor: "#b7e65c",
+            accentColorForeground: "#191c16",
+            borderRadius: "none",
+            fontStack: "system",
+          }),
+        }}
       >
         {children}
       </RainbowKitProvider>
