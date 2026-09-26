@@ -130,8 +130,8 @@ export default function DailyCompetition() {
   const latestSafeStartMs = (competition?.scoreDeadlineMs ?? 0) - (forestDurationSeconds + proofBufferSeconds) * 1000;
   const safeTime = proofBufferConfigured && active && now < latestSafeStartMs;
   const deviceCapacityReady = (hardware.info?.maxEvents ?? 0) >= 2 * forestNoteCounts[difficulty];
-  const canBuy = !!account && hardware.ready && correctDevice && chartMatches && deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime;
-  const canStart = canBuy && remaining > 0n;
+  const canBuy = !!account && !!competition && chartMatches && active && !paidAttempt && activeBeatmapId === null;
+  const canStart = !!account && hardware.ready && correctDevice && chartMatches && deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime && remaining > 0n;
   const canSettle = !!selectedRound && !selectedRound.settled && now >= selectedRound.claimDeadlineMs;
   const canRefund = !!account && !!selectedRound?.refundEligible;
   useEffect(() => {
@@ -202,14 +202,10 @@ export default function DailyCompetition() {
     setBusy(true);
     setMessage("");
     try {
-      const preflight = await hardware.getPreflight();
-      if (preflight.deviceAddress.toLowerCase() !== competition.device.toLowerCase()) {
-        throw new Error("Connect the controller registered for this round.");
+      const currentTime = Date.now();
+      if (currentTime < competition.startedAtMs || currentTime >= competition.scoreDeadlineMs) {
+        throw new Error("This chart is not open for purchases now. No payment was made.");
       }
-      if (parseInfo(decodeHex(preflight.infoHex, 128)).maxEvents < 2 * forestNoteCounts[difficulty]) {
-        throw new Error(`Controller capacity too low for ${difficulty}. No payment was made.`);
-      }
-      if (Date.now() >= latestSafeStartMs) throw new Error("Not enough time remains to finish a signed Forest score before the six-hour cutoff.");
       const transaction = await transact(buyPlays(suiDeployment.challengeId, difficulty));
       setMessage(`Payment confirmed on Sui: ${transaction.digest}. Three ${difficulty} plays added.`);
     } catch (error) {
@@ -303,7 +299,6 @@ export default function DailyCompetition() {
   return (
     <>
       <GameOverlay hardware={hardware} />
-      {configured && import.meta.env.VITE_SUI_INSECURE_DEMO === "true" && <p className="arena-availability" role="alert">Insecure testnet demo: the controller key is extractable and score commitments have not been verified. Paid scores and prizes can be forged. Use test USDC only.</p>}
       {screen === "claim" ? (
         <section className="arena-panel arena-claim-screen" aria-label="Prize claims">
           <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
@@ -367,8 +362,8 @@ export default function DailyCompetition() {
           {setupPaid && !canStart ? <section className="arena-panel" aria-label="Paid entry status">
             <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
             {remaining === 0n && <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 {difficulty} plays for 1 {tokenLabel}</button>}
-            {!safeTime && <p role="alert">Not enough time remains for this Forest chart and the configured proof reserve before the six-hour score cutoff.</p>}
-            {!deviceCapacityReady && <p role="alert">Controller capacity too low for {difficulty}: {2 * forestNoteCounts[difficulty]} events required.</p>}
+            {!safeTime && <p role="status">{now < (competition?.startedAtMs ?? 0) ? "Paid starts open when scoring begins." : "Too late to finish a paid run before the score cutoff."}</p>}
+            {!deviceCapacityReady && <p role="status">A controller supporting {2 * forestNoteCounts[difficulty]} events is required to start {difficulty}.</p>}
           </section> : <QuickSetup beatmap={beatmap} beatmapSet={beatmapSet} paid={setupPaid} busy={busy}
             onBack={() => setScreen("home")} onStart={setupPaid ? () => void beginPaidRun() : practice} />}
         </> : <section className="arena-panel" aria-busy={busy}>
@@ -408,31 +403,23 @@ export default function DailyCompetition() {
             {!configured && <p className="arena-availability" role="status">Challenge not live.</p>}
             {competition && now < competition.startedAtMs && <p role="status">Starts {new Date(competition.startedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC</p>}
             {!proofBufferConfigured && <p role="alert">Paid starts paused: score submission time is not configured.</p>}
-            {hardware.ready && !deviceCapacityReady && <p role="alert">Controller supports {hardware.info?.maxEvents ?? 0} events; {difficulty} needs {2 * forestNoteCounts[difficulty]}. Provision a larger controller before buying.</p>}
+            {hardware.ready && !deviceCapacityReady && <p role="status">Controller supports {hardware.info?.maxEvents ?? 0} events; {difficulty} needs {2 * forestNoteCounts[difficulty]} before starting.</p>}
             {configured && selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart does not match this Sui challenge."}</p>}
             {configured && scorer.isError && <p role="alert">{scorer.error instanceof Error ? scorer.error.message : "Scoring server unavailable."}</p>}
             {configured ? (
               <div className="arena-entry-step">
                 {!account ? <><SuiConnectButton />{phoneQrConfigured && <p className="arena-fine-print">Choose WalletConnect to scan with your phone.</p>}</> : !competition ? (
                   <p role={state.isError ? "alert" : "status"}>{state.isError ? (state.error instanceof Error ? state.error.message : "Could not load this Sui challenge.") : "Loading Sui challenge…"}</p>
-                ) : !hardware.ready || !correctDevice ? (
-                  <>
-                    <HardwareGate hardware={hardware} />
-                    {hardware.ready && !correctDevice && <p role="alert">Choose the controller for this round.</p>}
-                  </>
-                ) : (
-                  <>
-                    {remaining > 0n ? (
-                      <div className="arena-play-row">
-                        <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
-                        {selectedChart.data && <button className="arena-text-button" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy more plays</button>}
-                      </div>
-                    ) : (
-                      <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run · 3 plays for 1 {tokenLabel}</button>
-                    )}
-                    <p className="arena-fine-print">Starting spends 1 {difficulty} play. The configured proof reserve is held back before the six-hour cutoff.</p>
-                  </>
-                )}
+                ) : <>
+                  {remaining === 0n ? <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 {difficulty} plays · 1 {tokenLabel}</button> : <>
+                    <button className="arena-primary" disabled={!hardware.ready || !correctDevice || !deviceCapacityReady || !scorer.data || !safeTime || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
+                    <button className="arena-secondary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 more {difficulty} plays</button>
+                  </>}
+                  {!hardware.ready && <HardwareGate hardware={hardware} />}
+                  {hardware.ready && !correctDevice && <p role="status">Connect the controller registered for this round before starting.</p>}
+                  {remaining > 0n && <p className="arena-fine-print">Starting spends 1 {difficulty} play.</p>}
+                </>
+              }
               </div>
             ) : <div className="arena-entry-step"><SuiConnectButton />{!hardware.ready && <HardwareGate hardware={hardware} />}</div>}
             {hardware.ready && <button className="arena-text-button" onClick={() => void prepareSetup(false)}>Practice demo</button>}
