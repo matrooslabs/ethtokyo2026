@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine"]
+members = ["engine", "prove-server"]
 # The patched swjng/gkr fork keeps its own workspace/lockfile (optional circom/aggregator features).
 exclude = ["gkr"]
 resolver = "2"

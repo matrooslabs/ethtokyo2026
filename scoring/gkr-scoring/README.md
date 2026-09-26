@@ -94,6 +94,7 @@ PSE Perpetual Powers of Tau(`ppot_0080_*.ptau`, 기여자 80명)로 SRS를 만�
 | 경로 | 내용 |
 |---|---|
 | `engine/` | Rust crate `mania-gkr`: field/transcript/MLE, logUp-GKR, Zeromorph KZG, 채점 관계식, witness, prover, native verifier, CLI |
+| `prove-server/` | 단일 binary HTTP 서버: play JSON을 보내면 GKR proof를 JSON으로 반환 ([문서](prove-server/README.md)) |
 | `contracts/` | `GkrScoreVerifier`(핵심 검증), `GkrRelation`(제약식 평가, EIP-170 때문에 분리), `ManiaGkrRegistry`(장치·채보·세션·제출), Foundry 테스트 |
 | `gkr/` | `swjng/gkr` fork: 보안 수정, `patches/`, 재현 스크립트, baseline. 이 workspace에서 제외된 독립 crate입니다. |
 | `artifacts/` (gitignore) | 개발용 SRS, Foundry fixture, 벤치마크 원본(`artifacts/benchmark/*.json`) |
