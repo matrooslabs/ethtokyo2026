@@ -11,9 +11,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useGameStore } from "../../stores/gameStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { ArenaSnapshot } from "./arenaHud";
 import GameScreens from "./gameScreens";
 
-const GameModal = () => {
+const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -88,10 +89,14 @@ const GameModal = () => {
 
         if (paidAttempt) {
           if (parsedBeatmapData.sourceHash !== paidAttempt.webBeatmapHash) {
-            throw new Error("Paid entry chart does not match the loaded beatmap.");
+            throw new Error(
+              "Paid entry chart does not match the loaded beatmap.",
+            );
           }
           if (Date.now() / 1000 >= (paidAttempt.dayId + 1) * 86400) {
-            throw new Error("Paid round has closed. Return to the competition to check settlement.");
+            throw new Error(
+              "Paid round has closed. Return to the competition to check settlement.",
+            );
           }
         }
 
@@ -110,9 +115,17 @@ const GameModal = () => {
 
         if (paidAttempt) {
           setLoadingMessage("Starting signed capture…");
-          const started = await bridgeRequest<{ sessionId: string; captureMode: string }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);
-          if (started.sessionId !== paidAttempt.sessionId || started.captureMode !== paidAttempt.captureMode) {
-            throw new Error("Capture session does not match the confirmed paid entry.");
+          const started = await bridgeRequest<{
+            sessionId: string;
+            captureMode: string;
+          }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);
+          if (
+            started.sessionId !== paidAttempt.sessionId ||
+            started.captureMode !== paidAttempt.captureMode
+          ) {
+            throw new Error(
+              "Capture session does not match the confirmed paid entry.",
+            );
           }
         }
         setBeatmapData(parsedBeatmapData);
@@ -157,7 +170,9 @@ const GameModal = () => {
 
   const retry = useCallback(() => {
     if (useGameStore.getState().paidAttempt) {
-      toast("Each competition attempt needs a new paid entry. Return to the beatmap to enter again.");
+      toast(
+        "Each competition attempt needs a new paid entry. Return to the beatmap to enter again.",
+      );
       return;
     }
     setKey((prev) => prev + 1);
@@ -197,6 +212,7 @@ const GameModal = () => {
           )}
 
           <GameScreens
+            arena={arena}
             key={key}
             beatmapData={beatmapData}
             replayData={replayData}

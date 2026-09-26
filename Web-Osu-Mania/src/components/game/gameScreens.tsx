@@ -8,6 +8,7 @@ import type { PlayResults } from "@/types";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore } from "../../stores/gameStore";
+import ArenaHud, { type ArenaSnapshot } from "./arenaHud";
 import PauseButton from "./pauseButton";
 import PauseScreen from "./pauseScreen";
 import ReplayControls from "./replayControls";
@@ -16,6 +17,7 @@ import RetryWidget from "./retryWidget";
 import VolumeWidget from "./volumeWidget";
 
 const GameScreens = ({
+  arena,
   beatmapData,
   replayData,
   retry,
@@ -23,6 +25,7 @@ const GameScreens = ({
   showHud,
   setShowHud,
 }: {
+  arena?: ArenaSnapshot;
   beatmapData: BeatmapData;
   replayData: ReplayData | null;
   retry: () => void;
@@ -97,7 +100,9 @@ const GameScreens = ({
 
     if (isPaused) {
       if (paidAttempt) {
-        toast("Paid attempt ended because gameplay paused. The entry fee remains in the daily pot.");
+        toast(
+          "Paid attempt ended because gameplay paused. The entry fee remains in the daily pot.",
+        );
         useGameStore.getState().closeGame();
         return;
       }
@@ -176,6 +181,9 @@ const GameScreens = ({
           hideCursor && !results && "cursor-none",
         )}
       >
+        {game && !results && !isPaused && showHud && arena && (
+          <ArenaHud game={game} arena={arena} />
+        )}
         {game && !results && <VolumeWidget game={game} />}
         {game && !results && !paidAttempt && <RetryWidget retry={retry} />}
         {game && !results && <PauseButton setIsPaused={setIsPaused} />}
