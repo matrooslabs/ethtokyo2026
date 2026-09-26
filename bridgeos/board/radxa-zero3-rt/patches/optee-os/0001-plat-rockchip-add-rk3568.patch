@@ -72,7 +72,7 @@ new file mode 100644
 index 0000000..73dd90c
 --- /dev/null
 +++ b/core/arch/arm/plat-rockchip/platform_rk3568.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,166 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/* RK3568 support derived from the pinned TF-A rk3568 OTP/firewall definitions. */
 +#include <assert.h>
@@ -85,6 +85,7 @@ index 0000000..73dd90c
 +#include <platform.h>
 +#include <platform_config.h>
 +#include <string.h>
++#include <string_ext.h>
 +#include <utee_defines.h>
 +
 +#define WRITE_MASK 16
@@ -207,7 +208,7 @@ index 0000000..73dd90c
 +
 +TEE_Result tee_otp_get_hw_unique_key(struct tee_hw_unique_key *key)
 +{
-+#if CFG_RK3568_DEV_INSECURE_HUK
++#if defined(CFG_RK3568_DEV_INSECURE_HUK) && CFG_RK3568_DEV_INSECURE_HUK
 +    static const uint8_t development_huk[HW_UNIQUE_KEY_LENGTH] = {
 +        'B','r','i','d','g','e','O','S','-','d','e','v','-','H','U','K'
 +    };

@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { BeatmapData } from "@/lib/beatmapParser";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { idb } from "@/lib/idb";
 import { downloadReplay } from "@/lib/replay";
 import { downloadResults, getReplayFilename } from "@/lib/results";
@@ -23,10 +24,12 @@ import { Button } from "../ui/button";
 import Results from "./results";
 
 const ResultsScreen = ({
+  hardware,
   beatmapData,
   playResults,
   retry,
 }: {
+  hardware: BridgeHardware;
   beatmapData: BeatmapData;
   playResults: PlayResults;
   retry: () => void;
@@ -117,7 +120,7 @@ const ResultsScreen = ({
     <>
       {/* Top of -1px since it wasn't covering the top for some reason */}
       <div className="arena-results bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
-        <ProofSubmission results={playResults} beatmap={beatmapData} />
+        {paidAttempt && <ProofSubmission results={playResults} beatmap={beatmapData} hardware={hardware} />}
 
         {/* Hidden results at a fixed width for getting screenshots */}
         <div className="max-h-0 overflow-hidden" aria-hidden tabIndex={-1}>

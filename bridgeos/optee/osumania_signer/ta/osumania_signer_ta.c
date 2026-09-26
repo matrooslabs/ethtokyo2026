@@ -98,9 +98,13 @@ out:
 static TEE_Result derive_key(void)
 {
     static const uint8_t info[] = "OSUMANIA_DEVICE_SECP256K1_V1";
-    uint8_t root[32], zero_salt[32] = {0}, prk[32], data[sizeof(info) + 4];
+    uint8_t root[32] = {0}, zero_salt[32] = {0}, prk[32] = {0};
+    uint8_t data[sizeof(info) + 4] = {0};
     TEE_Result status = osumania_platform_root_secret(root);
-    if (status != TEE_SUCCESS) return status;
+    if (status != TEE_SUCCESS) {
+        TEE_MemFill(root, 0, sizeof(root));
+        return status;
+    }
     status = hmac_sha256(zero_salt, root, sizeof(root), prk);
     TEE_MemFill(root, 0, sizeof(root));
     if (status != TEE_SUCCESS) goto out;
@@ -126,6 +130,10 @@ static TEE_Result derive_key(void)
     }
     status = TEE_ERROR_SECURITY;
 out:
+    if (status != TEE_SUCCESS) {
+        TEE_MemFill(private_key, 0, sizeof(private_key));
+        TEE_MemFill(device_address, 0, sizeof(device_address));
+    }
     TEE_MemFill(prk, 0, sizeof(prk));
     TEE_MemFill(data, 0, sizeof(data));
     return status;

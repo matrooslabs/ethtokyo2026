@@ -169,6 +169,7 @@ export class Game {
   private setResults: (failed?: boolean) => void;
   private setIsPaused: Dispatch<SetStateAction<boolean>>;
   private retry: () => void;
+  private onPaidStart?: () => Promise<void>;
 
   private finished = false;
 
@@ -182,8 +183,10 @@ export class Game {
     replayData: ReplayData | null,
     retry: () => void,
     videoEl: HTMLVideoElement | null,
+    onPaidStart?: () => Promise<void>,
   ) {
     gsap.registerPlugin(PixiPlugin);
+    this.onPaidStart = onPaidStart;
 
     this.resize = this.resize.bind(this);
     this.hitObjects = beatmapData.hitObjects;
@@ -608,6 +611,13 @@ export class Game {
     this.setShowHud(showHud);
 
     window.addEventListener("resize", this.resize);
+    // The device timestamps from START; trigger it immediately before audio playback,
+    // never when the user first loads the chart or presses a gameplay key.
+    if (this.onPaidStart) {
+      await this.onPaidStart();
+      this.app.stage.removeChild(this.startMessage);
+      this.play();
+    }
 
     // Game loop
     this.app.ticker.add((time) => this.update(time));

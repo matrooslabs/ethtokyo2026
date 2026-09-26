@@ -19,6 +19,9 @@ case "$profile" in
     optee-runtime)
         firmware="$project/sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin"
         image_cfg="$board_dir/genimage.cfg" ;;
+    hardware-root)
+        firmware="$project/sources/boot-firmware/out-optee-hardware/u-boot-rockchip.bin"
+        image_cfg="$board_dir/genimage.cfg" ;;
 	*) echo "Unknown post-image profile: $profile" >&2; exit 2 ;;
 esac
 : "${BINARIES_DIR:?Buildroot BINARIES_DIR is required}"
@@ -30,9 +33,19 @@ test -s "$BINARIES_DIR/Image" && test -s "$BINARIES_DIR/$ZERO3_DTB" && test -s "
 cp "$firmware" "$BINARIES_DIR/u-boot-rockchip.bin"
 boot="$BUILD_DIR/zero3-boot-files"
 rm -rf "$boot"
-mkdir -p "$boot/boot/extlinux"
-cp "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" "$boot/boot/"
-cat > "$boot/boot/extlinux/extlinux.conf" <<EOF
+if [ "$profile" = hardware-root ]; then
+    : "${BOOT_SIGN_KEY_DIR:?hardware-root requires externally held boot-signing keys}"
+    trusted="$project/sources/boot-firmware/out-optee-hardware/u-boot.dtb"
+    test -s "$trusted" || { echo 'Signed U-Boot control DTB missing' >&2; exit 1; }
+    "$project/scripts/build-signed-kernel-fit.sh" \
+        "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" \
+        "$BOOT_SIGN_KEY_DIR" "$trusted" "$BINARIES_DIR/kernel.itb"
+    mkdir -p "$boot/boot"
+    cp "$BINARIES_DIR/kernel.itb" "$boot/boot/kernel.itb"
+else
+    mkdir -p "$boot/boot/extlinux"
+    cp "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" "$boot/boot/"
+    cat > "$boot/boot/extlinux/extlinux.conf" <<EOF
 DEFAULT rt
 TIMEOUT 0
 LABEL rt
@@ -41,6 +54,7 @@ LABEL rt
     INITRD /boot/rootfs.cpio.gz
     APPEND console=ttyS2,1500000n8 earlycon loglevel=7 root=/dev/ram0 rdinit=/init ro bridgeos.profile=$profile
 EOF
+fi
 rm -rf "$BUILD_DIR/genimage.tmp"
 E2FSPROGS_FAKE_TIME=1779278600 genimage --rootpath "$boot" --tmppath "$BUILD_DIR/genimage.tmp" --inputpath "$BINARIES_DIR" --outputpath "$BINARIES_DIR" --config "$image_cfg"
 test "$(stat -c %s "$BINARIES_DIR/radxa-zero3-rt.img")" -le $((128*1024*1024)) || { echo 'Image exceeds 128 MiB size ceiling' >&2; exit 1; }

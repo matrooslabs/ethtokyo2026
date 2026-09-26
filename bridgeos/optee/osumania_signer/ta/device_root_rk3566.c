@@ -10,8 +10,10 @@ TEE_Result osumania_platform_root_secret(uint8_t output[32])
     uint32_t origin = 0;
     TEE_Result status = TEE_OpenTASession(&uuid, TEE_TIMEOUT_INFINITE, 0,
                                            NULL, &session, &origin);
-    if (status != TEE_SUCCESS)
+    if (status != TEE_SUCCESS) {
+        TEE_MemFill(output, 0, 32);
         return status;
+    }
     TEE_Param params[4] = { };
     params[0].memref.buffer = (void *)label;
     params[0].memref.size = sizeof(label) - 1;
@@ -23,5 +25,9 @@ TEE_Result osumania_platform_root_secret(uint8_t output[32])
                         TEE_PARAM_TYPE_NONE, TEE_PARAM_TYPE_NONE),
         params, &origin);
     TEE_CloseTASession(session);
-    return status;
+    if (status != TEE_SUCCESS || params[1].memref.size != 32) {
+        TEE_MemFill(output, 0, 32);
+        return status == TEE_SUCCESS ? TEE_ERROR_BAD_FORMAT : status;
+    }
+    return TEE_SUCCESS;
 }

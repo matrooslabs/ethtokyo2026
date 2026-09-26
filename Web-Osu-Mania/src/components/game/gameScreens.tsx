@@ -3,9 +3,11 @@ import type { BeatmapData } from "@/lib/beatmapParser";
 import { cn } from "@/lib/utils";
 import { Game } from "@/osuMania/game";
 import type { ReplayData } from "@/osuMania/systems/replayRecorder";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { PlayResults } from "@/types";
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { Howler } from "howler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore } from "../../stores/gameStore";
 import ArenaHud, { type ArenaSnapshot } from "./arenaHud";
@@ -17,6 +19,7 @@ import RetryWidget from "./retryWidget";
 import VolumeWidget from "./volumeWidget";
 
 const GameScreens = ({
+  hardware,
   arena,
   beatmapData,
   replayData,
@@ -25,6 +28,7 @@ const GameScreens = ({
   showHud,
   setShowHud,
 }: {
+  hardware: BridgeHardware;
   arena?: ArenaSnapshot;
   beatmapData: BeatmapData;
   replayData: ReplayData | null;
@@ -75,10 +79,14 @@ const GameScreens = ({
       replayData,
       retry,
       videoEl,
+      paidAttempt ? hardware.startRecording : undefined,
     );
-    gameInstance
-      .main(containerRef.current, initialShowHud.current)
-      .then(() => setGame(gameInstance));
+    gameInstance.main(containerRef.current, initialShowHud.current)
+      .then(() => setGame(gameInstance))
+      .catch((error: unknown) => {
+        toast.error(error instanceof Error ? error.message : "Hardware capture could not start. This play was spent.");
+        useGameStore.getState().closeGame();
+      });
 
     return () => {
       Howler.stop();
@@ -90,7 +98,7 @@ const GameScreens = ({
         videoEl.currentTime = 0;
       }
     };
-  }, [beatmapData, replayData, retry, beatmapId, videoRef]);
+  }, [beatmapData, replayData, retry, beatmapId, videoRef, hardware.startRecording]);
 
   // Pause logic
   useEffect(() => {
@@ -100,9 +108,8 @@ const GameScreens = ({
 
     if (isPaused) {
       if (paidAttempt) {
-        toast(
-          "Paid attempt ended because gameplay paused. The entry fee remains in the daily pot.",
-        );
+        toast("Paid run ended. This play was used; there is no resume.");
+        void hardware.abortRecording().catch(() => {});
         useGameStore.getState().closeGame();
         return;
       }
@@ -110,7 +117,18 @@ const GameScreens = ({
     } else if (game.state === "PAUSE") {
       game.resume();
     }
-  }, [isPaused, game, paidAttempt]);
+  }, [isPaused, game, paidAttempt, hardware.abortRecording]);
+
+  useEffect(() => {
+    if (!paidAttempt || results) return;
+    const disconnected = () => {
+      toast.error("Device disconnected. This play was used; the run cannot resume.");
+      useGameStore.getState().closeGame();
+    };
+    if (hardware.disconnectSignal.aborted) disconnected();
+    else hardware.disconnectSignal.addEventListener("abort", disconnected, { once: true });
+    return () => hardware.disconnectSignal.removeEventListener("abort", disconnected);
+  }, [hardware.disconnectSignal, paidAttempt, results]);
 
   // Event listeners
   useEffect(() => {
@@ -200,6 +218,7 @@ const GameScreens = ({
         )}
         {results && (
           <ResultsScreen
+            hardware={hardware}
             beatmapData={beatmapData}
             playResults={results}
             retry={retry}

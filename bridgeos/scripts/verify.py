@@ -2,6 +2,7 @@
 """Fail closed on build invariants and record deployable, hash-addressed artifacts."""
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -17,10 +18,10 @@ def require(test, description):
     if not test:
         raise SystemExit('FAILED invariant: ' + description)
 
-require(profile in ('production', 'debug', 'optee-debug', 'optee-runtime'),
+require(profile in ('production', 'debug', 'optee-debug', 'optee-runtime', 'hardware-root'),
         'known profile')
 debug_profile = profile in ('debug', 'optee-debug')
-optee_profile = profile in ('optee-debug', 'optee-runtime')
+optee_profile = profile in ('optee-debug', 'optee-runtime', 'hardware-root')
 require(config.is_file(), 'Buildroot .config')
 build_config = config.read_text()
 require('BR2_aarch64=y' in build_config, 'aarch64 Buildroot target')
@@ -133,13 +134,30 @@ with disk_image.open('rb') as disk, boot_image.open('rb') as src:
     while chunk := src.read(1024 * 1024):
         require(disk.read(len(chunk)) == chunk, 'boot filesystem in flash partition')
 debugfs = out / 'host/sbin/debugfs'
-require(debugfs.is_file(), 'host debugfs for extlinux verification')
-extlinux = subprocess.run([str(debugfs), '-R', 'cat /boot/extlinux/extlinux.conf', str(boot_image)],
-                         capture_output=True, text=True, check=True).stdout
-for entry in ('LINUX /boot/Image', 'FDT /boot/rk3566-radxa-zero-3w-rt.dtb',
-              'INITRD /boot/rootfs.cpio.gz', 'rdinit=/init',
-              'console=ttyS2,1500000n8 earlycon loglevel=7'):
-    require(entry in extlinux, 'boot configuration entry ' + entry)
+require(debugfs.is_file(), 'host debugfs for boot partition verification')
+if profile == 'hardware-root':
+    fit = images / 'kernel.itb'
+    trusted = project / 'sources/boot-firmware/out-optee-hardware/u-boot.dtb'
+    checker = project / 'sources/boot-firmware/build/u-boot/tools/fit_check_sign'
+    require(fit.is_file() and trusted.is_file() and checker.is_file(),
+            'signed kernel FIT and trusted U-Boot verifier')
+    subprocess.run([str(checker), '-f', str(fit), '-k', str(trusted), '-c', 'conf-1'],
+                   check=True, capture_output=True)
+    boot_fit = subprocess.run([str(debugfs), '-R', 'stat /boot/kernel.itb', str(boot_image)],
+                              capture_output=True, text=True, check=True)
+    require('Inode:' in boot_fit.stdout, 'signed kernel FIT in boot partition')
+    for unsigned in ('Image', 'rootfs.cpio.gz', 'rk3566-radxa-zero-3w-rt.dtb',
+                     'extlinux/extlinux.conf'):
+        listed = subprocess.run([str(debugfs), '-R', 'stat /boot/' + unsigned,
+                                 str(boot_image)], capture_output=True, text=True, check=True)
+        require('Inode:' not in listed.stdout, 'unsigned boot fallback excluded: ' + unsigned)
+else:
+    extlinux = subprocess.run([str(debugfs), '-R', 'cat /boot/extlinux/extlinux.conf', str(boot_image)],
+                             capture_output=True, text=True, check=True).stdout
+    for entry in ('LINUX /boot/Image', 'FDT /boot/rk3566-radxa-zero-3w-rt.dtb',
+                  'INITRD /boot/rootfs.cpio.gz', 'rdinit=/init',
+                  'console=ttyS2,1500000n8 earlycon loglevel=7'):
+        require(entry in extlinux, 'boot configuration entry ' + entry)
 root = out / 'target'
 require((root / 'init').exists(), '/init')
 require((root / 'usr/bin/bridge-daemon').exists(), 'bridge daemon')
@@ -173,7 +191,7 @@ if debug_profile:
 else:
     require('etc/init.d/S99zzdiag' not in members and
             not (images / 'diag.vfat').exists(), 'no writable diagnostics in production')
-    if profile == 'optee-runtime':
+    if profile in ('optee-runtime', 'hardware-root'):
         require({'etc/bridge-rt.conf',
                  'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'} <= members,
                 'source OP-TEE runtime TA and configuration')
@@ -182,10 +200,28 @@ else:
         supplicant_init = root / 'etc/init.d/S30tee-supplicant'
         require(supplicant_init.is_file() and '-f /run/tee' in supplicant_init.read_text(),
                 'source OP-TEE runtime REE-FS uses writable volatile tmpfs')
-        expected_firmware = project / 'sources/boot-firmware/out-optee-dev/u-boot-rockchip.bin'
+        mode = 'hardware' if profile == 'hardware-root' else 'dev'
+        artifacts = project / 'sources/optee-os-artifacts' / mode
+        expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
         require(expected_firmware.is_file() and
                 hashlib.sha256(firmware.read_bytes()).digest() == hashlib.sha256(expected_firmware.read_bytes()).digest(),
-                'source OP-TEE runtime uses corrected source BL32 firmware')
+                'source OP-TEE runtime uses matching BL32 firmware')
+        ta = 'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'
+        require((root / ta).read_bytes() == (artifacts / Path(ta).name).read_bytes(),
+                'signed TA in rootfs matches built firmware trust anchor')
+        if profile == 'hardware-root':
+            require('BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO=y' not in build_config,
+                    'hardware image excludes development signer/SRS')
+            record_path = os.environ.get('OSUMANIA_PROVISIONING_RECORD')
+            require(record_path and Path(record_path).is_file(), 'external reviewed provisioning record')
+            record = json.loads(Path(record_path).read_text())
+            bank = root / 'usr/share/osumania/srs-g1-be.bin'
+            require(bank.is_file() and hashlib.sha256(bank.read_bytes()).hexdigest() == record['srs_sha256'].lower(),
+                    'approved SRS bank in hardware rootfs')
+            conf = (project / 'sources/optee-os/out/arm-plat-rockchip/conf.mk').read_text()
+            require('CFG_RK3568_DEV_INSECURE_HUK=n' in conf and 'CFG_INSECURE=n' in conf and
+                    f'CFG_RK3568_HUK_OFFSET={record["secure_otp_huk_byte_offset"]}' in conf,
+                    'hardware OP-TEE uses reviewed OTP offset with no insecure HUK')
 tuning = root / 'etc/bridge-rt.conf'
 require(not tuning.exists() or 'BRIDGE_KEYBOARD_HID_INTERVAL=' not in tuning.read_text(),
         'both profiles use the same kernel-default HID interval')
@@ -197,7 +233,7 @@ settings = dict(line.split('=', 1) for line in identity.read_text().splitlines()
 require(settings.get('BRIDGE_USB_VID') == locked['usb_gadget']['vid'] and
         settings.get('BRIDGE_USB_PID') == locked['usb_gadget']['pid'],
         'supplied USB VID:PID matches manifest')
-if profile in ('production', 'optee-runtime'):
+if profile in ('production', 'optee-runtime', 'hardware-root'):
     require('# CONFIG_DEBUG_FS is not set' in symbols, 'no production debugfs')
     for path in ('lib/systemd', 'usr/lib/systemd', 'usr/bin/python3',
                  'usr/bin/python', 'usr/bin/apt', 'usr/bin/apt-get', 'usr/bin/dpkg',
@@ -212,6 +248,8 @@ shutil.copy2(manifest, images / 'sources.lock')
 files = [images / x for x in ('kernel.config', 'buildroot.config', 'sources.lock',
          'Image', 'boot.ext4', 'rootfs.cpio.gz', 'u-boot-rockchip.bin', 'radxa-zero3-rt.img')]
 files.extend(dtbs)
+if profile == 'hardware-root':
+    files.append(images / 'kernel.itb')
 if debug_profile:
     files.append(images / 'diag.vfat')
 with (images / 'SHA256SUMS').open('w') as sums:

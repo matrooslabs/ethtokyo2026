@@ -1,4 +1,3 @@
-import { scoringRequest } from "@/lib/leaderboard/scoring";
 import { encodeMods } from "@/lib/replay";
 import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
@@ -12,9 +11,10 @@ import { toast } from "sonner";
 import { useGameStore } from "../../stores/gameStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { ArenaSnapshot } from "./arenaHud";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import GameScreens from "./gameScreens";
 
-const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
+const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: BridgeHardware }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -113,21 +113,6 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
 
         await loadAssets();
 
-        if (paidAttempt) {
-          setLoadingMessage("Starting signed capture…");
-          const started = await scoringRequest<{
-            sessionId: string;
-            captureMode: string;
-          }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);
-          if (
-            started.sessionId !== paidAttempt.sessionId ||
-            started.captureMode !== paidAttempt.captureMode
-          ) {
-            throw new Error(
-              "Capture session does not match the confirmed paid entry.",
-            );
-          }
-        }
         setBeatmapData(parsedBeatmapData);
       } catch (error: any) {
         toast("Parsing Error", {
@@ -170,9 +155,7 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
 
   const retry = useCallback(() => {
     if (useGameStore.getState().paidAttempt) {
-      toast(
-        "Each competition attempt needs a new paid entry. Return to the beatmap to enter again.",
-      );
+      toast("A paid run cannot resume. Start a new run to use another play.");
       return;
     }
     setKey((prev) => prev + 1);
@@ -212,6 +195,7 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
           )}
 
           <GameScreens
+            hardware={hardware}
             arena={arena}
             key={key}
             beatmapData={beatmapData}

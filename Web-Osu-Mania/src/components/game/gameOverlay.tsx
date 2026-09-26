@@ -1,11 +1,12 @@
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useGameStore } from "../../stores/gameStore";
 import type { ArenaSnapshot } from "./arenaHud";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { lazy, Suspense } from "react";
 
 const GameModal = lazy(() => import("./gameModal"));
 
-export const GameOverlay = ({ arena }: { arena?: ArenaSnapshot }) => {
+export const GameOverlay = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: BridgeHardware }) => {
   const beatmapId = useGameStore.use.beatmapId();
 
   return (
@@ -23,7 +24,7 @@ export const GameOverlay = ({ arena }: { arena?: ArenaSnapshot }) => {
             </div>
           }
         >
-          <GameModal arena={arena} />
+          <GameModal arena={arena} hardware={hardware} />
         </Suspense>
       </DialogContent>
     </Dialog>

@@ -12,6 +12,10 @@ srcs-y += device_root_dev.c
 cppflags-y += -DOSUMANIA_PROVISIONED_SRS=1
 else
 srcs-y += device_root_rk3566.c
-# Production integration must provide both of these from reviewed provisioning.
+# Hardware builds must supply an externally reviewed public policy header.
+ifneq ($(OSUMANIA_PROVISIONED_HEADER),)
+cppflags-y += -include $(OSUMANIA_PROVISIONED_HEADER)
+else
 cppflags-y += -DOSUMANIA_PROVISIONED_SRS=0
+endif
 endif

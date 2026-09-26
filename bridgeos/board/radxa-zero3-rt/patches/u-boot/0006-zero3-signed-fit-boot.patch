@@ -1,0 +1,73 @@
+diff --git a/arch/arm/mach-rockchip/rk3568/Kconfig b/arch/arm/mach-rockchip/rk3568/Kconfig
+--- a/arch/arm/mach-rockchip/rk3568/Kconfig
++++ b/arch/arm/mach-rockchip/rk3568/Kconfig
+@@ -61,6 +61,13 @@ config TARGET_ORANGEPI_3B_RK3566
+ 
+ endchoice
+ 
++config BRIDGEOS_SIGNED_BOOT
++	bool "BridgeOS authenticated ZERO 3 boot"
++	depends on TARGET_RADXA_ZERO_3_RK3566 && SPL_FIT_SIGNATURE && FIT_SIGNATURE
++	help
++	  Require signed SPL firmware and U-Boot proper kernel FIT configurations.
++	  This does not provision the ROM's trust anchor or burn any OTP fuses.
++
+ config ROCKCHIP_BOOT_MODE_REG
+ 	default 0xfdc20200
+
+diff --git a/arch/arm/dts/rockchip-u-boot.dtsi b/arch/arm/dts/rockchip-u-boot.dtsi
+--- a/arch/arm/dts/rockchip-u-boot.dtsi
++++ b/arch/arm/dts/rockchip-u-boot.dtsi
+@@ -55,4 +55,7 @@
+ 		fit,fdt-list = "of-list";
+ 		fit,external-offset = <CONFIG_FIT_EXTERNAL_OFFSET>;
+ 		fit,align = <512>;
++#ifdef CONFIG_BRIDGEOS_SIGNED_BOOT
++		fit,sign;
++#endif
+ 		images {
+@@ -155,6 +158,13 @@
+ 				fit,firmware = "op-tee", "u-boot";
+ #endif
+ 				fit,loadables;
+ 				fit,compatible;
++#ifdef CONFIG_BRIDGEOS_SIGNED_BOOT
++				signature {
++					algo = "sha256,rsa2048";
++					key-name-hint = "boot";
++					sign-images = "firmware", "loadables", "fdt";
++				};
++#endif
+ 			};
+ 		};
+@@ -177,6 +187,19 @@
+ 			u-boot-tpl {
+ 			};
+ #endif
++#ifdef CONFIG_BRIDGEOS_SIGNED_BOOT
++			u-boot-spl {
++				type = "section";
++				u-boot-spl-nodtb {
++				};
++				u-boot-spl-pubkey-dtb {
++					algo = "sha256,rsa2048";
++					required = "conf";
++					key-name-hint = "boot";
++				};
++			};
++#else
+ 			u-boot-spl {
+ 			};
++#endif
+ 		};
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -1685,6 +1685,6 @@ cmd_binman = $(srctree)/tools/binman/binman $(if $(BINMAN_DEBUG),-D) \
+ 		$(if $(BINMAN_VERBOSE),-v$(BINMAN_VERBOSE)) \
+ 		build -u -d $(binman_dtb) -O . -m \
+-		--allow-missing --fake-ext-blobs \
++		$(if $(filter y,$(CONFIG_BRIDGEOS_SIGNED_BOOT)),,--allow-missing --fake-ext-blobs) \
+ 		$(if $(BINMAN_ALLOW_MISSING),--ignore-missing) \
+ 		-I . -I $(srctree)/board/$(BOARDDIR) -I $(srctree) \
+ 		$(foreach f,$(of_list_dirs),-I $(f)) -a of-list=$(of_list) \

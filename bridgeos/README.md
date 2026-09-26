@@ -65,6 +65,10 @@ Hardware verification: macOS Vendor HID `GET_INFO` succeeded on the ZERO 3W with
 
 The opaque rkbin `rk3568_bl32_v2.16.bin` is never packaged. It is retained only as a disassembly reference for RK3566 register addresses, secure-memory layout and platform behavior; all executable TEE/TA paths use source OP-TEE 4.9 and its current Internal API ABI.
 
+## Hardware-root signing profile
+
+`./scripts/build.sh hardware-root` and direct `./scripts/build-optee.sh hardware` **refuse to emit an image**. On this unmodified ZERO 3W, the current Secure OTP interface returns raw HUK bytes to programmable BL32, while the existing SD boot chain is unsigned; an attacker could replace BL32 and export the HUK. No on-chip key-reader-only secp256k1 signer is documented. Also missing: RK3566 ROM-enforced boot authentication, debug-port lock, approved OTP slot/lock procedure and qualified Secure World RNG (`CFG_INSECURE=n` fails to link at `plat_rng_init`). No OTP write occurs. The existing `optee-runtime` image is **development-only** despite successful GET_INFO. See `docs/hardware-key-provisioning.md`.
+
 ## Latency contract
 
 The target is p99.9 ≤100 µs from *report observed by host software* to *corresponding gadget report queued*, distinct from USB wire timing. HID transitions are retained in a fixed preallocated queue when `/dev/hidg0` returns `EAGAIN`; queue overflow is counted and collapses to the latest full keyboard state rather than allocating in the hot path. Debug snapshots remain diagnostic I/O and are not latency-test conditions. Neither p99.9 software latency nor wire-to-wire latency has been measured on the rebuilt images.

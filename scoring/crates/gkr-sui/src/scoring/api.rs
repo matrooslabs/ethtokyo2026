@@ -92,6 +92,36 @@ pub fn prove(srs: &Srs, input: &PlayInput, chart: &ChartRecord, mode: Mode) -> R
     })
 }
 
+/// Prove the on-chain calldata trace against the *original* hardware-signed session
+/// digest. Unlike `prove`, this never derives a V1 digest from the input or changes
+/// a header policy: BridgeOS V1 signs its own V2/BN254 preimage even though Sui
+/// verifies the event trace as calldata (rather than a BLS trace commitment).
+/// Callers must authenticate `signed_digest` against the exact device result and
+/// registry Session before using this entry point.
+pub fn prove_sealed_calldata(
+    srs: &Srs,
+    input: &PlayInput,
+    chart: &ChartRecord,
+    signed_digest: [u8; 32],
+) -> Result<Proved> {
+    let t = std::time::Instant::now();
+    let w = witness::build_from_input(input)?;
+    let witness_ms = t.elapsed().as_secs_f64() * 1e3;
+    let st = Statement {
+        mode: Mode::Calldata,
+        session_digest: signed_digest,
+        n: input.events.len() as u64,
+        duration: input.footer.duration_us,
+        chart: chart.clone(),
+        trace_commitment: None,
+        srs_id: srs.vk().id(),
+    };
+    let (proof, mut timings) = prover::prove(&w, &st, srs, &input.events)?;
+    timings.witness_ms = witness_ms;
+    timings.total_ms += witness_ms;
+    Ok(Proved { witness: w, statement: st, proof, timings })
+}
+
 pub fn verify(
     vk: &VerifierKey,
     st: &Statement,

@@ -1,10 +1,6 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { Link } from "@tanstack/react-router";
 
 export default function Header() {
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  });
   return (
     <header className="arena-header">
       <Link
@@ -12,18 +8,16 @@ export default function Header() {
         onClick={() => window.dispatchEvent(new Event("arena:home"))}
         className="arena-brand"
       >
-        <img
-          className="arena-logo"
-          src={`${import.meta.env.BASE_URL}favicon-96x96.png`}
-          alt=""
-          width="40"
-          height="40"
-          aria-hidden="true"
-        />
-        <strong>osu! arena</strong>
-        <span className="arena-tag" aria-hidden="true">
-          ETH TOKYO
+        <span className="arena-brand-mark" aria-hidden="true">
+          <img
+            className="arena-logo"
+            src={`${import.meta.env.BASE_URL}versu-logo.png`}
+            alt=""
+            width="1536"
+            height="1024"
+          />
         </span>
+        <strong>versu!</strong>
       </Link>
       <nav aria-label="Main navigation">
         <Link
@@ -36,17 +30,6 @@ export default function Header() {
         <Link to="/how-to-play" activeProps={{ className: "active" }}>
           How to play
         </Link>
-        <Link
-          to="/faq"
-          className={pathname.startsWith("/faq") ? "active" : undefined}
-        >
-          FAQ
-        </Link>
-        <ConnectButton
-          accountStatus="address"
-          chainStatus="none"
-          showBalance={false}
-        />
       </nav>
     </header>
   );

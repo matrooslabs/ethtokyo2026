@@ -4,9 +4,23 @@ project="$(cd "$(dirname "$0")/.." && pwd)"
 export SOURCE_DATE_EPOCH=1779278600
 mode="${1:-dev}"
 case "$mode" in
-    dev|hardware) "$project/scripts/build-optee.sh" "$mode" ;;
+    dev|hardware) ;;
     *) echo "Usage: $0 [dev|hardware]" >&2; exit 2 ;;
 esac
+if [ "$mode" = hardware ]; then
+    : "${BOOT_SIGN_KEY_DIR:?Hardware firmware requires an external BOOT_SIGN_KEY_DIR containing boot.key, boot.crt and boot.pubkey}"
+    keydir="$(realpath -e "$BOOT_SIGN_KEY_DIR")"
+    for key in boot.key boot.crt boot.pubkey; do
+        [ -s "$keydir/$key" ] || { echo "Missing hardware boot key: $keydir/$key" >&2; exit 1; }
+    done
+    command -v openssl >/dev/null || { echo 'OpenSSL required for boot key checks' >&2; exit 1; }
+    openssl pkey -in "$keydir/boot.key" -noout >/dev/null
+    openssl x509 -in "$keydir/boot.crt" -noout >/dev/null
+    private_pub="$(openssl pkey -in "$keydir/boot.key" -pubout -outform DER | sha256sum | cut -d' ' -f1)"
+    cert_pub="$(openssl x509 -in "$keydir/boot.crt" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)"
+    [ "$private_pub" = "$cert_pub" ] || { echo 'boot.crt does not match boot.key' >&2; exit 1; }
+fi
+"$project/scripts/build-optee.sh" "$mode"
 firmware="$project/sources/boot-firmware"
 build="$firmware/build"
 out="$firmware/out-optee-$mode"
