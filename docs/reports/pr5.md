@@ -48,3 +48,28 @@ Final read-only live configuration check: the restored client on localhost3015 r
 The coordinator reproduced the missing QR as an actual runtime crash: `cuer@0.0.3` calls `qr.encodeQR` with `border:0`, while installed `qr@0.7.0` rejects it. A scoped npm override now pins only cuer’s encoder to compatible `qr@0.5.5`; the lockfile records the exact release.
 
 The real browser dialog now renders the QR without page errors. The screenshot was independently decoded using macOS Vision and matched a WalletConnect v2 URI with IRN relay and pairing key; the raw URI is intentionally omitted. The reusable `tests/browser-qr.mjs` checks the actual QR SVG. Nine focused tests, typecheck and production build pass. This supersedes the earlier unverified QR result; physical phone pairing/signing is still unverified.
+
+## Completion audit: browser settlement and indexer outage
+
+A second isolated browser run passed with `BROWSER_TEST_SETTLEMENT=1`, fresh Anvil on port19559, its own `31337-browser.manifest.json`, software bridge19560 and web3025. Existing Sepolia services3015/8788/8787 and public-chain funds were untouched. Only disposable local development keys were used.
+
+The committed `tests/browser-local.mjs` now accepts separate manifest/RPC/web/indexer settings and an opt-in settlement mode. The run:
+
+1. Displayed a deliberately stale indexer response labeled **lag 777 blocks**, while payments and records remained connected to the actual contracts. This stale read-model response was a controlled browser fixture, not a claim that a real indexer had that lag.
+2. Paid and completed actual gameplay, proved the recorder's replay using the real Rust prover, and accepted score **0**. Asserted that zero established a winner, rather than treating it as no score.
+3. Advanced the isolated chain across UTC midnight and selected the previous UTC date in the browser. With the indexer URL now an unreachable local port, clicked **Send prize to winner**. Verified the success message, disappearance of the claim button, `prizeClaimed=true`, the `PrizeClaimed` event, and the winner's exact **1 USDC** balance increase.
+4. On the next day, paid for and completed another actual game, then left its replay **unsubmitted**. Asserted `entries.scored=false` and that the round had no leader.
+5. Advanced across the next UTC midnight, selected that round's date, and clicked **Refund 1 USDC** with the indexer still offline. Verified the success message, disappearance of the refund button, the `EntryRefunded` event, exact **1 USDC** balance increase, zero remaining payer refund entitlement, and `prizeClaimed=false`.
+
+No browser runtime errors occurred. No application code changes were needed for this audit. `node --check tests/browser-local.mjs` and `git diff --check` also passed.
+
+```text
+scored UTC day: 20723 (2026-09-27)
+no-score UTC day: 20724 (2026-09-28)
+scored session: 0x8db815013265b5444548a7c19e4dfd4b1a945b38a125dc2ce4720c01e072e126
+unsubmitted session: 0x50cf3f050d0756670dc297467c93a7bc7f452683615848f7e5f2fc26d28cce2f
+claim transaction: 0x057094393e72045b64c26fbe880e039918ed1c5063d6e535854063b8191f6f3f
+refund transaction: 0x479e79636e7ceda596b026231ccef231fdfec323eb5dd1daee42411950ae3c63
+```
+
+Artifacts: `/tmp/browser-settlement-evidence.json`, `/tmp/browser-settlement-run.log`, `/tmp/daily-leaderboard-browser-claim.png`, `/tmp/daily-leaderboard-browser-refund.png`. The screenshots show the corresponding success messages and unavailable rankings. These are local-chain transactions, not live Sepolia settlement evidence.

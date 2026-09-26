@@ -68,7 +68,7 @@ Depends on PRs 3 and 4.
 | 2 | Complete | Real GKR proof integration; 36 Foundry test executions pass | [#3](https://github.com/matrooslabs/ethtokyo2026/pull/3) |
 | 3 | Complete | Anvil full settlement; Sepolia paid proof/tie pass; live midnight settlement pending | [#6](https://github.com/matrooslabs/ethtokyo2026/pull/6) |
 | 4 | Complete | 14 tests pass; Sepolia reconciliation: 6 reads, no mismatches | [#4](https://github.com/matrooslabs/ethtokyo2026/pull/4) |
-| 5 | Complete | 9 unit tests; typecheck/build; actual local browser paid gameplay→GKR proof→accepted score pass; Sepolia readiness pass | [#7](https://github.com/matrooslabs/ethtokyo2026/pull/7) |
+| 5 | Complete | 9 unit tests; typecheck/build; actual local browser paid gameplay→GKR proof→accepted score pass; Sepolia readiness; browser claim/refund with offline indexer; QR render/decode pass | [#7](https://github.com/matrooslabs/ethtokyo2026/pull/7) |
 
 Target network: Ethereum Sepolia, explicitly selected by the user. Deployment signer: local `./.priv-key`, explicitly authorized by the user; never log or commit its contents. GitHub access verified.
 
