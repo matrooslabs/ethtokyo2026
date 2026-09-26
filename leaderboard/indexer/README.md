@@ -3,7 +3,7 @@
 Read-only Node.js service for `DailyLeaderboard.sol`. Requires Node **22.13+** (built-in `node:sqlite`; Node 24+ recommended), npm, and an Ethereum HTTP RPC with historical logs and contract reads from the deployment block. No signing key is used.
 
 ```sh
-cd leaderboard-indexer
+cd leaderboard/indexer
 npm ci
 cp .env.example .env
 # Fill RPC_URL, LEADERBOARD_ADDRESS and DEPLOYMENT_BLOCK from the real deployment.
@@ -14,7 +14,7 @@ Ethereum Sepolia (`CHAIN_ID=11155111`) is selected in the example. The program r
 
 `HOST=127.0.0.1`, `PORT=8787`, `CONFIRMATIONS=2`, `BATCH_SIZE=100`, `POLL_MS=5000`, `DB_PATH=data/leaderboard.sqlite` and `CORS_ORIGIN=*` are defaults. Set `HOST=0.0.0.0` when exposing the service through your deployment's proxy. CORS allows GET/OPTIONS without credentials. Set `METADATA_PATH` to an optional JSON map keyed by canonical chart hash, for example `{ "0x<64 hex digits>": { "title": "Song", "artist": "Artist", "difficulty": "Hard" } }`. Metadata is loaded at startup; missing metadata is `null`.
 
-Full HTTP routes and response shapes: [API contract](../docs/reports/pr4-api.md). Contract `beatmapId` is exposed as `chartHash`; session IDs are bytes32 hex; chain amounts/scores/day/block values are decimal strings. Fees and pots use token base units. Unknown chart/day detail routes return 404 until indexed. Claims and refunds must remain available through direct contract calls even when this service is down.
+Full HTTP routes and response shapes: [API contract](../../docs/reports/pr4-api.md). Contract `beatmapId` is exposed as `chartHash`; session IDs are bytes32 hex; chain amounts/scores/day/block values are decimal strings. Fees and pots use token base units. Unknown chart/day detail routes return 404 until indexed. Claims and refunds must remain available through direct contract calls even when this service is down.
 
 ## Backfill, restart and replay
 

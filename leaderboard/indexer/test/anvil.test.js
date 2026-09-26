@@ -12,7 +12,7 @@ import { ChainSource, normalizeLog } from '../src/chain.js';
 import { Indexer } from '../src/sync.js';
 import { json, roundKey } from '../src/domain.js';
 
-const artifact = (folder, name) => JSON.parse(readFileSync(new URL(`../../scoring/gkr-scoring/contracts/out/${folder}/${name}.json`, import.meta.url), 'utf8'));
+const artifact = (folder, name) => JSON.parse(readFileSync(new URL(`../../../scoring/gkr-scoring/contracts/out/${folder}/${name}.json`, import.meta.url), 'utf8'));
 
 test('Anvil: actual deployed ABI, RPC backfill/reconciliation, settlement, reorg, restart and replay', {
   skip: process.env.RUN_ANVIL_TESTS !== '1' && 'Set RUN_ANVIL_TESTS=1 after building Solidity artifacts', timeout: 60000,

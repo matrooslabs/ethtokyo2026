@@ -2,9 +2,9 @@
 
 This unauthenticated bridge is a **single-user, loopback-only software demo**. It refuses public/LAN bind addresses and non-loopback configured web origins. Literal Host, peer-address and Origin checks prevent exposing the signer through DNS rebinding or cross-origin browser requests; POST requires JSON. Local processes and users on the same machine are trusted. Do not put it behind a reverse proxy, tunnel, port forward or shared remote host. Multi-user deployment requires authentication and per-player capture authorization, which this demo does not implement.
 
-Install with `npm ci --prefix leaderboard-bridge`. Copy `config.example.json` to ignored `data/config.json`, configure registered charts and signer paths, then run from repo root:
+Install with `npm ci --prefix leaderboard/bridge`. Copy `config.example.json` to ignored `data/config.json`, configure registered charts and signer paths, then run from repo root:
 
-`BRIDGE_CONFIG=leaderboard-bridge/data/config.json npm start --prefix leaderboard-bridge`
+`BRIDGE_CONFIG=leaderboard/bridge/data/config.json npm start --prefix leaderboard/bridge`
 
 Keep signer files out of source control. The relayer key funds proof transaction gas. `captureMode: "hardware"` fails closed until the physical device adapter is reachable. For explicit software-only testing choose `"software-demo"` and `demoDeviceKeyFile` containing a separately generated device key; enroll that address in the registry. The demo device cannot reuse the relayer key. Software replay signing does not prove human or physical-device input.
 
@@ -24,7 +24,7 @@ The bridge checks exact session header, canonical chart, root, event count and r
 
 ## Integration tests
 
-`npm test --prefix leaderboard-bridge` runs protocol units; local integration is opt-in. With the coordinator's isolated funded Anvil deployment and registered demo chart/device, run `BRIDGE_E2E=1 npm test --prefix leaderboard-bridge`. Override `E2E_RPC`, `E2E_MANIFEST`, `E2E_KEY_FILE`, `E2E_DEVICE_KEY_FILE` as needed. Defaults use port19549, local31337 manifest, temporary Anvil key and generated software-device key. `E2E_CAPTURE_MODE=hardware` exercises the preserved-seal adapter path using a named **test double**, never physical hardware. Both modes invoke the real Rust prover and on-chain verifier. Tests refuse nonlocal chain IDs.
+`npm test --prefix leaderboard/bridge` runs protocol units; local integration is opt-in. With the coordinator's isolated funded Anvil deployment and registered demo chart/device, run `BRIDGE_E2E=1 npm test --prefix leaderboard/bridge`. Override `E2E_RPC`, `E2E_MANIFEST`, `E2E_KEY_FILE`, `E2E_DEVICE_KEY_FILE` as needed. Defaults use port19549, local31337 manifest, temporary Anvil key and generated software-device key. `E2E_CAPTURE_MODE=hardware` exercises the preserved-seal adapter path using a named **test double**, never physical hardware. Both modes invoke the real Rust prover and on-chain verifier. Tests refuse nonlocal chain IDs.
 
 All configured relative paths resolve against the repository root: `BRIDGE_CONFIG`, manifest, signer files, `.osu` files, binary, SRS and `jobStoreFile`. Absolute paths are preserved, so the documented root command works with npm `--prefix`.
 

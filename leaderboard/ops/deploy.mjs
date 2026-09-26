@@ -4,7 +4,7 @@ import { encodeDeployData, encodeFunctionData, keccak256, getContractAddress, ze
 import { artifact, clients, root, repoPath, readJSON, save } from './common.mjs';
 const {id, account, publicClient:pc, wallet}=clients();
 if(await pc.getChainId()!==id) throw Error('RPC chain mismatch');
-const output=repoPath(process.env.DEPLOYMENT_FILE || path.join(root,`leaderboard-ops/deployments/${id}.json`));
+const output=repoPath(process.env.DEPLOYMENT_FILE || path.join(root,`leaderboard/ops/deployments/${id}.json`));
 const vk=readJSON(repoPath(process.env.VK_FILE || 'scoring/gkr-scoring/artifacts/forge/vk.json'));
 if(process.env.ALLOW_INSECURE_DEMO_SRS!=='1') throw Error('Current generated SRS uses known tau: set ALLOW_INSECURE_DEMO_SRS=1 for test/demo only');
 const journal=fs.existsSync(output)?readJSON(output):{version:1,chainId:id,deployer:account.address,srsId:vk.srsId,security:'INSECURE known-tau development SRS; demo only',transactions:{},contracts:{}};

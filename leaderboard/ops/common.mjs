@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPublicClient, createWalletClient, http, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const repoPath = p => path.resolve(root,p);
 export const contracts = path.join(root, 'scoring/gkr-scoring/contracts');
 export const readJSON = p => JSON.parse(fs.readFileSync(p, 'utf8'));

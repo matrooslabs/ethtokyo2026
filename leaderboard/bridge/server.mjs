@@ -7,10 +7,10 @@ import {privateKeyToAccount} from 'viem/accounts';
 import {parseOsu,replayEvents,canonicalChartHash} from './chart.mjs';
 import {localAccess} from './local-access.mjs';
 import {prove,rustHeader,traceRoot,validateSeal,sessionDigest} from './proof.mjs';
-const root=path.resolve(import.meta.dirname,'..');
+const root=path.resolve(import.meta.dirname,'../..');
 const repoPath=p=>path.resolve(root,p);
 const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
-const cfg=read(repoPath(process.env.BRIDGE_CONFIG || 'leaderboard-bridge/config.json'));
+const cfg=read(repoPath(process.env.BRIDGE_CONFIG || 'leaderboard/bridge/config.json'));
 const access=localAccess(cfg);
 const manifest=read(repoPath(cfg.manifest));
 const chain=defineChain({id:manifest.chainId,name:'Leaderboard',nativeCurrency:{name:'Ether',symbol:'ETH',decimals:18},rpcUrls:{default:{http:[cfg.rpcUrl]}}});
@@ -24,7 +24,7 @@ if(!['hardware','software-demo'].includes(cfg.captureMode))throw Error('Choose h
 const board=manifest.contracts.DailyLeaderboard,registry=manifest.contracts.ManiaGkrRegistry;
 const boardABI=manifest.abi.DailyLeaderboard,registryABI=manifest.abi.ManiaGkrRegistry;
 const charts=new Map((cfg.charts||[]).map(c=>{const parsed=parseOsu(fs.readFileSync(repoPath(c.osuFile)));if(canonicalChartHash(parsed.chart).toLowerCase()!==c.chartHash.toLowerCase())throw Error('Configured chart hash does not match .osu notes');return [parsed.webBeatmapHash,{...c,...parsed}];}));
-const jobStore=repoPath(cfg.jobStoreFile||`leaderboard-bridge/data/jobs-${manifest.chainId}-${board.toLowerCase()}.json`);
+const jobStore=repoPath(cfg.jobStoreFile||`leaderboard/bridge/data/jobs-${manifest.chainId}-${board.toLowerCase()}.json`);
 const checkpoint=fs.existsSync(jobStore)?read(jobStore):{starts:[],jobs:[]};
 const starts=new Map(checkpoint.starts),jobs=new Map(checkpoint.jobs);let busy=false;
 function saveJobs(){fs.mkdirSync(path.dirname(jobStore),{recursive:true});fs.writeFileSync(jobStore+'.tmp',JSON.stringify({starts:[...starts],jobs:[...jobs]}),{mode:0o600});fs.renameSync(jobStore+'.tmp',jobStore);}

@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { createPublicClient, http, encodeFunctionData, parseAbi, zeroAddress } from 'viem';
 const rpcUrl = process.env.BROWSER_TEST_RPC || 'http://127.0.0.1:19549';
 if (!['127.0.0.1','localhost'].includes(new URL(rpcUrl).hostname)) throw Error('Local RPC only');
-const manifest = JSON.parse(fs.readFileSync(process.env.BROWSER_TEST_MANIFEST || new URL('../../leaderboard-ops/deployments/31337.manifest.json', import.meta.url)));
+const manifest = JSON.parse(fs.readFileSync(process.env.BROWSER_TEST_MANIFEST || new URL('../../leaderboard/ops/deployments/31337.manifest.json', import.meta.url)));
 assert.equal(manifest.chainId,31337,'Only a local deployment manifest is permitted');
 const baseUrl=process.env.BROWSER_TEST_URL || 'http://localhost:3015';
 const settlement=process.env.BROWSER_TEST_SETTLEMENT==='1';

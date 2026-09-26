@@ -4,18 +4,18 @@ Status: implementation complete; local acceptance passed. No commits, pushes or 
 
 ## Delivered
 
-- Standalone `leaderboard-indexer/` package: native JavaScript, viem and Node's built-in SQLite; locked npm dependencies and explicit environment configuration.
+- Standalone `leaderboard/indexer/` package: native JavaScript, viem and Node's built-in SQLite; locked npm dependencies and explicit environment configuration.
 - Exact ABI adapter for all five `DailyLeaderboard.sol` events, verified against the compiled Solidity ABI. Maps `beatmapId` to API `chartHash`; preserves bytes32 session IDs, payer/player distinction, device, amounts, and block/transaction/log provenance.
 - Paid attempts, accepted scores, per-wallet daily bests, deterministic rankings, leader history, prizes/refunds, chart totals, metadata and wallet history. Ties preserve the first acceptance of that best score, including transaction/log order; zero scores are valid.
 - Read-only HTTP API with validated filters, bounded pagination, optional snapshot-hash consistency guard, CORS, sync status, and explicit reconciliation errors. API contract was published early and coordinator notified for web integration: [pr4-api.md](pr4-api.md).
 - SQLite canonical block/event journal, atomic checkpoints, idempotent duplicates, conflict detection, resume/backfill, full deployment replay, unbounded common-ancestor reorg rollback, empty-block checkpoints and mixed-fork rejection.
 - Historical contract reconciliation at the indexed block: total paid/refunded, leader, highest score, prize-claimed state, remaining pot, player best records and payer payment balances. Tip hash rechecked after reads; mismatches and unavailable historical reads are visible and fail finite sync runs.
 - Configurable chain/address/deployment block/RPC; startup verifies actual RPC chain ID and code at deployment block. No invented deployed address/block, live network claims, or signing credentials. Sepolia chain ID is the selected example only.
-- [Runbook](../../leaderboard-indexer/README.md) documents startup, restart/rebuild, configuration, metadata, API behavior, reconciliation semantics and operating limits.
+- [Runbook](../../leaderboard/indexer/README.md) documents startup, restart/rebuild, configuration, metadata, API behavior, reconciliation semantics and operating limits.
 
 ## Verification evidence
 
-Executed from `leaderboard-indexer/` on 2026-09-26:
+Executed from `leaderboard/indexer/` on 2026-09-26:
 
 ```text
 RUN_ANVIL_TESTS=1 npm test
@@ -42,7 +42,7 @@ Coverage includes:
 
 The Anvil process uses a dedicated local port and disposable unlocked accounts, and is terminated by the test. It does not access repository private-key files. Initial sandbox HTTP listen failed with EPERM; rerunning authorized tests outside the sandbox passed. The initial compiled-ABI path and test representation of omitted `indexed: false` were corrected before the final all-pass run.
 
-`node --check leaderboard-indexer/src/main.js` passed. Dependency installation reported zero audit vulnerabilities. Context7 documentation consulted for viem event/log/read APIs, Node SQLite, and Anvil RPC/CLI behavior.
+`node --check leaderboard/indexer/src/main.js` passed. Dependency installation reported zero audit vulnerabilities. Context7 documentation consulted for viem event/log/read APIs, Node SQLite, and Anvil RPC/CLI behavior.
 
 ## Remaining operational gates and limits
 
@@ -51,7 +51,7 @@ The Anvil process uses a dedicated local port and disposable unlocked accounts, 
 - Run one indexer per database. Store/projections are intentionally simple: canonical events are kept in memory and rebuilt per batch; every indexed round/player/payer is reconciled each cycle. This fits a hackathon dataset, not high-volume production without further indexing/batching work.
 - Metadata is operator-provided JSON, not an external chart crawler. Historical RPC state/log availability is required. Correct deployment-block configuration is essential because the contract cannot enumerate unknown rounds for reconciliation.
 
-Changed paths: `leaderboard-indexer/**`, `docs/reports/pr4-api.md`, `docs/reports/pr4.md`.
+Changed paths: `leaderboard/indexer/**`, `docs/reports/pr4-api.md`, `docs/reports/pr4.md`.
 
 ## Coordinator live verification
 

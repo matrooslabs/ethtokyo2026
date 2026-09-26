@@ -41,7 +41,7 @@ test('all five real Solidity event shapes decode losslessly, including zero, byt
 });
 
 test('ABI signatures, indexed fields and getter return types match compiled DailyLeaderboard artifact', t => {
-  const artifactPath = new URL('../../scoring/gkr-scoring/contracts/out/DailyLeaderboard.sol/DailyLeaderboard.json', import.meta.url);
+  const artifactPath = new URL('../../../scoring/gkr-scoring/contracts/out/DailyLeaderboard.sol/DailyLeaderboard.json', import.meta.url);
   if (!existsSync(artifactPath)) { t.skip('Build DailyLeaderboard with forge to verify compiled ABI'); return; }
   const actual = JSON.parse(readFileSync(artifactPath, 'utf8')).abi;
   for (const item of leaderboardAbi) {
