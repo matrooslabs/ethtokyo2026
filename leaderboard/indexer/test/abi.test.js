@@ -76,6 +76,25 @@ test('historical reconciliation covers round accounting, leaders, zero score rec
   assert.equal((await source.reconcile(view, { number: 100, hash })).status, 'error');
 });
 
+test('reconciliation checks only the best of multiple ranked attempts per wallet', async () => {
+  const second = { ...fields, sessionId: `0x${'02'.repeat(32)}` };
+  const view = project([
+    entryLog(), log('ScoreRecorded', { ...fields, score: 100, bestScore: 100 }, 1),
+    log('EntryPaid', { ...second, amount: 1000000n }, 2),
+    log('ScoreRecorded', { ...second, score: 50, bestScore: 100 }, 3),
+  ].map(normalizeLog));
+  assert.equal([...view.rounds.values()][0].rankings.length, 2);
+  const calls = [];
+  const source = new ChainSource({ async readContract(call) {
+    calls.push(call);
+    if (call.functionName === 'rounds') return [2000000n, 0n, player, 100, false];
+    if (call.functionName === 'records') return [true, 100];
+    if (call.functionName === 'refundablePayments') return 2000000n;
+  } }, address);
+  assert.equal((await source.reconcile(view, { number: 100, hash })).status, 'ok');
+  assert.equal(calls.filter(call => call.functionName === 'records').length, 1);
+});
+
 test('source bounds requests to contract and block range, rejects unknown address', async () => {
   let received;
   const client = { async getLogs(args) { received = args; return [entryLog()]; } };

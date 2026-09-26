@@ -8,7 +8,6 @@ description = "Standalone HTTP server: POST a play, get its GKR scoring proof ba
 [dependencies]
 alloy.workspace = true
 reqwest.workspace = true
-uuid.workspace = true
 mania-gkr.workspace = true
 mania-scoring-core.workspace = true
 axum.workspace = true

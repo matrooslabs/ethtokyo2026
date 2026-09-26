@@ -7,8 +7,8 @@ if(await pc.getChainId()!==id) throw Error('RPC chain mismatch');
 const output=repoPath(process.env.DEPLOYMENT_FILE || path.join(root,`leaderboard/ops/deployments/${id}.json`));
 const vk=readJSON(repoPath(process.env.VK_FILE || 'scoring/gkr-scoring/artifacts/forge/vk.json'));
 if(process.env.ALLOW_INSECURE_DEMO_SRS!=='1') throw Error('Current generated SRS uses known tau: set ALLOW_INSECURE_DEMO_SRS=1 for test/demo only');
-const journal=fs.existsSync(output)?readJSON(output):{version:1,chainId:id,deployer:account.address,srsId:vk.srsId,security:'INSECURE known-tau development SRS; demo only',transactions:{},contracts:{}};
-if(journal.chainId!==id || journal.deployer.toLowerCase()!==account.address.toLowerCase() || journal.srsId!==vk.srsId) throw Error('Journal configuration mismatch');
+const journal=fs.existsSync(output)?readJSON(output):{version:2,mode:2,chainId:id,deployer:account.address,srsId:vk.srsId,security:'INSECURE known-tau development SRS; demo only',transactions:{},contracts:{}};
+if(journal.mode!==2 || journal.chainId!==id || journal.deployer.toLowerCase()!==account.address.toLowerCase() || journal.srsId!==vk.srsId) throw Error('Journal configuration mismatch');
 const abis={};
 async function transaction(label,data,to){
  const fingerprint=keccak256(data);
@@ -63,6 +63,7 @@ for(const [name,address,fn,want] of [['DailyLeaderboard',board,'registry',regist
 for(const [name,address,fn,want] of [['GkrScoreVerifier',verifier,'srsId',vk.srsId],['ManiaGkrRegistry',registry,'organizer',account.address],['ManiaGkrRegistry',registry,'leaderboard',board]]){
  const got=await pc.readContract({address,abi:abis[name],functionName:fn});if(got.toLowerCase()!==want.toLowerCase())throw Error(`Configuration mismatch ${fn}`);
 }
+if(await pc.readContract({address:registry,abi:abis.ManiaGkrRegistry,functionName:'PAID_SESSION_MODE'})!==2)throw Error('Registry does not create committed paid sessions');
 const fee=await pc.readContract({address:board,abi:abis.DailyLeaderboard,functionName:'ENTRY_FEE'});
 if(fee!==1000000n)throw Error('Unexpected entry fee');
 const decimals=await pc.readContract({address:token,abi:[{type:'function',name:'decimals',stateMutability:'view',inputs:[],outputs:[{type:'uint8'}]}],functionName:'decimals'});

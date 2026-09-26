@@ -28,7 +28,7 @@ export async function proverInfo({url,token,expectedSrsId,signal}) {
  checkSrs(info.srsId, expectedSrsId);
  return info;
 }
-export async function prove({url,token,expectedSrsId,input,header,sealed=false,signal}) {
+export async function prove({url,token,expectedSrsId,input,header,sealed=false,mode="calldata",signal}) {
  // Rebinding is only for software demo input. Hardware seals remain byte-for-byte intact.
  const play = structuredClone(input);
  const canonical = rustHeader(header);
@@ -40,13 +40,17 @@ export async function prove({url,token,expectedSrsId,input,header,sealed=false,s
  }
  const root = traceRoot(header.sessionId, play.events);
  if (play.footer.event_count !== play.events.length || toHex(Uint8Array.from(play.footer.trace_root)) !== root) throw Error('Gameplay trace seal mismatch');
- const digest = sessionDigest(header, play.events.length, play.footer.duration_us, root);
- const result = await scoringRequest({url,token,signal}, '/v1/prove', {mode:'calldata',input:play}, 600000);
- if (!result || result.mode !== 'Calldata' || result.sessionDigest !== digest) throw Error('Scoring proof does not match captured session');
+ let digest = sessionDigest(header, play.events.length, play.footer.duration_us, root);
+ const result = await scoringRequest({url,token,signal}, '/v1/prove', {mode,input:play}, 600000);
+ if (mode === 'committed') {
+  if (!Array.isArray(result?.traceCommitment) || result.traceCommitment.length !== 2 || !result.traceCommitment.every(word)) throw Error('Invalid commitment');
+  digest = sha256(concat([toHex('OSUMANIA_HARDWARE_SESSION_V2'),toHex(2,{size:2}),encodePacked(headerFields.map(([,t])=>t),headerFields.map(([n,t])=>t==='uint64'?BigInt(header[n]):header[n])),encodePacked(['uint32','uint64','bytes32','uint256','uint256'],[play.events.length,BigInt(play.footer.duration_us),root,...result.traceCommitment.map(BigInt)])]));
+ }
+ if (!result || result.mode !== (mode === 'committed' ? 'Committed' : 'Calldata') || result.sessionDigest !== digest) throw Error('Scoring proof does not match captured session');
  checkSrs(result.srsId, expectedSrsId);
  const uints = (values, length) => Array.isArray(values) && values.length === length && values.every(n => Number.isSafeInteger(n) && n >= 0);
  if (!uints(result.laneBits, 4) || !uints(result.counts, 5) || !Array.isArray(result.proof) || !result.proof.length || !result.proof.every(word)) throw Error('Invalid scoring proof response');
- return {sub:{duration:BigInt(play.footer.duration_us),laneBits:result.laneBits,counts:result.counts},digest,n:play.events.length,root,proof:result.proof.map(w => BigInt(w)),events:eventBytes(play.events)};
+ return {commitment:result.traceCommitment?.map(BigInt),sub:{duration:BigInt(play.footer.duration_us),laneBits:result.laneBits,counts:result.counts},digest,n:play.events.length,root,proof:result.proof.map(w => BigInt(w)),events:eventBytes(play.events)};
 }
 export async function validateSeal(header,input,signature){
  const canonical=rustHeader(header);if(Object.keys(canonical).some(k=>JSON.stringify(input.header?.[k])!==JSON.stringify(canonical[k])))throw Error('Hardware header differs from paid session');

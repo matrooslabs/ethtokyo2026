@@ -82,6 +82,7 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
           paidAttempt ? encodeMods(defaultSettings.mods) : replay?.mods,
           replay?.columnMap,
           true,
+          !!paidAttempt,
         );
 
         if (paidAttempt) {

@@ -23,7 +23,7 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import type { Column, GameState, PlayResults } from "@/types";
 import { gsap } from "gsap";
 import { PixiPlugin } from "gsap/PixiPlugin";
-import { Howl } from "howler";
+import { Howl, Howler } from "howler";
 import type { Ticker } from "pixi.js";
 import * as PIXI from "pixi.js";
 import {
@@ -173,6 +173,8 @@ export class Game {
   private onPaidStart?: () => Promise<void>;
 
   private finished = false;
+  private disposed = false;
+  private paid = useGameStore.getState().paidAttempt;
 
   // Results chart data
   public timelineData: TimelineDataPoint[] = [];
@@ -321,6 +323,7 @@ export class Game {
   }
 
   public dispose() {
+    this.disposed = true;
     this.inputSystem.dispose();
     this.audioSystem.dispose();
 
@@ -620,7 +623,17 @@ export class Game {
     // The device timestamps from START; trigger it immediately before audio playback,
     // never when the user first loads the chart or presses a gameplay key.
     if (this.onPaidStart) {
+      if (this.song.state() !== "loaded") {
+        await new Promise<void>((resolve, reject) => {
+          this.song.once("load", () => resolve());
+          this.song.once("loaderror", () => reject(new Error("Audio preload failed")));
+        });
+      }
+      await Howler.ctx.resume();
+      if (Howler.ctx.state !== "running") throw new Error("Audio context is not ready for paid capture");
+      if (this.disposed) return;
       await this.onPaidStart();
+      if (this.disposed) return;
       this.app.stage.removeChild(this.startMessage);
       this.play();
     }
@@ -1014,6 +1027,7 @@ export class Game {
   }
 
   public resume() {
+    if (this.paid) return;
     if (this.song.seek() === 0) {
       this.state = "WAIT";
     } else {
@@ -1048,6 +1062,7 @@ export class Game {
   }
 
   public seek(time: number) {
+    if (this.paid) return;
     for (const column of this.columns) {
       for (const hitObject of column) {
         hitObject.view.visible = false;

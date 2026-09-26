@@ -33,7 +33,7 @@ function fixture(t) {
   return { path, open };
 }
 
-test('zero score, repeated attempts and ties use first acceptance of best, including transaction/log order', () => {
+test('every scored attempt gets a rank, with ties ordered by transaction/log acceptance', () => {
   const entries = [entry(1, 10, 0), entry(2, 10, 1, bob), entry(3, 10, 2), entry(4, 10, 3), entry(5, 10, 4, bob)];
   const accepted = [score(1, 0, 11, 0), score(2, 100, 11, 2, bob), score(3, 100, 11, 3), score(4, 100, 11, 4), score(5, 50, 12, 0, bob)];
   accepted[1].position.transactionIndex = 1;
@@ -41,7 +41,9 @@ test('zero score, repeated attempts and ties use first acceptance of best, inclu
   accepted[3].position.transactionIndex = 2;
   const view = project([...accepted, ...entries].reverse());
   const round = view.rounds.get(roundKey(chart, '20000'));
-  assert.deepEqual(round.rankings.map(r => [r.player, r.score, r.sessionId]), [[bob, '100', '2'], [alice, '100', '3']]);
+  assert.deepEqual(round.rankings.map(r => [r.rank, r.player, r.score, r.sessionId]), [
+    [1, bob, '100', '2'], [2, alice, '100', '3'], [3, alice, '100', '4'], [4, bob, '50', '5'], [5, alice, '0', '1'],
+  ]);
   assert.equal(view.attempts.get('1').score, '0');
   assert.equal(round.pot, '5000000');
   assert.equal(round.acceptedScores, 5);
@@ -155,7 +157,8 @@ test('reconciliation failures are explicit, never reported as successful sync', 
 test('HTTP rankings, snapshots, pagination, wallet payer history and validation', async t => {
   const { open } = fixture(t);
   const store = open();
-  store.append([block(10, [entry(1, 10, 0, bob, { payer: alice }), entry(2, 10, 1)]), block(11, [score(1, 55, 11, 0, bob), score(2, 55, 11, 1)])]);
+  store.append([block(10, [entry(1, 10, 0, bob, { payer: alice }), entry(2, 10, 1), entry(3, 10, 2), entry(4, 10, 3)]),
+    block(11, [score(1, 55, 11, 0, bob), score(2, 55, 11, 1), score(3, 40, 11, 2)])]);
   const server = createApi(new Indexer(store, new FakeSource([])));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -165,11 +168,14 @@ test('HTTP rankings, snapshots, pagination, wallet payer history and validation'
   assert.equal(response.headers.get('access-control-allow-origin'), '*');
   assert.equal(first.items[0].player, bob);
   assert.equal(first.nextOffset, 1);
+  assert.equal(first.total, 3);
   const second = await (await get(`/charts/${chart}/days/20000/rankings?offset=1&atBlockHash=${first.indexedBlockHash}`)).json();
   assert.equal(second.items[0].rank, 2);
-  assert.equal((await (await get(`/wallets/${alice}/attempts`)).json()).total, 2);
+  assert.deepEqual(second.items.map(row => [row.rank, row.player, row.sessionId]), [[2, alice, '2'], [3, alice, '3']]);
+  assert.equal((await (await get(`/wallets/${alice}/attempts`)).json()).total, 4);
   assert.equal((await (await get(`/wallets/${bob}/history`)).json()).total, 2);
   assert.equal((await (await get(`/wallets/${alice}/bests`)).json()).items[0].rank, 2);
+  assert.equal((await (await get(`/wallets/${alice}/bests`)).json()).total, 1);
   assert.equal((await get('/attempts?limit=201')).status, 400);
   assert.equal((await get('/attempts?offset=-1')).status, 400);
   assert.equal((await get('/attempts?dayId=1.2')).status, 400);

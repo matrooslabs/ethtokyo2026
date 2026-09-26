@@ -243,10 +243,16 @@ impl Lane<'_> {
 
 /// O(notes + events). Host and zkVM call this exact function.
 pub fn evaluate(input: &PlayInput) -> Result<PublicValues, &'static str> {
+    evaluate_with_policy(input, input_policy_hash())
+}
+
+/// Score the original header under an explicitly selected protocol policy.
+/// The caller remains responsible for the protocol-specific signed digest.
+pub fn evaluate_with_policy(input: &PlayInput, policy: Hash) -> Result<PublicValues, &'static str> {
     validate_chart(&input.chart)?;
     let h = &input.header;
     let f = &input.footer;
-    if h.ruleset_id != ruleset_id() || h.input_policy_hash != input_policy_hash() {
+    if h.ruleset_id != ruleset_id() || h.input_policy_hash != policy {
         return Err("unsupported ruleset or input policy");
     }
     if h.chart_hash != chart_hash(&input.chart) {

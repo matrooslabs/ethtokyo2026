@@ -17,6 +17,7 @@ contract ManiaGkrRegistry {
     bytes32 public constant INPUT_POLICY_B = sha256("OSUMANIA_INPUT_POLICY_V2_KZG");
     uint8 public constant MODE_CALLDATA = 1;
     uint8 public constant MODE_COMMITTED = 2;
+    uint8 public constant PAID_SESSION_MODE = MODE_COMMITTED;
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     uint256 private constant EVENT_BYTES = 14;
     uint256 private constant CHUNK_EVENTS = 32;
@@ -107,7 +108,7 @@ contract ManiaGkrRegistry {
         uint256 dayId = block.timestamp / 1 days;
         require(expiresAt == (dayId + 1) * 1 days, "invalid paid deadline");
         bytes32 matchId = keccak256(abi.encode(chartHash, dayId));
-        id = _createSession(matchId, chartHash, player, device, expiresAt, MODE_CALLDATA);
+        id = _createSession(matchId, chartHash, player, device, expiresAt, MODE_COMMITTED);
         paidSessions[id] = true;
     }
 

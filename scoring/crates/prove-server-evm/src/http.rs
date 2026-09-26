@@ -29,6 +29,12 @@ pub const BODY_LIMIT: usize = 16 * 1024 * 1024;
 pub trait Prove: Send + Sync + 'static {
     /// `GET /v1/info` body.
     fn info(&self) -> Value;
+    fn bank_hash(&self, _points: usize) -> Result<[u8; 32]> {
+        anyhow::bail!("hardware bank unsupported")
+    }
+    fn prove_sealed(&self, _input: &PlayInput, _commitment: [[u8; 32]; 2]) -> Result<Value> {
+        anyhow::bail!("sealed proving unsupported")
+    }
     fn modes(&self) -> &'static [&'static str];
     /// Prove a play that already passed native scoring. Blocking; runs on its own OS thread.
     fn prove(&self, mode: &str, input: &PlayInput) -> Result<Value>;
@@ -56,18 +62,28 @@ pub fn router(prover: Arc<dyn Prove>, token: Option<String>) -> Router {
     router_with_busy(prover, token, Arc::new(Semaphore::new(1)))
 }
 
-pub fn router_with_busy(prover: Arc<dyn Prove>, token: Option<String>, busy: Arc<Semaphore>) -> Router {
+pub fn router_with_busy(
+    prover: Arc<dyn Prove>,
+    token: Option<String>,
+    busy: Arc<Semaphore>,
+) -> Router {
     let shared = Arc::new(Shared {
         prover,
         busy,
         token_hash: token.map(|t| sha256(t.as_bytes())),
     });
     Router::new()
-        .route("/v1/info", get(|State(s): State<Arc<Shared>>| async move { Json(s.prover.info()) }))
+        .route(
+            "/v1/info",
+            get(|State(s): State<Arc<Shared>>| async move { Json(s.prover.info()) }),
+        )
         .route("/v1/prove", post(prove))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .layer(middleware::from_fn_with_state(shared.clone(), authorize))
-        .route("/healthz", get(|| async { Json(serde_json::json!({"status": "ok"})) }))
+        .route(
+            "/healthz",
+            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
+        )
         .with_state(shared)
 }
 
@@ -114,14 +130,31 @@ async fn prove(State(s): State<Arc<Shared>>, Json(request): Json<ProveRequest>) 
         return error(StatusCode::UNPROCESSABLE_ENTITY, text);
     }
     let ProveRequest { mode, input } = request;
-    let checked = tokio::task::spawn_blocking(move || evaluate(&input).map(|_| input)).await;
+    let committed = mode == "committed";
+    let checked = tokio::task::spawn_blocking(move || {
+        let score = if committed
+            && input.header.input_policy_hash == mania_gkr::scoring::session::input_policy_v2()
+        {
+            mania_scoring_core::evaluate_with_policy(
+                &input,
+                mania_gkr::scoring::session::input_policy_v2(),
+            )
+        } else {
+            evaluate(&input)
+        };
+        score.map(|_| input)
+    })
+    .await;
     let input = match checked {
         Ok(Ok(input)) => input,
         Ok(Err(e)) => return error(StatusCode::UNPROCESSABLE_ENTITY, e),
         Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, e),
     };
     let Ok(permit) = s.busy.clone().try_acquire_owned() else {
-        return error(StatusCode::SERVICE_UNAVAILABLE, "another proof is running; retry later");
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "another proof is running; retry later",
+        );
     };
     // A dedicated OS thread for the whole proof. The permit lives until proving really ends,
     // even if the client disconnects, so proofs never overlap.
@@ -182,7 +215,13 @@ mod tests {
         serde_json::json!({"mode": mode, "input": input})
     }
 
-    async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>, token: bool) -> (StatusCode, Value) {
+    async fn call(
+        app: &Router,
+        method: &str,
+        uri: &str,
+        body: Option<Value>,
+        token: bool,
+    ) -> (StatusCode, Value) {
         let mut request = Request::builder()
             .method(method)
             .uri(uri)
@@ -191,35 +230,72 @@ mod tests {
             request = request.header(header::AUTHORIZATION, format!("Bearer {TOKEN}"));
         }
         let body = Body::from(body.map(|b| b.to_string()).unwrap_or_default());
-        let response = app.clone().oneshot(request.body(body).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     #[tokio::test]
     async fn prove_returns_json_and_rejects_bad_requests() {
-        let app = router(Arc::new(Fake { hold: AtomicBool::new(false) }), Some(TOKEN.into()));
-        assert_eq!(call(&app, "GET", "/healthz", None, false).await.0, StatusCode::OK);
-        assert_eq!(call(&app, "GET", "/v1/info", None, false).await.0, StatusCode::UNAUTHORIZED);
-        assert_eq!(call(&app, "GET", "/v1/info", None, true).await.1["system"], "fake");
-        assert_eq!(call(&app, "POST", "/v1/prove", Some(body("fast")), false).await.0, StatusCode::UNAUTHORIZED);
+        let app = router(
+            Arc::new(Fake {
+                hold: AtomicBool::new(false),
+            }),
+            Some(TOKEN.into()),
+        );
+        assert_eq!(
+            call(&app, "GET", "/healthz", None, false).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(&app, "GET", "/v1/info", None, false).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, "GET", "/v1/info", None, true).await.1["system"],
+            "fake"
+        );
+        assert_eq!(
+            call(&app, "POST", "/v1/prove", Some(body("fast")), false)
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
         let (status, proof) = call(&app, "POST", "/v1/prove", Some(body("fast")), true).await;
-        assert_eq!((status, proof["score"].clone()), (StatusCode::OK, 1_000_000.into()));
+        assert_eq!(
+            (status, proof["score"].clone()),
+            (StatusCode::OK, 1_000_000.into())
+        );
         let (status, reply) = call(&app, "POST", "/v1/prove", Some(body("slow")), true).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(reply["error"].as_str().unwrap().contains("fast"));
         let mut invalid = body("fast");
         invalid["input"]["events"][0]["timestamp_us"] = 1.into();
-        assert_eq!(call(&app, "POST", "/v1/prove", Some(invalid), true).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            call(&app, "POST", "/v1/prove", Some(invalid), true).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
         let mut extra = body("fast");
         extra["unexpected"] = true.into();
-        assert!(call(&app, "POST", "/v1/prove", Some(extra), true).await.0.is_client_error());
+        assert!(call(&app, "POST", "/v1/prove", Some(extra), true)
+            .await
+            .0
+            .is_client_error());
     }
 
     #[tokio::test]
     async fn one_proof_at_a_time() {
-        let fake = Arc::new(Fake { hold: AtomicBool::new(true) });
+        let fake = Arc::new(Fake {
+            hold: AtomicBool::new(true),
+        });
         let app = router(fake.clone(), None);
         let first = tokio::spawn({
             let app = app.clone();
@@ -230,6 +306,11 @@ mod tests {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         fake.hold.store(false, Ordering::SeqCst);
         assert_eq!(first.await.unwrap().0, StatusCode::OK);
-        assert_eq!(call(&app, "POST", "/v1/prove", Some(body("fast")), false).await.0, StatusCode::OK);
+        assert_eq!(
+            call(&app, "POST", "/v1/prove", Some(body("fast")), false)
+                .await
+                .0,
+            StatusCode::OK
+        );
     }
 }

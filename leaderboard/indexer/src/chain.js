@@ -59,7 +59,11 @@ export class ChainSource {
         compare(scope, 'prizeClaimed', round.claimed, prizeClaimed);
         const remaining = prizeClaimed ? 0n : totalPaid - totalRefunded;
         compare(scope, 'remainingPot', round.remainingPot, remaining);
+        const checkedPlayers = new Set();
         for (const row of round.rankings) {
+          // Rankings are descending, so the first attempt is this player's on-chain best.
+          if (checkedPlayers.has(row.player)) continue;
+          checkedPlayers.add(row.player);
           const [exists, bestScore] = await read('records', [...args, row.player]);
           compare({ ...scope, player: row.player }, 'exists', true, exists);
           compare({ ...scope, player: row.player }, 'bestScore', row.score, bestScore);
