@@ -534,7 +534,6 @@ manifest.browserConfiguration = {
   VITE_SUI_EASY_CHART_HASH: charts.easy.chartHash,
   VITE_SUI_HARD_CHART_HASH: charts.hard.chartHash,
   VITE_SUI_USDC_TYPE: USDC,
-  VITE_SUI_INSECURE_DEMO: insecureDemo ? 'true' : 'false',
   VITE_BEATMAP_URL: '/beatmaps/forest.osz',
 };
 manifest.phase = 'active';

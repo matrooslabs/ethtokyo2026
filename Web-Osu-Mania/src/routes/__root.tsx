@@ -44,7 +44,7 @@ export const Route = createRootRoute({
       { rel: "apple-touch-icon", href: "/versu-logo.png" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: import.meta.env.DEV ? `${appCss}?v=20260927-pools` : appCss,
       },
       {
         rel: "manifest",
