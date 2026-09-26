@@ -36,6 +36,7 @@ export default function ClaimVerification({ challengeId, difficulty, onReady }: 
   const [opened, setOpened] = useState(false);
   const [attestationToken, setAttestationToken] = useState("");
   const selection = `${account?.address || ""}\0${challengeId}\0${difficulty}`;
+  const ticketStorageKey = `versu:world-attestation:${account?.address || ""}:${challengeId}:${difficulty}`;
   const currentSelection = useRef({ key: selection, generation: 0 });
   if (currentSelection.current.key !== selection) {
     currentSelection.current.key = selection;
@@ -57,6 +58,12 @@ export default function ClaimVerification({ challengeId, difficulty, onReady }: 
     setError("");
     setBusy(false);
     onReady(false);
+    if (account?.address) {
+      try {
+        const saved = sessionStorage.getItem(ticketStorageKey);
+        if (saved) { setAttestationToken(saved); setPending(true); }
+      } catch { /* Wallet signature is still required to retry. */ }
+    }
   }, [account?.address, challengeId, difficulty, onReady]);
 
   async function begin() {
@@ -112,11 +119,13 @@ export default function ClaimVerification({ challengeId, difficulty, onReady }: 
     if (!result.ready) {
       if (typeof result.attestationToken !== "string" || !result.attestationToken) throw new Error("Verified identity has no registration ticket. Start verification again.");
       setAttestationToken(result.attestationToken);
+      try { sessionStorage.setItem(ticketStorageKey, result.attestationToken); } catch { /* Tab-only retry is optional. */ }
       setPending(true);
       setError("Identity verified. Sui registration is pending; select Finish verification to retry without repeating World ID.");
       return;
     }
     setAttestationToken("");
+    try { sessionStorage.removeItem(ticketStorageKey); } catch { /* Storage may be disabled. */ }
     setPending(false);
     setBoundWallet(result.wallet);
     setVerified(true);
@@ -148,6 +157,7 @@ export default function ClaimVerification({ challengeId, difficulty, onReady }: 
         if ([400, 401, 403, 409, 410].includes(response.status)) {
           setPending(false);
           setAttestationToken("");
+          try { sessionStorage.removeItem(ticketStorageKey); } catch { /* Storage may be disabled. */ }
           throw new Error(`${value.error || "Registration ticket was rejected."} Start World ID verification again if you are still eligible.`);
         }
         throw new Error(value.error || "Sui registration failed. Try Finish verification again.");
@@ -159,14 +169,17 @@ export default function ClaimVerification({ challengeId, difficulty, onReady }: 
         if (typeof value.attestationToken !== "string" || !value.attestationToken) {
           setPending(false);
           setAttestationToken("");
+          try { sessionStorage.removeItem(ticketStorageKey); } catch { /* Storage may be disabled. */ }
           throw new Error("Registration ticket is unavailable. Start World ID verification again.");
         }
         setAttestationToken(value.attestationToken);
+        try { sessionStorage.setItem(ticketStorageKey, value.attestationToken); } catch { /* Tab-only retry is optional. */ }
         setError("Sui registration is not confirmed yet. Try Finish verification again.");
         return;
       }
       setPending(false);
       setAttestationToken("");
+      try { sessionStorage.removeItem(ticketStorageKey); } catch { /* Storage may be disabled. */ }
       setBoundWallet(account.address);
       setVerified(true);
       onReady(true);

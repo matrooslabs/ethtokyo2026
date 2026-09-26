@@ -338,7 +338,8 @@ if profile == 'mvp-keyed':
     compiled_core = project / 'sources/optee-os-artifacts/mvp-keyed/tee.elf'
     require(compiled_core.is_file() and b'BridgeOS-dev-HUK' not in compiled_core.read_bytes(),
             'keyed OP-TEE core excludes public development HUK')
-    core_conf = (project / 'sources/optee-os/out/arm-plat-rockchip/conf.mk').read_text().splitlines()
+    optee_source = Path(os.environ.get('OPTEE_SOURCE_DIR', project / 'sources/optee-os'))
+    core_conf = (optee_source / 'out/arm-plat-rockchip/conf.mk').read_text().splitlines()
     require('CFG_RK3568_DEV_INSECURE_HUK=n' in core_conf and
             'CFG_RK3568_HUK_OFFSET=0xffffffff' in core_conf,
             'keyed OP-TEE core does not enable public development HUK')
