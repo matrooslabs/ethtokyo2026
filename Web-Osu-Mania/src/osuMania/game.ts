@@ -1,3 +1,5 @@
+import { useGameStore } from "@/stores/gameStore";
+import { defaultSettings } from "@/stores/settingsStore";
 import type { TimelineDataPoint } from "@/components/game/timelineGraph";
 import { CUSTOM_SOUND_OPTION } from "@/components/settings/sounds/customSoundSelect";
 import type {
@@ -197,6 +199,11 @@ export class Game {
     this.nextTimingPoint = this.timingPoints[1];
 
     this.settings = JSON.parse(JSON.stringify(useSettingsStore.getState()));
+
+    if (useGameStore.getState().paidAttempt) {
+      this.settings.mods = structuredClone(defaultSettings.mods);
+      this.settings.retryOnFail = false;
+    }
 
     // If watching a replay, there should be no unpause delay
     if (replayData) {

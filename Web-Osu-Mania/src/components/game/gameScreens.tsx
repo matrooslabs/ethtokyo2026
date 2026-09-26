@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import { cn } from "@/lib/utils";
 import { Game } from "@/osuMania/game";
@@ -29,6 +30,7 @@ const GameScreens = ({
   showHud: boolean;
   setShowHud: Dispatch<SetStateAction<boolean>>;
 }) => {
+  const paidAttempt = useGameStore.use.paidAttempt();
   const backgroundDim = useSettingsStore.use.backgroundDim();
   const backgroundBlur = useSettingsStore.use.backgroundBlur();
   const lightenBackgroundDuringBreaks =
@@ -94,11 +96,16 @@ const GameScreens = ({
     }
 
     if (isPaused) {
+      if (paidAttempt) {
+        toast("Paid attempt ended because gameplay paused. The entry fee remains in the daily pot.");
+        useGameStore.getState().closeGame();
+        return;
+      }
       game.pause();
     } else if (game.state === "PAUSE") {
       game.resume();
     }
-  }, [isPaused, game]);
+  }, [isPaused, game, paidAttempt]);
 
   // Event listeners
   useEffect(() => {
@@ -170,7 +177,7 @@ const GameScreens = ({
         )}
       >
         {game && !results && <VolumeWidget game={game} />}
-        {game && !results && <RetryWidget retry={retry} />}
+        {game && !results && !paidAttempt && <RetryWidget retry={retry} />}
         {game && !results && <PauseButton setIsPaused={setIsPaused} />}
         {game && !results && replayData && <ReplayControls game={game} />}
 

@@ -1,3 +1,4 @@
+import type { PaidAttempt } from "@/lib/leaderboard/bridge";
 import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { walletConfig } from "@/lib/walletConfig";
 import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
@@ -10,6 +11,8 @@ import { getAccount } from "wagmi/actions";
 import { immer } from "zustand/middleware/immer";
 
 type GameState = {
+  paidAttempt: PaidAttempt | null;
+  startPaidGame: (beatmapSet: BeatmapSet, beatmapId: number, attempt: PaidAttempt) => void;
   beatmapSet: BeatmapSet | null;
   beatmapId: number | null;
   replayData: ReplayData | null;
@@ -23,12 +26,23 @@ type GameState = {
 
 const useGameStoreBase = create<GameState>()(
   immer((set, get) => ({
+    paidAttempt: null,
+    startPaidGame: (beatmapSet, beatmapId, attempt) => {
+      set((state) => {
+        state.paidAttempt = attempt;
+        state.beatmapSet = beatmapSet;
+        state.beatmapId = beatmapId;
+        state.replayData = null;
+        state.scrollPosition = window.scrollY;
+      });
+    },
     beatmapSet: null,
     beatmapId: null,
     replayData: null,
     scrollPosition: null,
 
     startGame: (beatmapId: number) => {
+      set((state) => { state.paidAttempt = null; });
       if (!getAccount(walletConfig).isConnected) {
         toast("Connect your wallet before playing.");
         return;
@@ -90,6 +104,7 @@ const useGameStoreBase = create<GameState>()(
     closeGame: () => {
       Howler.unload();
       set((state) => {
+        state.paidAttempt = null;
         state.beatmapId = null;
         state.replayData = null;
         state.beatmapSet = null;

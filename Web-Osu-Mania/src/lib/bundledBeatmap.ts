@@ -1,7 +1,7 @@
 import { getBeatmapSetFromOsz } from "./beatmapParser";
 import type { BeatmapSet } from "./beatmapTypes";
 
-const BEATMAP_URL = "/beatmaps/forest.osz";
+const BEATMAP_URL = (import.meta.env.DEV && import.meta.env.VITE_DEVELOPMENT_BEATMAP_URL) || import.meta.env.VITE_BEATMAP_URL || "/beatmaps/daily-demo.osz";
 
 let archive: Promise<Blob> | undefined;
 let beatmapSet: Promise<BeatmapSet> | undefined;

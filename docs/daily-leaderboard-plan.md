@@ -1,6 +1,6 @@
 # Daily beatmap leaderboard execution plan
 
-Status: contracts, GKR integration, indexer and Sepolia paid-proof smoke verified; browser verification and remaining draft PRs in progress. Coordinator maintains this file; workers report evidence in `docs/reports/`.
+Status: contracts, GKR integration, indexer and Sepolia paid-proof smoke verified; local browser gameplay-to-proof flow verified; all six draft PRs published. Live midnight settlement and physical phone pairing verification remain pending. Coordinator maintains this file; workers report evidence in `docs/reports/`.
 
 ## Approved rules
 
@@ -68,12 +68,14 @@ Depends on PRs 3 and 4.
 | 2 | Complete | Real GKR proof integration; 36 Foundry test executions pass | [#3](https://github.com/matrooslabs/ethtokyo2026/pull/3) |
 | 3 | Complete | Anvil full settlement; Sepolia paid proof/tie pass; live midnight settlement pending | [#6](https://github.com/matrooslabs/ethtokyo2026/pull/6) |
 | 4 | Complete | 14 tests pass; Sepolia reconciliation: 6 reads, no mismatches | [#4](https://github.com/matrooslabs/ethtokyo2026/pull/4) |
-| 5 | Implemented; browser verification in progress | Unit/type/build checks and browser flow being completed | Pending |
+| 5 | Complete | 9 unit tests; typecheck/build; actual local browser paid gameplay→GKR proof→accepted score pass; Sepolia readiness; browser claim/refund with offline indexer; QR render/decode pass | [#7](https://github.com/matrooslabs/ethtokyo2026/pull/7) |
 
 Target network: Ethereum Sepolia, explicitly selected by the user. Deployment signer: local `./.priv-key`, explicitly authorized by the user; never log or commit its contents. GitHub access verified.
 
 Additional support PR [#5](https://github.com/matrooslabs/ethtokyo2026/pull/5) removes SP1, preserves the shared scoring core/fixtures and adds sealed-input GKR proving. GKR tests: 29 pass; shared core: 15 pass.
 
-Deployer and test USDC funded; real GKR proving and Sepolia submission verified. User supplied the WalletConnect project ID; browser QR verification is in progress. Physical hardware is out of scope at the user’s request. Live claim/refund verification must wait until 2026-09-27T00:00:00Z; local time-controlled verification already passes.
+Deployer and test USDC funded; real GKR proving and Sepolia submission verified. User supplied the WalletConnect project ID; WalletConnect QR renders and the screenshot decodes as a valid v2 URI; physical phone pairing and signing remain unverified. Physical hardware is out of scope at the user’s request. Live claim/refund verification must wait until 2026-09-27T00:00:00Z; local time-controlled verification already passes.
 
 Demo trust limits: software signing does not attest physical gameplay, and the development known-tau SRS is not production-sound. No production security claim is made.
+
+Review/merge order: #2 → #3 → #4 → #5 (SP1 removal/prover support) → #6 → #7. These are draft PRs and have not been merged. The remaining checks are explicitly incomplete; implementation publication is not a claim that those external checks passed.

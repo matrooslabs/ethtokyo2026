@@ -1,3 +1,6 @@
+import { bridgeRequest } from "@/lib/leaderboard/bridge";
+import { encodeMods } from "@/lib/replay";
+import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import { parseOsz } from "@/lib/beatmapParser";
@@ -11,6 +14,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import GameScreens from "./gameScreens";
 
 const GameModal = () => {
+  const paidAttempt = useGameStore.use.paidAttempt();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
   const closeGame = useGameStore.use.closeGame();
@@ -77,13 +81,22 @@ const GameModal = () => {
         const parsedBeatmapData = await parseOsz(
           beatmapSetFile,
           beatmap,
-          replay?.mods,
+          paidAttempt ? encodeMods(defaultSettings.mods) : replay?.mods,
           replay?.columnMap,
           true,
         );
 
+        if (paidAttempt) {
+          if (parsedBeatmapData.sourceHash !== paidAttempt.webBeatmapHash) {
+            throw new Error("Paid entry chart does not match the loaded beatmap.");
+          }
+          if (Date.now() / 1000 >= (paidAttempt.dayId + 1) * 86400) {
+            throw new Error("Paid round has closed. Return to the competition to check settlement.");
+          }
+        }
+
         // If autoplay is enabled and we're not already watching a replay, use a perfect replay
-        if (!replay && mods.autoplay) {
+        if (!paidAttempt && !replay && mods.autoplay) {
           const autoReplay = generateAutoReplay(
             parsedBeatmapData,
             parsedBeatmapData.beatmapHash,
@@ -95,6 +108,13 @@ const GameModal = () => {
 
         await loadAssets();
 
+        if (paidAttempt) {
+          setLoadingMessage("Starting signed capture…");
+          const started = await bridgeRequest<{ sessionId: string; captureMode: string }>(`/sessions/${paidAttempt.sessionId}/start`, paidAttempt);
+          if (started.sessionId !== paidAttempt.sessionId || started.captureMode !== paidAttempt.captureMode) {
+            throw new Error("Capture session does not match the confirmed paid entry.");
+          }
+        }
         setBeatmapData(parsedBeatmapData);
       } catch (error: any) {
         toast("Parsing Error", {
@@ -136,6 +156,10 @@ const GameModal = () => {
   }, [beatmapData]);
 
   const retry = useCallback(() => {
+    if (useGameStore.getState().paidAttempt) {
+      toast("Each competition attempt needs a new paid entry. Return to the beatmap to enter again.");
+      return;
+    }
     setKey((prev) => prev + 1);
   }, []);
 

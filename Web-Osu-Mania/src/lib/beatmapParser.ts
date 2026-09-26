@@ -1,3 +1,4 @@
+import { isHoldObject, laneForX, sectionLines } from "./osuFields";
 import type { Settings } from "@/stores/settingsStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
@@ -102,6 +103,7 @@ export interface BeatmapData {
   beatmapId: number;
   beatmapSetId: number;
   beatmapHash: string;
+  sourceHash: string;
   isLocalSource: boolean;
   version: string;
   timingPoints: TimingPoint[];
@@ -141,6 +143,7 @@ export const parseOsz = async (
   const pattern = new RegExp(`Version:\\s?${diffName}(\r|\n)`);
 
   let osuFileData;
+  let sourceHash = "";
   const osuEntries = entries.filter(
     (entry) => entry.filename.endsWith(".osu") && !entry.directory,
   ) as FileEntry[];
@@ -149,6 +152,7 @@ export const parseOsz = async (
 
     if (pattern.test(text) || text.includes(`BeatmapID:${beatmap.id}`)) {
       osuFileData = text;
+      sourceHash = await getBlobSha256Hex(await entry.getData(new BlobWriter()));
       break;
     }
   }
@@ -289,6 +293,7 @@ export const parseOsz = async (
     beatmapSetId: beatmap.beatmapset_id,
     beatmapId: beatmap.id,
     beatmapHash,
+    sourceHash,
     isLocalSource,
     version: beatmap.version,
     timingPoints,
@@ -345,7 +350,7 @@ export function parseHitObjects(
       .split(",")
       .map((number) => Number(number));
 
-    const column = Math.floor((x * columnCount) / 512);
+    const column = laneForX(x, columnCount);
 
     const hitSoundBinaryString = hitSoundDecimal.toString(2).padStart(4, "0");
     const hitSound = {
@@ -358,7 +363,7 @@ export function parseHitObjects(
 
     const sampleSet = hitObject.split(",")[5].split(":");
 
-    const isHoldNote = type === 128;
+    const isHoldNote = isHoldObject(type);
     const sampleSetStartIndex = isHoldNote ? 1 : 0;
 
     const hitSample: HitSample = {
@@ -391,6 +396,9 @@ export function parseHitObjects(
     }
   });
 
+  // Match the canonical chart order, including archives with unsorted object lines.
+  hitObjects.sort((a, b) => a.time - b.time || a.column - b.column || a.endTime - b.endTime);
+
   // Remap notes to new columns based on replay or if random/mirror is enabled
   const defaultColumnMap = Array.from({ length: columnCount }, (_, i) => i);
   const columnMap =
@@ -417,7 +425,8 @@ export function parseHitObjects(
 
   const startTime = hitObjects[0].time;
 
-  const lastHitObjects = hitObjects.slice(-columnCount);
+  // An earlier long hold can end after all later notes.
+  const lastHitObjects = hitObjects;
 
   let endTime = 0;
 
@@ -795,6 +804,7 @@ export async function getBeatmapSetFromOsz(blob: Blob): Promise<BeatmapSet> {
       difficulty_rating: starRating,
       id: beatmapId > 0 ? beatmapId : -(i + 1),
       hash: beatmapHash,
+      sourceHash: await getBlobSha256Hex(await osuEntries[i].getData(new BlobWriter())),
       mode: "mania",
       total_length: totalLengthSeconds,
       user_id: 0,
@@ -805,11 +815,11 @@ export async function getBeatmapSetFromOsz(blob: Blob): Promise<BeatmapSet> {
       drain: difficulty.hp,
       count_circles: hitObjectsSection.filter((line) => {
         const type = Number(line.split(",")[3]);
-        return type !== 128;
+        return !isHoldObject(type);
       }).length,
       count_sliders: hitObjectsSection.filter((line) => {
         const type = Number(line.split(",")[3]);
-        return type === 128;
+        return isHoldObject(type);
       }).length,
     });
   }
@@ -841,10 +851,7 @@ export async function getBeatmapSetFromOsz(blob: Blob): Promise<BeatmapSet> {
 }
 
 export function getSectionLines(lines: string[], sectionName: string) {
-  const startIndex = lines.indexOf(`[${sectionName}]`) + 1;
-  const endIndex = lines.findIndex((line, i) => line === "" && i > startIndex);
-
-  return lines.slice(startIndex, endIndex).filter(Boolean);
+  return sectionLines(lines, sectionName);
 }
 
 async function getStringSha256Hex(text: string): Promise<string> {
@@ -907,4 +914,9 @@ function getHighestBpm(lines: string[]) {
   }
 
   return Math.round(highestBpm);
+}
+
+async function getBlobSha256Hex(blob: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
