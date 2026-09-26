@@ -1,8 +1,10 @@
 # ETH Tokyo 2026 — osu! hardware leaderboard
 
-A browser osu!mania game with signed hardware input and on-chain score verification. Each paid attempt contributes 1 USDC to its chart's daily pot. The first player to reach the highest accepted score wins the pot; settlement opens after midnight UTC. If no score is accepted, payers can claim refunds.
+The current `Web-Osu-Mania/` player uses a **Sui** Challenge, Sui wallet, Bridge-signed inputs and GKR proofs. See the [Forest challenge guide](Web-Osu-Mania/DAILY_LEADERBOARD.md) for its USDC credits, leaderboard, claims, configuration and live-deployment prerequisites. Run the web app from `Web-Osu-Mania/` with `npm ci && npm run dev`.
 
-The paid game uses **EVM Mode B**. The browser communicates with the board and submits transactions through the player's wallet. The local Rust server verifies the original capture and generates a proof. It needs no signing key or device connection.
+## Legacy EVM Mode B workflow
+
+The following setup documents the separate EVM contracts, prover, indexer and operations tools. The current browser player does **not** connect to this EVM leaderboard; do not use these steps to configure a Sui paid game.
 
 ```text
 Board ── Keyboard HID ──> Game in browser
@@ -16,21 +18,21 @@ Board ── Keyboard HID ──> Game in browser
                           Indexer ──> Browser rankings
 ```
 
-The Sui proof stack is separate: it verifies scores with Move contracts, but is not connected to the browser's paid USDC competition.
+The Sui and EVM deployments have different competition rules and are not interchangeable.
 
 ## Components and ports
 
 | Component | Location | Default endpoint | Needed for paid EVM play? |
 | --- | --- | --- | --- |
-| Web game + wallet + WebHID | `Web-Osu-Mania/` | `http://localhost:3000` | Yes |
+| Web game + wallet + WebHID | `Web-Osu-Mania/` | `http://localhost:3000` | No; current player uses Sui |
 | Local EVM prover | `scoring/crates/prove-server-evm/` | `http://127.0.0.1:8091` | Yes |
 | Read-only leaderboard indexer | `leaderboard/indexer/` | `http://127.0.0.1:8787` | Rankings/history; settlement also reads contracts directly |
 | EVM contracts | `scoring/gkr-scoring/contracts/` | Sepolia, or local Anvil at `http://127.0.0.1:8545` | Yes |
 | Deployment / registration scripts | `leaderboard/ops/` | One-time commands | Initial setup |
 | Hardware board | Existing bridgeos firmware, maintained separately | USB Keyboard HID + Vendor HID | Yes |
-| Sui prover + Move verifier | `scoring/gkr-scoring-sui/`, `scoring/crates/prove-server-sui/` | `http://127.0.0.1:8092` | No; optional independent stack |
+| Sui prover + Move verifier | `scoring/gkr-scoring-sui/`, `scoring/crates/prove-server-sui/` | `http://127.0.0.1:8092` | Separate current Sui stack; see Forest guide |
 
-Run the commands below **from the repository root**. If a configured Mode B deployment, matching SRS and registered board/chart already exist, skip their creation and go directly to configuration and service startup.
+Run the EVM commands below **from the repository root**. They do not activate the current Sui player. If a configured Mode B deployment, matching SRS and registered board/chart already exist, skip their creation and go directly to EVM service configuration and startup.
 
 ## 1. Install dependencies and build
 

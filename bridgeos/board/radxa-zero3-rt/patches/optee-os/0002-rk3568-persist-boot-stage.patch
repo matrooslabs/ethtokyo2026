@@ -1,0 +1,112 @@
+diff --git a/core/arch/arm/plat-rockchip/main.c b/core/arch/arm/plat-rockchip/main.c
+index 51fe8a1ec..d11d1c7b0 100644
+--- a/core/arch/arm/plat-rockchip/main.c
++++ b/core/arch/arm/plat-rockchip/main.c
+@@ -12,6 +12,7 @@
+ #include <kernel/panic.h>
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
++#include <platform.h>
+ #include <stdint.h>
+ 
+ #if defined(CFG_EARLY_CONSOLE)
+@@ -45,6 +46,7 @@ void boot_secondary_init_intc(void)
+ 
+ void plat_console_init(void)
+ {
++	platform_boot_stage(1);
+ #if defined(CFG_EARLY_CONSOLE)
+ 	/*
+ 	 * Console devices can vary a lot between devices and
+diff --git a/core/arch/arm/plat-rockchip/platform.c b/core/arch/arm/plat-rockchip/platform.c
+index 8028f2c13..9f1507881 100644
+--- a/core/arch/arm/plat-rockchip/platform.c
++++ b/core/arch/arm/plat-rockchip/platform.c
+@@ -14,6 +14,9 @@ int __weak platform_secure_init(void)
+ {
+ 	return 0;
+ }
++void __weak platform_boot_stage(uint32_t stage __unused)
++{
++}
+ 
+ int __weak platform_secure_ddr_region(int rgn __maybe_unused,
+ 				      paddr_t st __maybe_unused,
+@@ -29,6 +32,7 @@ static TEE_Result platform_init(void)
+ 	int ret = 0;
+ 
+ 	platform_secure_init();
++	platform_boot_stage(2);
+ 
+ 	/*
+ 	 * Rockchip SoCs can protect multiple memory regions (mostly 8).
+diff --git a/core/arch/arm/plat-rockchip/platform.h b/core/arch/arm/plat-rockchip/platform.h
+index 7b79b8627..ca012f2d7 100644
+--- a/core/arch/arm/plat-rockchip/platform.h
++++ b/core/arch/arm/plat-rockchip/platform.h
+@@ -5,8 +5,10 @@
+ 
+ #ifndef PLAT_ROCKCHIP_PLATFORM_H
+ #define PLAT_ROCKCHIP_PLATFORM_H
++#include <stdint.h>
+ 
+ int platform_secure_init(void);
+ int platform_secure_ddr_region(int rgn, paddr_t st, size_t sz);
++void platform_boot_stage(uint32_t stage);
+ 
+ #endif
+diff --git a/core/arch/arm/plat-rockchip/platform_config.h b/core/arch/arm/plat-rockchip/platform_config.h
+index 8ec4164ee..482b5391e 100644
+--- a/core/arch/arm/plat-rockchip/platform_config.h
++++ b/core/arch/arm/plat-rockchip/platform_config.h
+@@ -109,6 +109,8 @@
+ #define SCRU_SIZE               SIZE_K(64)
+ #define SGRF_BASE               0xfdd18000
+ #define SGRF_SIZE               SIZE_K(64)
++#define PMUGRF_BASE             0xfdc20000
++#define PMUGRF_SIZE             SIZE_K(64)
+ 
+ #elif defined(PLATFORM_FLAVOR_rk3588)
+ 
+diff --git a/core/arch/arm/plat-rockchip/platform_rk3568.c b/core/arch/arm/plat-rockchip/platform_rk3568.c
+index 73dd90c25..7cfb06fd3 100644
+--- a/core/arch/arm/plat-rockchip/platform_rk3568.c
++++ b/core/arch/arm/plat-rockchip/platform_rk3568.c
+@@ -3,6 +3,7 @@
+ #include <assert.h>
+ #include <common.h>
+ #include <io.h>
++#include <initcall.h>
+ #include <kernel/delay.h>
+ #include <kernel/panic.h>
+ #include <kernel/tee_common_otp.h>
+@@ -53,6 +54,29 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, OTP_S_BASE, OTP_S_SIZE);
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, CRU_BASE, CRU_SIZE);
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, SCRU_BASE, SCRU_SIZE);
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, SGRF_BASE, SGRF_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, PMUGRF_BASE, PMUGRF_SIZE);
++
++#define PMUGRF_OS_REG11 0x022c
++#define OPTEE_STAGE_MAGIC 0x4f500000u
++
++void platform_boot_stage(uint32_t stage)
++{
++    vaddr_t base = PMUGRF_BASE;
++
++    if (cpu_mmu_enabled()) {
++        base = (vaddr_t)phys_to_virt_io(PMUGRF_BASE, PMUGRF_SIZE);
++        if (!base)
++            panic("PMUGRF base not mapped");
++    }
++    io_write32(base + PMUGRF_OS_REG11, OPTEE_STAGE_MAGIC | (stage & 0xff));
++}
++
++static TEE_Result mark_boot_complete(void)
++{
++    platform_boot_stage(0xff);
++    return TEE_SUCCESS;
++}
++boot_final(mark_boot_complete);
+ 
+ int platform_secure_ddr_region(int region, paddr_t start, size_t size)
+ {

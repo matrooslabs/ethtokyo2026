@@ -10,53 +10,154 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as FaqRouteImport } from './routes/faq'
-import { Route as UpdatesRouteImport } from './routes/updates'
+import { Route as HowToPlayRouteImport } from './routes/how-to-play'
+import { Route as ApiIdentityAttestRouteImport } from './routes/api/identity/attest'
+import { Route as ApiIdentityChallengeRouteImport } from './routes/api/identity/challenge'
+import { Route as ApiIdentityVerifyRouteImport } from './routes/api/identity/verify'
+import { Route as ApiScoringInfoRouteImport } from './routes/api/scoring/info'
+import { Route as ApiScoringStartRouteImport } from './routes/api/scoring/start'
+import { Route as ApiScoringSubmitRouteImport } from './routes/api/scoring/submit'
+import { Route as ApiScoringJobsSessionIdRouteImport } from './routes/api/scoring/jobs/$sessionId'
+import { Route as ApiScoringJobsSessionIdRetryRouteImport } from './routes/api/scoring/jobs/$sessionId/retry'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FaqRoute = FaqRouteImport.update({
-  id: '/faq',
-  path: '/faq',
+const HowToPlayRoute = HowToPlayRouteImport.update({
+  id: '/how-to-play',
+  path: '/how-to-play',
   getParentRoute: () => rootRouteImport,
 } as any)
-const UpdatesRoute = UpdatesRouteImport.update({
-  id: '/updates',
-  path: '/updates',
+const ApiIdentityAttestRoute = ApiIdentityAttestRouteImport.update({
+  id: '/api/identity/attest',
+  path: '/api/identity/attest',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiIdentityChallengeRoute = ApiIdentityChallengeRouteImport.update({
+  id: '/api/identity/challenge',
+  path: '/api/identity/challenge',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiIdentityVerifyRoute = ApiIdentityVerifyRouteImport.update({
+  id: '/api/identity/verify',
+  path: '/api/identity/verify',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScoringInfoRoute = ApiScoringInfoRouteImport.update({
+  id: '/api/scoring/info',
+  path: '/api/scoring/info',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScoringStartRoute = ApiScoringStartRouteImport.update({
+  id: '/api/scoring/start',
+  path: '/api/scoring/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScoringSubmitRoute = ApiScoringSubmitRouteImport.update({
+  id: '/api/scoring/submit',
+  path: '/api/scoring/submit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScoringJobsSessionIdRoute = ApiScoringJobsSessionIdRouteImport.update({
+  id: '/api/scoring/jobs/$sessionId',
+  path: '/api/scoring/jobs/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScoringJobsSessionIdRetryRoute =
+  ApiScoringJobsSessionIdRetryRouteImport.update({
+    id: '/retry',
+    path: '/retry',
+    getParentRoute: () => ApiScoringJobsSessionIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
-  '/updates': typeof UpdatesRoute
+  '/how-to-play': typeof HowToPlayRoute
+  '/api/identity/attest': typeof ApiIdentityAttestRoute
+  '/api/identity/challenge': typeof ApiIdentityChallengeRoute
+  '/api/identity/verify': typeof ApiIdentityVerifyRoute
+  '/api/scoring/info': typeof ApiScoringInfoRoute
+  '/api/scoring/start': typeof ApiScoringStartRoute
+  '/api/scoring/submit': typeof ApiScoringSubmitRoute
+  '/api/scoring/jobs/$sessionId': typeof ApiScoringJobsSessionIdRouteWithChildren
+  '/api/scoring/jobs/$sessionId/retry': typeof ApiScoringJobsSessionIdRetryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
-  '/updates': typeof UpdatesRoute
+  '/how-to-play': typeof HowToPlayRoute
+  '/api/identity/attest': typeof ApiIdentityAttestRoute
+  '/api/identity/challenge': typeof ApiIdentityChallengeRoute
+  '/api/identity/verify': typeof ApiIdentityVerifyRoute
+  '/api/scoring/info': typeof ApiScoringInfoRoute
+  '/api/scoring/start': typeof ApiScoringStartRoute
+  '/api/scoring/submit': typeof ApiScoringSubmitRoute
+  '/api/scoring/jobs/$sessionId': typeof ApiScoringJobsSessionIdRouteWithChildren
+  '/api/scoring/jobs/$sessionId/retry': typeof ApiScoringJobsSessionIdRetryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/faq': typeof FaqRoute
-  '/updates': typeof UpdatesRoute
+  '/how-to-play': typeof HowToPlayRoute
+  '/api/identity/attest': typeof ApiIdentityAttestRoute
+  '/api/identity/challenge': typeof ApiIdentityChallengeRoute
+  '/api/identity/verify': typeof ApiIdentityVerifyRoute
+  '/api/scoring/info': typeof ApiScoringInfoRoute
+  '/api/scoring/start': typeof ApiScoringStartRoute
+  '/api/scoring/submit': typeof ApiScoringSubmitRoute
+  '/api/scoring/jobs/$sessionId': typeof ApiScoringJobsSessionIdRouteWithChildren
+  '/api/scoring/jobs/$sessionId/retry': typeof ApiScoringJobsSessionIdRetryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/faq' | '/updates'
+  fullPaths:
+    | '/'
+    | '/how-to-play'
+    | '/api/identity/attest'
+    | '/api/identity/challenge'
+    | '/api/identity/verify'
+    | '/api/scoring/info'
+    | '/api/scoring/start'
+    | '/api/scoring/submit'
+    | '/api/scoring/jobs/$sessionId'
+    | '/api/scoring/jobs/$sessionId/retry'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/faq' | '/updates'
-  id: '__root__' | '/' | '/faq' | '/updates'
+  to:
+    | '/'
+    | '/how-to-play'
+    | '/api/identity/attest'
+    | '/api/identity/challenge'
+    | '/api/identity/verify'
+    | '/api/scoring/info'
+    | '/api/scoring/start'
+    | '/api/scoring/submit'
+    | '/api/scoring/jobs/$sessionId'
+    | '/api/scoring/jobs/$sessionId/retry'
+  id:
+    | '__root__'
+    | '/'
+    | '/how-to-play'
+    | '/api/identity/attest'
+    | '/api/identity/challenge'
+    | '/api/identity/verify'
+    | '/api/scoring/info'
+    | '/api/scoring/start'
+    | '/api/scoring/submit'
+    | '/api/scoring/jobs/$sessionId'
+    | '/api/scoring/jobs/$sessionId/retry'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FaqRoute: typeof FaqRoute
-  UpdatesRoute: typeof UpdatesRoute
+  HowToPlayRoute: typeof HowToPlayRoute
+  ApiIdentityAttestRoute: typeof ApiIdentityAttestRoute
+  ApiIdentityChallengeRoute: typeof ApiIdentityChallengeRoute
+  ApiIdentityVerifyRoute: typeof ApiIdentityVerifyRoute
+  ApiScoringInfoRoute: typeof ApiScoringInfoRoute
+  ApiScoringStartRoute: typeof ApiScoringStartRoute
+  ApiScoringSubmitRoute: typeof ApiScoringSubmitRoute
+  ApiScoringJobsSessionIdRoute: typeof ApiScoringJobsSessionIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -68,27 +169,96 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/faq': {
-      id: '/faq'
-      path: '/faq'
-      fullPath: '/faq'
-      preLoaderRoute: typeof FaqRouteImport
+    '/how-to-play': {
+      id: '/how-to-play'
+      path: '/how-to-play'
+      fullPath: '/how-to-play'
+      preLoaderRoute: typeof HowToPlayRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/updates': {
-      id: '/updates'
-      path: '/updates'
-      fullPath: '/updates'
-      preLoaderRoute: typeof UpdatesRouteImport
+    '/api/identity/attest': {
+      id: '/api/identity/attest'
+      path: '/api/identity/attest'
+      fullPath: '/api/identity/attest'
+      preLoaderRoute: typeof ApiIdentityAttestRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/identity/challenge': {
+      id: '/api/identity/challenge'
+      path: '/api/identity/challenge'
+      fullPath: '/api/identity/challenge'
+      preLoaderRoute: typeof ApiIdentityChallengeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/identity/verify': {
+      id: '/api/identity/verify'
+      path: '/api/identity/verify'
+      fullPath: '/api/identity/verify'
+      preLoaderRoute: typeof ApiIdentityVerifyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scoring/info': {
+      id: '/api/scoring/info'
+      path: '/api/scoring/info'
+      fullPath: '/api/scoring/info'
+      preLoaderRoute: typeof ApiScoringInfoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scoring/start': {
+      id: '/api/scoring/start'
+      path: '/api/scoring/start'
+      fullPath: '/api/scoring/start'
+      preLoaderRoute: typeof ApiScoringStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scoring/submit': {
+      id: '/api/scoring/submit'
+      path: '/api/scoring/submit'
+      fullPath: '/api/scoring/submit'
+      preLoaderRoute: typeof ApiScoringSubmitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scoring/jobs/$sessionId': {
+      id: '/api/scoring/jobs/$sessionId'
+      path: '/api/scoring/jobs/$sessionId'
+      fullPath: '/api/scoring/jobs/$sessionId'
+      preLoaderRoute: typeof ApiScoringJobsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scoring/jobs/$sessionId/retry': {
+      id: '/api/scoring/jobs/$sessionId/retry'
+      path: '/retry'
+      fullPath: '/api/scoring/jobs/$sessionId/retry'
+      preLoaderRoute: typeof ApiScoringJobsSessionIdRetryRouteImport
+      parentRoute: typeof ApiScoringJobsSessionIdRoute
     }
   }
 }
 
+interface ApiScoringJobsSessionIdRouteChildren {
+  ApiScoringJobsSessionIdRetryRoute: typeof ApiScoringJobsSessionIdRetryRoute
+}
+
+const ApiScoringJobsSessionIdRouteChildren: ApiScoringJobsSessionIdRouteChildren =
+  {
+    ApiScoringJobsSessionIdRetryRoute: ApiScoringJobsSessionIdRetryRoute,
+  }
+
+const ApiScoringJobsSessionIdRouteWithChildren =
+  ApiScoringJobsSessionIdRoute._addFileChildren(
+    ApiScoringJobsSessionIdRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FaqRoute: FaqRoute,
-  UpdatesRoute: UpdatesRoute,
+  HowToPlayRoute: HowToPlayRoute,
+  ApiIdentityAttestRoute: ApiIdentityAttestRoute,
+  ApiIdentityChallengeRoute: ApiIdentityChallengeRoute,
+  ApiIdentityVerifyRoute: ApiIdentityVerifyRoute,
+  ApiScoringInfoRoute: ApiScoringInfoRoute,
+  ApiScoringStartRoute: ApiScoringStartRoute,
+  ApiScoringSubmitRoute: ApiScoringSubmitRoute,
+  ApiScoringJobsSessionIdRoute: ApiScoringJobsSessionIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

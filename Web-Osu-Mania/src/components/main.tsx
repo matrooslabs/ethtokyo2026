@@ -1,47 +1,28 @@
-import { getBundledBeatmapSet } from "@/lib/bundledBeatmap";
-import type { BeatmapSet } from "@/lib/beatmapTypes";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { HomeKeysGuide } from "@/components/homeKeysGuide";
 import DailyCompetition from "./leaderboard/dailyCompetition";
 
+const DevCompetition = import.meta.env.MODE === "development" ? lazy(() => import("./dev/devCompetition")) : null;
+
 export default function Main() {
-  const [beatmapSet, setBeatmapSet] = useState<BeatmapSet | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [internalSimulation, setInternalSimulation] = useState(false);
   useEffect(() => {
-    getBundledBeatmapSet().then(setBeatmapSet, (cause) =>
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not load bundled beatmap.",
-      ),
-    );
+    const sync = () => setInternalSimulation(window.location.hash === "#_simulation");
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
   }, []);
-  const beatmap = beatmapSet?.beatmaps.find((map) => map.cs === 4);
-  if (!beatmapSet || !beatmap)
-    return (
-      <div className="arena-loading">
-        <span className="arena-eyebrow">ONE BEATMAP. ONE TOP SPOT.</span>
-        <h1>Find your rhythm.</h1>
-        <p role={error ? "alert" : "status"}>
-          {error ||
-            (beatmapSet
-              ? "No 4K chart is available in the bundled beatmap."
-              : "Getting the arena ready…")}
-        </p>
-        {error && (
-          <button
-            className="arena-primary"
-            onClick={() => window.location.reload()}
-          >
-            Try again
-          </button>
-        )}
-      </div>
-    );
-  return (
-    <DailyCompetition
-      beatmap={beatmap}
-      beatmapSet={beatmapSet}
-      stopPreview={() => {}}
-    />
-  );
+  if ((import.meta.env.VITE_BEATMAP_URL && import.meta.env.VITE_BEATMAP_URL !== "/beatmaps/forest.osz") ||
+      (import.meta.env.DEV && import.meta.env.VITE_DEVELOPMENT_BEATMAP_URL &&
+        import.meta.env.VITE_DEVELOPMENT_BEATMAP_URL !== "/beatmaps/forest.osz")) {
+    return <div className="arena-loading" role="alert">
+      <h1>Play four keys.</h1>
+      <HomeKeysGuide />
+      <p>Forest archive is not configured. Set VITE_BEATMAP_URL=/beatmaps/forest.osz.</p>
+    </div>;
+  }
+  if (import.meta.env.MODE === "development" && import.meta.env.VITE_VERSU_MODE === "dev" && internalSimulation && DevCompetition) {
+    return <Suspense fallback={<p role="status">Loading local simulation…</p>}><DevCompetition /></Suspense>;
+  }
+  return <DailyCompetition />;
 }

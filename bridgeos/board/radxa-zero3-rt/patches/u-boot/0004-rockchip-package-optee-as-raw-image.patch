@@ -1,0 +1,35 @@
+diff --git a/arch/arm/dts/rockchip-u-boot.dtsi b/arch/arm/dts/rockchip-u-boot.dtsi
+index 4ba6a87e78a..464da7af54a 100644
+--- a/arch/arm/dts/rockchip-u-boot.dtsi
++++ b/arch/arm/dts/rockchip-u-boot.dtsi
+@@ -94,16 +94,14 @@
+ 				};
+ #endif
+ 			};
+-			@tee-SEQ {
+-				fit,operation = "split-elf";
+-				description = "TEE";
++			op-tee {
++				description = "OP-TEE";
+ 				type = "tee";
+ 				arch = FIT_ARCH;
+ 				os = "tee";
+ 				compression = "none";
+-				fit,load;
+-				fit,entry;
+-				fit,data;
++				load = <(CFG_SYS_SDRAM_BASE + 0x8400000)>;
++				entry = <(CFG_SYS_SDRAM_BASE + 0x8400000)>;
+ 
+ 				tee-os {
+ 					optional;
+@@ -150,7 +148,7 @@
+ 			@config-SEQ {
+ 				description = "NAME.dtb";
+ 				fdt = "fdt-SEQ";
+ #ifdef CONFIG_ARM64
+-				fit,firmware = "atf-1", "u-boot";
++				fit,firmware = "atf-1", "u-boot", "op-tee";
+ #else
+ 				fit,firmware = "op-tee", "u-boot";
+ #endif

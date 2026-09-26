@@ -12,14 +12,6 @@ const indexSearchSchema = z.object({
 export const Route = createFileRoute("/")({
   component: Home,
   validateSearch: zodValidator(indexSearchSchema),
-  head: () => ({
-    links: [
-      {
-        rel: "canonical",
-        href: "https://webosumania.com",
-      },
-    ],
-  }),
 });
 
 function Home() {

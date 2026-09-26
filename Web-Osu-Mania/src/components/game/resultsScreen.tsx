@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { BeatmapData } from "@/lib/beatmapParser";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { idb } from "@/lib/idb";
 import { downloadReplay } from "@/lib/replay";
 import { downloadResults, getReplayFilename } from "@/lib/results";
@@ -23,15 +24,19 @@ import { Button } from "../ui/button";
 import Results from "./results";
 
 const ResultsScreen = ({
+  hardware,
   beatmapData,
   playResults,
   retry,
 }: {
+  hardware: BridgeHardware;
   beatmapData: BeatmapData;
   playResults: PlayResults;
   retry: () => void;
 }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
+  const devRun = useGameStore.use.devRun();
+  const recordDevResult = useGameStore.use.recordDevResult();
   const closeGame = useGameStore.use.closeGame();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -43,10 +48,22 @@ const ResultsScreen = ({
   );
   const hiddenRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (import.meta.env.MODE === "development" && devRun && !playResults.viewingReplay) {
+      recordDevResult({
+        runId: devRun.id,
+        score: playResults.score,
+        failed: !!playResults.failed,
+      });
+    }
+  }, [devRun, playResults, recordDevResult]);
+
+
   // Check for new high score
   useEffect(() => {
     if (
       !beatmapId ||
+      devRun ||
       !beatmapSet ||
       mods.autoplay ||
       playResults.failed ||
@@ -106,6 +123,7 @@ const ResultsScreen = ({
     checkNewHighScore();
   }, [
     beatmapId,
+    devRun,
     beatmapSet,
     playResults,
     setHighScores,
@@ -116,12 +134,22 @@ const ResultsScreen = ({
   return (
     <>
       {/* Top of -1px since it wasn't covering the top for some reason */}
-      <div className="bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
-        <ProofSubmission results={playResults} beatmap={beatmapData} />
+      <div className="arena-results bg-background animate-in fade-in scrollbar fixed inset-0 -inset-y-px overflow-auto duration-1000">
+        {paidAttempt && <ProofSubmission results={playResults} beatmap={beatmapData} hardware={hardware} />}
+        {import.meta.env.MODE === "development" && devRun && (
+          <div role="status" className="mx-auto mt-6 max-w-(--breakpoint-xl) rounded border border-amber-500 p-4 text-center font-semibold text-amber-500">
+            Simulation only — not verified or on-chain
+          </div>
+        )}
 
         {/* Hidden results at a fixed width for getting screenshots */}
         <div className="max-h-0 overflow-hidden" aria-hidden tabIndex={-1}>
           <div ref={hiddenRef} className="w-7xl">
+            {import.meta.env.MODE === "development" && devRun && (
+              <div className="p-4 text-center text-amber-500 font-semibold">
+                Simulation only — not verified or on-chain
+              </div>
+            )}
             <Results
               beatmapData={beatmapData}
               playResults={playResults}
@@ -149,7 +177,7 @@ const ResultsScreen = ({
                 <MoveLeft /> Back
               </Button>
 
-              {!playResults.viewingReplay && !paidAttempt && (
+              {!playResults.viewingReplay && !paidAttempt && !devRun && (
                 <Button
                   variant={"default"}
                   className="gap-2 text-xl"
@@ -184,7 +212,7 @@ const ResultsScreen = ({
                 </Tooltip>
               </TooltipProvider>
 
-              {playResults.replayData && !paidAttempt && (
+              {playResults.replayData && !paidAttempt && !devRun && (
                 <div className="outline-border rounded-md outline-1 outline-solid">
                   <TooltipProvider>
                     <Tooltip delayDuration={0}>

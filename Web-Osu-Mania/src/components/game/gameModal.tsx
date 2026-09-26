@@ -1,12 +1,9 @@
-import { prepare } from "@/lib/leaderboard/capture";
-import { usePublicClient } from "wagmi";
-import { competitionChain } from "@/lib/walletConfig";
 import { encodeMods } from "@/lib/replay";
 import { defaultSettings } from "@/stores/settingsStore";
 import { Progress } from "@/components/ui/progress";
 import type { BeatmapData } from "@/lib/beatmapParser";
 import { parseOsz } from "@/lib/beatmapParser";
-import { getBundledBeatmapFile } from "@/lib/bundledBeatmap";
+import { getBundledBeatmapFile, getPracticeBeatmapFile, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
 import { generateAutoReplay } from "@/lib/replay";
 import { loadAssets } from "@/osuMania/assets";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,10 +11,10 @@ import { toast } from "sonner";
 import { useGameStore } from "../../stores/gameStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { ArenaSnapshot } from "./arenaHud";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import GameScreens from "./gameScreens";
 
-const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
-  const client = usePublicClient({chainId:competitionChain.id});
+const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: BridgeHardware }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
   const beatmapSet = useGameStore.use.beatmapSet();
   const beatmapId = useGameStore.use.beatmapId();
@@ -55,7 +52,8 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
 
       let beatmapSetFile: Blob;
       try {
-        beatmapSetFile = await getBundledBeatmapFile();
+        beatmapSetFile = await (beatmapSet.id === PRACTICE_BEATMAP_SET_ID && !paidAttempt
+          ? getPracticeBeatmapFile() : getBundledBeatmapFile());
         setDownloadPercent(100);
       } catch (error) {
         toast("Beatmap Load Error", {
@@ -88,7 +86,6 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
           paidAttempt ? encodeMods(defaultSettings.mods) : replay?.mods,
           replay?.columnMap,
           true,
-          !!paidAttempt,
         );
 
         if (paidAttempt) {
@@ -97,31 +94,22 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
               "Paid entry chart does not match the loaded beatmap.",
             );
           }
-          if (Date.now() / 1000 >= (paidAttempt.dayId + 1) * 86400) {
-            throw new Error(
-              "Paid round has closed. Return to the competition to check settlement.",
-            );
+          if (!Number.isSafeInteger(paidAttempt.scoreDeadlineMs) || Date.now() >= paidAttempt.scoreDeadlineMs) {
+            throw new Error("The six-hour challenge score window has closed. Return to the competition to check settlement.");
           }
         }
 
-        // If autoplay is enabled and we're not already watching a replay, use a perfect replay
         if (!paidAttempt && !replay && mods.autoplay) {
           const autoReplay = generateAutoReplay(
             parsedBeatmapData,
             parsedBeatmapData.beatmapHash,
             mods,
           );
-
           setReplayData(autoReplay);
         }
 
         await loadAssets();
 
-        if (paidAttempt) {
-          setLoadingMessage("Starting signed capture…");
-          if (!client) throw new Error('Chain client unavailable');
-          await prepare(paidAttempt, client);
-        }
         setBeatmapData(parsedBeatmapData);
       } catch (error: any) {
         toast("Parsing Error", {
@@ -163,10 +151,8 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
   }, [beatmapData]);
 
   const retry = useCallback(() => {
-    if (useGameStore.getState().paidAttempt) {
-      toast(
-        "Each competition attempt needs a new paid entry. Return to the beatmap to enter again.",
-      );
+    if (useGameStore.getState().paidAttempt || useGameStore.getState().devRun) {
+      toast("A ranked run cannot resume. Start a new run to use another play.");
       return;
     }
     setKey((prev) => prev + 1);
@@ -178,8 +164,8 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
         <div className="flex w-full items-center text-center">
           <div className="to-primary h-px grow bg-linear-to-r from-transparent"></div>
 
-          <div className="bg-card rounded-xl border p-3 sm:p-6">
-            <h1 className="text-2xl text-white sm:text-4xl">
+          <div className="arena-game-loading bg-card border p-3 sm:p-6">
+            <h1 className="text-foreground text-2xl sm:text-4xl">
               {loadingMessage}
             </h1>
 
@@ -206,6 +192,7 @@ const GameModal = ({ arena }: { arena?: ArenaSnapshot }) => {
           )}
 
           <GameScreens
+            hardware={hardware}
             arena={arena}
             key={key}
             beatmapData={beatmapData}

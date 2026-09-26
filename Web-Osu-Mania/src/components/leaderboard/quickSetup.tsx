@@ -1,8 +1,9 @@
+import MacWindowTitle from "../macWindowTitle";
 import type { Beatmap, BeatmapSet } from "@/lib/beatmapTypes";
 import { defaultSettings, useSettingsStore } from "@/stores/settingsStore";
-import { ArrowLeft, LockKeyhole, Play } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Suspense, lazy, useState, type CSSProperties } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 const SidebarContent = lazy(() => import("../sidebar"));
 
 export default function QuickSetup({
@@ -11,12 +12,16 @@ export default function QuickSetup({
   onStart,
   onBack,
   paid,
+  simulated = false,
+  busy = false,
 }: {
   beatmap: Beatmap;
   beatmapSet: BeatmapSet;
   onStart: () => void;
   onBack: () => void;
   paid: boolean;
+  simulated?: boolean;
+  busy?: boolean;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const speed = useSettingsStore.use.scrollSpeed();
@@ -24,43 +29,30 @@ export default function QuickSetup({
   const keybinds = useSettingsStore.use.keybinds();
   const setSettings = useSettingsStore.use.setSettings();
   const keys = keybinds.keyModes[3].map(
-    (bind) => bind[0]?.replace(/^Key/, "") || "—",
+    (bind) => bind[0]?.replace(/^Key/, "") || "-",
   );
   return (
     <section className="arena-setup">
       <button className="arena-text-button" onClick={onBack}>
-        <ArrowLeft size={16} /> Back to leaderboard
+        <ArrowLeft size={16} /> Back
       </button>
       <div className="arena-page-heading">
         <div>
-          <p className="arena-eyebrow">BEFORE YOU PLAY</p>
-          <h1>Find your comfort zone.</h1>
-          <p>One song. One challenge. Just make the view yours.</p>
+          <h1>Set your speed</h1>
+          {paid && <p>Starting uses 1 play.</p>}
         </div>
-        <span className="arena-step">
-          {paid
-            ? "1 · Paid / 2 · Get ready / 3 · Play"
-            : "Practice · Get ready"}
-        </span>
       </div>
       <div className="arena-song">
         <span className="arena-song-icon">4K</span>
         <div>
-          <strong>{beatmapSet.title}</strong>
-          <p>
-            {beatmapSet.artist} · {Math.floor(beatmap.total_length / 60)}:
-            {String(beatmap.total_length % 60).padStart(2, "0")} ·{" "}
-            {beatmap.version}
-          </p>
+          <strong>{paid ? beatmapSet.title : "Practice"}</strong>
+          {paid && <p>{beatmapSet.artist} · {Math.floor(beatmap.total_length / 60)}:{String(beatmap.total_length % 60).padStart(2, "0")} · {beatmap.version}</p>}
         </div>
-        <span className="arena-song-rule">
-          <LockKeyhole size={15} /> Same chart and scoring for every player
-        </span>
       </div>
       <div className="arena-setup-grid">
         <div>
           <div className="arena-note-preview">
-            <span className="arena-label">NOTE PREVIEW</span>
+            <span className="arena-label">Key preview</span>
             <div
               className={`arena-lanes ${performanceMode ? "calm" : ""}`}
               style={
@@ -75,24 +67,14 @@ export default function QuickSetup({
               ))}
             </div>
           </div>
-          <p className="arena-preview-caption">
-            Press {keys.join(", ")} as notes reach the line.
-            <br />
-            {paid
-              ? "Keep this tab open. Pausing ends a paid run."
-              : "No setup needed? Jump straight in."}
-          </p>
+          <p className="arena-preview-caption">Press {keys.join(" ")} at the line.</p>
         </div>
         <div className="arena-controls">
           <div className="arena-control-heading">
             <label htmlFor="note-speed">Note speed</label>
             <output htmlFor="note-speed">{speed}</output>
           </div>
-          <p>
-            Choose how quickly notes approach the hit line.
-            <br />
-            The song’s tempo and scoring stay the same.
-          </p>
+          <p>Scroll speed only; song timing and score stay the same.</p>
           <input
             id="note-speed"
             type="range"
@@ -106,18 +88,14 @@ export default function QuickSetup({
             }
           />
           <div className="arena-range-labels">
-            <span>Slower · 1</span>
-            <span>20 · Default</span>
-            <span>Faster · 40</span>
+            <span>Slower</span>
+            <span>Default</span>
+            <span>Faster</span>
           </div>
           <div className="arena-effects">
             <div>
               <label htmlFor="visual-effects">Visual effects</label>
-              <p>
-                Hit glows and particles.
-                <br />
-                Turn off for a calmer, cleaner playfield.
-              </p>
+              <p>Glows and particles.</p>
             </div>
             <label className="arena-switch">
               <span>{performanceMode ? "Off" : "On"}</span>
@@ -144,10 +122,10 @@ export default function QuickSetup({
                 })
               }
             >
-              Reset to defaults
+              Reset
             </button>
-            <button className="arena-primary" onClick={onStart}>
-              Start playing <Play size={20} fill="currentColor" />
+            <button className="arena-primary" disabled={busy} onClick={onStart}>
+              {busy ? "Starting…" : simulated && paid ? "Start simulated run (1 play)" : paid ? "Start paid run (1 play)" : "Start practice"}
             </button>
           </div>
         </div>
@@ -156,19 +134,18 @@ export default function QuickSetup({
         className="arena-text-button"
         onClick={() => setAdvancedOpen(true)}
       >
-        Advanced settings & keybinds
+        More settings
       </button>
       <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <DialogContent className="arena-advanced" aria-describedby={undefined}>
-          <DialogTitle>Make it yours</DialogTitle>
-          <button
-            className="arena-text-button"
-            onClick={() => setAdvancedOpen(false)}
+          <MacWindowTitle
+            closeLabel="Close settings"
+            onClose={() => setAdvancedOpen(false)}
           >
-            Done
-          </button>
+            Settings
+          </MacWindowTitle>
           <Suspense fallback={<p>Loading settings…</p>}>
-            <SidebarContent />
+            <SidebarContent paid={paid} />
           </Suspense>
         </DialogContent>
       </Dialog>

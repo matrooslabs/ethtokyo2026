@@ -1,0 +1,26 @@
+diff --git a/tools/binman/elf.py b/tools/binman/elf.py
+index 6ac960e0419..8d7e295d036 100644
+--- a/tools/binman/elf.py
++++ b/tools/binman/elf.py
+@@ -19,8 +19,8 @@ from u_boot_pylib import tout
+ 
+ ELF_TOOLS = True
+ try:
++    from elftools.common.exceptions import ELFError
+     from elftools.elf.elffile import ELFFile
+-    from elftools.elf.elffile import ELFError
+     from elftools.elf.sections import SymbolTableSection
+ except:  # pragma: no cover
+     ELF_TOOLS = False
+@@ -552,7 +552,10 @@ def read_loadable_segments(data):
+         entry = elf.header['e_entry']
+         segments = []
+         for i in range(elf.num_segments()):
+-            segment = elf.get_segment(i)
++            # Only the program header and payload are needed here. Constructing
++            # DynamicSegment walks section links; TF-A ELFs intentionally leave
++            # the unused dynamic string-table link as SHN_UNDEF.
++            segment = elf._get_segment_header(i)
+             if segment['p_type'] != 'PT_LOAD' or not segment['p_memsz']:
+                 skipped = 1  # To make code-coverage see this line
+                 continue

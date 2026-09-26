@@ -1,863 +1,452 @@
-import { Button } from "@/components/ui/button";
-import { connectHardware, discardHardware, preflight, save } from "@/lib/leaderboard/capture";
-import { paidSession } from "@/lib/leaderboard/receipts";
-import RecoveredAttempts from "./recoveredAttempts";
-import { walletConnectConfigured, competitionChain } from "@/lib/walletConfig";
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  useAccount,
-  usePublicClient,
-  useSwitchChain,
-  useWriteContract,
-} from "wagmi";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { erc20Abi, formatUnits, zeroAddress, type Hex } from "viem";
-import type { Beatmap, BeatmapSet } from "@/lib/beatmapTypes";
-import {
-  leaderboardAbi,
-  leaderboardAddress,
-  indexerUrl,
-} from "@/lib/leaderboard/contracts";
-import {
-  getChartSetup,
-  getChartForDisplay,
-  type PaidAttempt,
-} from "@/lib/leaderboard/scoring";
-import {
-  canEnter,
-  dateDay,
-  dayOf,
-  endOf,
-  ENTRY_FEE,
-  utcDate,
-} from "@/lib/leaderboard/rules";
-import { useGameStore } from "@/stores/gameStore";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Flame,
-  Play,
-  QrCode,
-  Trophy,
-  Wallet,
-  X,
-} from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-kit-react";
+import type { Transaction } from "@mysten/sui/transactions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { HomeKeysGuide } from "@/components/homeKeysGuide";
+import HardwareGate from "@/components/hardware/hardwareGate";
+import SuiConnectButton from "@/components/sui/suiConnectButton";
+import { phoneQrConfigured } from "@/components/sui/suiProvider";
+import ClaimVerification from "@/components/identity/claimVerification";
 import QuickSetup from "./quickSetup";
 import { GameOverlay } from "@/components/game/gameOverlay";
+import { useBridgeHardware } from "@/lib/hardware/useBridgeHardware";
+import { decodeHex, parseInfo } from "@/lib/hardware/protocol";
+import { getBundledBeatmapFile, getBundledBeatmapSet, getPracticeBeatmapSet, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
+import { parseOsz } from "@/lib/beatmapParser";
+import { chartFromBeatmap, chartHash } from "@/lib/sui/chart";
+import { loadAssets } from "@/osuMania/assets";
+import { defaultSettings } from "@/stores/settingsStore";
+import { encodeMods } from "@/lib/replay";
+import { useGameStore } from "@/stores/gameStore";
+import { useChallengeClockStore } from "@/stores/challengeClockStore";
+import {
+  buyPlays, configured, difficultyCode, readCompetition, readRankings, readRounds,
+  refund, settle, startPaid, suiDeployment, type Difficulty, type Ranking,
+} from "@/lib/sui/competition";
+import type { BeatmapSet } from "@/lib/beatmapTypes";
 
-type Ranking = { rank: number; player: string; score: string };
-export default function DailyCompetition({
-  beatmap,
-  beatmapSet,
-  stopPreview,
-}: {
-  beatmap: Beatmap;
-  beatmapSet: BeatmapSet;
-  stopPreview: () => void;
-}) {
-  const [screen, setScreen] = useState<"home" | "history" | "claim" | "setup">(
-    "home",
-  );
-  const [waitingForWallet, setWaitingForWallet] = useState(false);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [pendingAttempt, setPendingAttempt] = useState<PaidAttempt | null>(
-    null,
-  );
-  const account = useAccount();
-  useEffect(() => {
-    const reset = () => {
-      setScreen("home");
-      setSelectedDate("");
-    };
-    window.addEventListener("arena:home", reset);
-    return () => window.removeEventListener("arena:home", reset);
-  }, []);
-  useEffect(() => {
-    if (waitingForWallet && account.address) {
-      setWaitingForWallet(false);
-      setPaymentOpen(true);
-    }
-  }, [waitingForWallet, account.address]);
-  const { openConnectModal } = useConnectModal();
-  const client = usePublicClient({ chainId: competitionChain.id });
-  const { switchChainAsync } = useSwitchChain();
-  const { writeContractAsync } = useWriteContract();
-  const [selectedDate, setSelectedDate] = useState("");
-  const [wallNow, setNow] = useState(0);
-  const clockQuery = useQuery({
-    queryKey: ["competition-clock", competitionChain.id],
-    enabled: !!client,
-    queryFn: async () => ({
-      timestamp: Number((await client!.getBlock()).timestamp),
-      observedAt: Date.now() / 1000,
-    }),
-    refetchInterval: 12000,
-    retry: false,
-  });
-  const now =
-    clockQuery.data && wallNow
-      ? clockQuery.data.timestamp +
-        Math.max(0, wallNow - clockQuery.data.observedAt)
-      : wallNow;
+const payoutShares = [40, 20, 20, 10, 10] as const;
+const proofBufferSeconds = Number(import.meta.env.VITE_SUI_PROOF_BUFFER_SECONDS);
+const proofBufferConfigured = Number.isSafeInteger(proofBufferSeconds) && proofBufferSeconds > 0;
+const forestNoteCounts: Record<Difficulty, number> = { Easy: 204, Hard: 1026 };
+const forestSourceHashes: Record<Difficulty, string> = {
+  Easy: "1d7ac98afaacbae81cfe6ddd8950abdec91aefdc08c45193851afe60787c7c6b",
+  Hard: "b6722bce5ec6308c06020d708271cc89c5398e374e5b7b6b59c6ade444bc78f3",
+};
+// Both chart tails end near 138 seconds; allow one extra second beyond parsed chart metadata.
+const forestDurationSeconds = 139;
+
+export default function DailyCompetition() {
+  const account = useCurrentAccount();
+  const wallet = useDAppKit();
+  const client = useCurrentClient();
+  const queryClient = useQueryClient();
+  const setClock = useChallengeClockStore((value) => value.setClock);
+  const clearClock = useChallengeClockStore((value) => value.clearClock);
+  const hardware = useBridgeHardware();
+  const [difficulty, setDifficulty] = useState<Difficulty>("Easy");
+  const [beatmapSet, setBeatmapSet] = useState<BeatmapSet | null>(null);
+  const [setupPaid, setSetupPaid] = useState(false);
+  const beatmap = beatmapSet?.beatmaps.find((map) => map.cs === 4 && (!setupPaid || map.version === difficulty));
+  const chartHashExpected = suiDeployment.charts[difficulty];
+  const paidAttempt = useGameStore.use.paidAttempt();
+  const activeBeatmapId = useGameStore.use.beatmapId();
   const [busy, setBusy] = useState(false);
-  const locked = useRef(false);
   const [message, setMessage] = useState("");
-  const [txHash, setTxHash] = useState<Hex>();
-  useEffect(() => {
-    setNow(Date.now() / 1000);
-    const timer = setInterval(() => setNow(Date.now() / 1000), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const selectedDay = selectedDate ? dateDay(selectedDate) : dayOf(now);
-  const chartQuery = useQuery({
-    queryKey: ["paid-chart", beatmap.sourceHash],
-    queryFn: () => getChartForDisplay(beatmap.sourceHash!),
-    enabled: !!beatmap.sourceHash && !!leaderboardAddress,
-    retry: false,
-    refetchInterval: 30000,
-  });
-  const chart = chartQuery.data;
-  const roundQuery = useQuery({
-    queryKey: [
-      "daily-round",
-      leaderboardAddress,
-      chart?.chartHash,
-      selectedDay,
-      account.address,
-    ],
-    enabled: !!client && !!leaderboardAddress && !!chart && now > 0,
-    queryFn: async () => {
-      const block = await client!.getBlock();
-      const base = {
-        address: leaderboardAddress!,
-        abi: leaderboardAbi,
-        blockNumber: block.number,
-      };
-      const [round, personal, refundable] = await Promise.all([
-        client!.readContract({
-          ...base,
-          functionName: "rounds",
-          args: [chart!.chartHash, BigInt(selectedDay)],
-        }),
-        client!.readContract({
-          ...base,
-          functionName: "records",
-          args: [
-            chart!.chartHash,
-            BigInt(selectedDay),
-            account.address || zeroAddress,
-          ],
-        }),
-        client!.readContract({
-          ...base,
-          functionName: "refundablePayments",
-          args: [
-            chart!.chartHash,
-            BigInt(selectedDay),
-            account.address || zeroAddress,
-          ],
-        }),
-      ]);
-      return {
-        round,
-        personal,
-        refundable,
-        timestamp: Number(block.timestamp),
-      };
-    },
+  const [now, setNow] = useState(() => Date.now());
+  const [screen, setScreen] = useState<"home" | "setup" | "claim">("home");
+  const [claimId, setClaimId] = useState(suiDeployment.challengeId);
+  const actionLock = useRef(false);
+  const address = account?.address || "0x0";
+  const tokenLabel = "USDC";
+  const state = useQuery({
+    queryKey: ["sui-forest-challenge-v2", suiDeployment.challengeId, address],
+    enabled: configured,
+    queryFn: () => readCompetition(client, address, suiDeployment.challengeId, difficulty, chartHashExpected),
     refetchInterval: 12000,
     retry: false,
   });
-  const rankingsQuery = useQuery({
-    queryKey: ["daily-rankings", chart?.chartHash, selectedDay],
-    enabled: !!indexerUrl && !!chart,
-    queryFn: async () => {
-      const responses = await Promise.all([
-        fetch(
-          `${indexerUrl}/charts/${chart!.chartHash}/days/${selectedDay}/rankings?limit=20`,
-          { signal: AbortSignal.timeout(8000) },
-        ),
-        fetch(`${indexerUrl}/status`, { signal: AbortSignal.timeout(8000) }),
-      ]);
-      if (responses.some((response) => !response.ok))
-        throw new Error("Rankings unavailable");
-      const rankings = (await responses[0].json()) as { items: Ranking[] };
-      const status = (await responses[1].json()) as {
-        chainId: string;
-        address: string;
-        indexedBlock: string | null;
-        lag: string | null;
-        lastError: string | null;
-      };
-      if (
-        String(status.chainId) !== String(competitionChain.id) ||
-        status.address?.toLowerCase() !== leaderboardAddress?.toLowerCase()
-      ) {
-        throw new Error("Indexer deployment mismatch");
-      }
-      return { items: rankings.items as Ranking[], status };
-    },
+  const standings = useQuery({
+    queryKey: ["sui-rankings", suiDeployment.challengeId, difficulty],
+    enabled: configured,
+    queryFn: () => readRankings(client, suiDeployment.challengeId, difficulty),
     refetchInterval: 15000,
     retry: false,
   });
+  const selectedChart = useQuery({
+    queryKey: ["forest-chart", beatmap?.sourceHash, chartHashExpected],
+    enabled: configured && setupPaid && !!beatmap,
+    queryFn: async () => {
+      if (!beatmap) throw new Error("Select a Forest difficulty before verifying its Sui chart.");
+      const parsed = await parseOsz(await getBundledBeatmapFile(), beatmap, encodeMods(defaultSettings.mods), undefined, true);
+      if (!beatmap.sourceHash || parsed.sourceHash !== beatmap.sourceHash || parsed.sourceHash !== forestSourceHashes[difficulty]) {
+        throw new Error("The loaded Forest chart does not match this difficulty.");
+      }
+      const hash = await chartHash(chartFromBeatmap(parsed));
+      if (hash.toLowerCase() !== chartHashExpected.toLowerCase()) {
+        throw new Error("The loaded Forest chart does not match the configured Sui chart hash.");
+      }
+      return hash;
+    },
+    retry: false,
+  });
+  const scorer = useQuery({
+    queryKey: ["sui-scorer", suiDeployment.packageId, suiDeployment.registryId],
+    enabled: configured,
+    queryFn: async () => {
+      const response = await fetch("/api/scoring/info");
+      if (!response.ok) throw new Error("Scoring server unavailable.");
+      const info = await response.json() as { system?: string; registryId?: string; packageId?: string; mode?: number };
+      if (info.system !== "gkr-sui-hardware" || info.mode !== 3 ||
+          info.registryId !== suiDeployment.registryId || info.packageId !== suiDeployment.packageId) {
+        throw new Error("Scoring server does not match this competition.");
+      }
+      return info;
+    },
+    refetchInterval: 12000,
+    retry: false,
+  });
+  const rounds = useQuery({
+    queryKey: ["sui-challenge-rounds", suiDeployment.packageId, chartHashExpected],
+    enabled: configured && screen === "claim",
+    queryFn: () => readRounds(client, chartHashExpected),
+  });
+  const claimState = useQuery({
+    queryKey: ["sui-forest-claim-v2", claimId, difficulty, chartHashExpected, address],
+    enabled: configured && screen === "claim",
+    queryFn: () => readCompetition(client, address, claimId, difficulty, chartHashExpected),
+    refetchInterval: 12000,
+    retry: false,
+  });
+  const selectedRound = claimState.data;
+  const updateClaim = useCallback((ready: boolean) => {
+    if (ready) void queryClient.invalidateQueries({ queryKey: ["sui-forest-claim-v2", claimId] });
+  }, [claimId, queryClient]);
+  const competition = state.data;
+  const remaining = competition?.remaining ?? 0n;
+  const correctDevice = !!competition && hardware.info?.deviceAddress.toLowerCase() === competition.device.toLowerCase();
+  const chartMatches = !!competition && competition.chartHashes[difficulty].toLowerCase() === chartHashExpected.toLowerCase();
+  const active = !!competition && now >= competition.startedAtMs && now < competition.scoreDeadlineMs;
+  const latestSafeStartMs = (competition?.scoreDeadlineMs ?? 0) - (forestDurationSeconds + proofBufferSeconds) * 1000;
+  const safeTime = proofBufferConfigured && active && now < latestSafeStartMs;
+  const deviceCapacityReady = (hardware.info?.maxEvents ?? 0) >= 2 * forestNoteCounts[difficulty];
+  const canBuy = !!account && hardware.ready && correctDevice && chartMatches && deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime;
+  const canStart = canBuy && remaining > 0n;
+  const canSettle = !!selectedRound && !selectedRound.settled && now >= selectedRound.claimDeadlineMs;
+  const canRefund = !!account && !!selectedRound?.refundEligible;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!competition) { clearClock(); return; }
+    const phase = now < competition.startedAtMs ? "upcoming" :
+      now < competition.scoreDeadlineMs ? "scoring" : now < competition.claimDeadlineMs ? "claims" : null;
+    setClock({ phase, nowMs: now, deadlineMs: phase === "upcoming" ? competition.startedAtMs :
+      phase === "scoring" ? competition.scoreDeadlineMs : phase === "claims" ? competition.claimDeadlineMs : null,
+    simulated: false });
+  }, [competition, now, setClock, clearClock]);
+  useEffect(() => () => clearClock(), [clearClock]);
 
-  async function run(action: () => Promise<void>) {
-    if (locked.current) return;
-    locked.current = true;
+  useEffect(() => {
+    const home = () => setScreen("home");
+    window.addEventListener("arena:home", home);
+    return () => window.removeEventListener("arena:home", home);
+  }, []);
+
+  async function transact(transaction: Transaction) {
+    const result = await wallet.signAndExecuteTransaction({ transaction });
+    if (!result.Transaction) throw new Error("The Sui transaction was rejected. No changes were made.");
+    const confirmed = await client.waitForTransaction({ digest: result.Transaction.digest, include: { events: true, effects: true } });
+    if (!confirmed.Transaction || !confirmed.Transaction.status.success) {
+      throw new Error("The Sui transaction failed. Check your wallet's activity.");
+    }
+    if (screen === "claim") await claimState.refetch();
+    else await state.refetch();
+    return confirmed.Transaction;
+  }
+
+  async function prepareSetup(paid: boolean) {
+    if (actionLock.current || paidAttempt || activeBeatmapId !== null ||
+        (paid && (!account || !hardware.ready || !correctDevice || !chartMatches || !scorer.data || !safeTime || !deviceCapacityReady))) return;
+    actionLock.current = true;
+    setBusy(true);
+    setSetupPaid(paid);
+    setBeatmapSet(null);
+    setScreen("setup");
+    setMessage("");
+    try {
+      const loaded = paid ? await getBundledBeatmapSet() : await getPracticeBeatmapSet();
+      const maps = loaded.beatmaps.filter((map) => map.cs === 4);
+      if (paid && (maps.length !== 2 || !(["Easy", "Hard"] as const).every((name) => {
+        const chart = maps.find((map) => map.version === name);
+        return chart && chart.count_circles + chart.count_sliders === forestNoteCounts[name] &&
+          chart.sourceHash === forestSourceHashes[name];
+      }))) throw new Error("Forest Easy and Hard do not match the registered charts.");
+      if (!paid && (loaded.id !== PRACTICE_BEATMAP_SET_ID || maps.length !== 1)) {
+        throw new Error("Practice beatmap is unavailable.");
+      }
+      setBeatmapSet(loaded);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      setScreen("home");
+    } finally {
+      setBusy(false);
+      actionLock.current = false;
+    }
+  }
+
+  async function purchase() {
+    if (!canBuy || !competition || actionLock.current) return;
+    actionLock.current = true;
     setBusy(true);
     setMessage("");
-    setTxHash(undefined);
     try {
-      await action();
+      const preflight = await hardware.getPreflight();
+      if (preflight.deviceAddress.toLowerCase() !== competition.device.toLowerCase()) {
+        throw new Error("Connect the controller registered for this round.");
+      }
+      if (parseInfo(decodeHex(preflight.infoHex, 128)).maxEvents < 2 * forestNoteCounts[difficulty]) {
+        throw new Error(`Controller capacity too low for ${difficulty}. No payment was made.`);
+      }
+      if (Date.now() >= latestSafeStartMs) throw new Error("Not enough time remains to finish a signed Forest score before the six-hour cutoff.");
+      const transaction = await transact(buyPlays(suiDeployment.challengeId));
+      setMessage(`Payment confirmed on Sui: ${transaction.digest}. Three plays added for either difficulty.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      locked.current = false;
       setBusy(false);
-      void roundQuery.refetch();
+      actionLock.current = false;
     }
   }
-  async function ensureWallet() {
-    if (!account.address) {
-      openConnectModal?.();
-      throw new Error("Connect a wallet, then try again.");
-    }
-    if (account.chainId !== competitionChain.id)
-      await switchChainAsync({ chainId: competitionChain.id });
-    return account.address;
-  }
-  async function confirmed(hash: Hex) {
-    setTxHash(hash);
-    const receipt = await client!.waitForTransactionReceipt({
-      hash,
-      confirmations: 2,
-    });
-    if (receipt.status !== "success")
-      throw new Error("Transaction reverted. No paid game started.");
-    return receipt;
-  }
-  async function enter() {
-    const player = await ensureWallet();
-    if (!client || !leaderboardAddress || !beatmap.sourceHash)
-      throw new Error("Deployment unavailable.");
-    // Refresh readiness and chain time before asking the player to spend tokens.
-    const prepared = await getChartSetup(beatmap.sourceHash);
-    if (!prepared.ready)
-      throw new Error(prepared.reason || "Capture/prover is not ready.");
-    await preflight(prepared, client);
-    const duration =
-      Math.max(prepared.durationSeconds, beatmap.total_length) + 5;
-    let block = await client.getBlock();
-    if (
-      !canEnter(
-        Math.max(Number(block.timestamp), Date.now() / 1000),
-        duration,
-        prepared.provingBufferSeconds,
-      )
-    ) {
-      throw new Error(
-        "Entry closed: there is not enough time to play and prove before midnight UTC.",
-      );
-    }
-    const token = await client.readContract({
-      address: leaderboardAddress,
-      abi: leaderboardAbi,
-      functionName: "token",
-    });
-    const allowance = await client.readContract({
-      address: token,
-      abi: erc20Abi,
-      functionName: "allowance",
-      args: [player, leaderboardAddress],
-    });
-    if (allowance < ENTRY_FEE) {
-      setMessage("Approve 1 USDC in your wallet, then wait for confirmation.");
-      await confirmed(
-        await writeContractAsync({
-          address: token,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [leaderboardAddress, ENTRY_FEE],
-          chainId: competitionChain.id,
-          account: player,
-        }),
-      );
-    }
-    block = await client.getBlock();
-    const timestamp = Math.max(Number(block.timestamp), Date.now() / 1000);
-    if (!canEnter(timestamp, duration, prepared.provingBufferSeconds))
-      throw new Error(
-        "Entry closed while waiting for approval. No entry payment was made.",
-      );
-    await preflight(await getChartSetup(beatmap.sourceHash), client);
-    const day = dayOf(Number(block.timestamp));
-    setMessage(
-      "Confirm the 1 USDC entry in your wallet. Quick setup opens after two confirmations.",
-    );
-    const receipt = await confirmed(
-      await writeContractAsync({
-        address: leaderboardAddress,
-        abi: leaderboardAbi,
-        functionName: "enter",
-        args: [prepared.chartHash, player, prepared.device, BigInt(day)],
-        chainId: competitionChain.id,
-        account: player,
-      }),
-    );
-    const sessionId = paidSession(receipt, leaderboardAddress, {
-      chartHash: prepared.chartHash,
-      player,
-      payer: player,
-      device: prepared.device,
-      dayId: BigInt(day),
-      amount: ENTRY_FEE,
-    });
-    const attempt: PaidAttempt = {
-      chainId: prepared.chainId, registry: prepared.registry,
-      sessionId,
-      entryTxHash: receipt.transactionHash,
-      player,
-      chartHash: prepared.chartHash,
-      dayId: day,
-      webBeatmapHash: beatmap.sourceHash,
-      captureMode: prepared.captureMode,
-    };
-    await save({attempt});
-    // Persist the receipt even if the prover/start subsequently fails; payment is already final.
-    try {
-      localStorage.setItem(
-        `paid-entry:${attempt.sessionId}`,
-        JSON.stringify(attempt),
-      );
-    } catch {
-      /* Confirmed payment still starts play when browser storage is full. */
-    }
-    stopPreview();
-    setPendingAttempt(attempt);
-    setPaymentOpen(false);
-    setScreen("setup");
-    setMessage(`Entry confirmed. Session ${attempt.sessionId}`);
-  }
-  async function settle(functionName: "claim" | "refund") {
-    const player = await ensureWallet();
-    if (!chart || !leaderboardAddress)
-      throw new Error("Select a registered chart.");
-    setMessage(`Confirm ${functionName} in your wallet.`);
-    await confirmed(
-      await writeContractAsync({
-        address: leaderboardAddress,
-        abi: leaderboardAbi,
-        functionName,
-        args: [chart.chartHash, BigInt(selectedDay)],
-        chainId: competitionChain.id,
-        account: player,
-      }),
-    );
-    setMessage(
-      functionName === "claim"
-        ? "Prize sent to the winning wallet."
-        : "Entry fees refunded to your wallet.",
-    );
-  }
-  const data = roundQuery.data;
-  const closed = !!data && data.timestamp >= endOf(selectedDay);
-  const room =
-    chart &&
-    canEnter(
-      now,
-      Math.max(chart.durationSeconds, beatmap.total_length) + 5,
-      chart.provingBufferSeconds,
-    );
-  const pot = data ? formatUnits(data.round[0], 6) : "—";
-  const winner = data?.round[2];
-  const hasWinner = !!winner && winner !== zeroAddress;
-  const canClaim = closed && hasWinner && !data?.round[4];
-  const rankings = rankingsQuery.data?.items || [];
-  const shortAddress = (address: string) =>
-    `${address.slice(0, 6)}…${address.slice(-4)}`;
-  const goHome = () => {
-    setSelectedDate("");
-    setScreen("home");
-  };
-  const status = !leaderboardAddress
-    ? "Competition is not configured. Practice is available."
-    : chartQuery.isError
-      ? "Competition connection unavailable. Practice is available."
-      : chart && !chart.ready
-        ? chart.reason || "Paid entry is temporarily unavailable."
-        : roundQuery.isError
-          ? "Unable to read the prize pot. Please try again shortly."
-          : "";
-  const startPractice = () => {
-    if (!account.address) {
-      openConnectModal?.();
+
+  async function beginPaidRun() {
+    if (!canStart || !account || !competition || !beatmap || !beatmapSet || actionLock.current) {
+      setMessage("Check the wallet, controller, and plays before starting.");
       return;
     }
-    stopPreview();
+    actionLock.current = true;
+    setBusy(true);
+    setMessage("");
+    let spent = false;
+    try {
+      const file = await getBundledBeatmapFile();
+      const parsed = await parseOsz(file, beatmap, encodeMods(defaultSettings.mods), undefined, true);
+      if (!beatmap.sourceHash || parsed.sourceHash !== beatmap.sourceHash) {
+        throw new Error("The loaded chart is not the registered competition chart.");
+      }
+      const loadedHash = await chartHash(chartFromBeatmap(parsed));
+      if (loadedHash.toLowerCase() !== chartHashExpected.toLowerCase() ||
+          loadedHash.toLowerCase() !== competition.chartHashes[difficulty].toLowerCase()) {
+        throw new Error("This difficulty does not match its registered Sui chart.");
+      }
+      await loadAssets();
+      const preflight = await hardware.getPreflight();
+      if (preflight.deviceAddress.toLowerCase() !== competition.device.toLowerCase()) {
+        throw new Error("Connect the controller registered for this round.");
+      }
+      if (parseInfo(decodeHex(preflight.infoHex, 128)).maxEvents < 2 * forestNoteCounts[difficulty]) {
+        throw new Error(`Controller capacity too low for ${difficulty}. No play was spent.`);
+      }
+      if (Date.now() >= latestSafeStartMs) throw new Error("Not enough time remains to submit a signed score before the six-hour cutoff.");
+      const transaction = await transact(startPaid(suiDeployment.challengeId, difficulty));
+      spent = true;
+      const event = transaction.events?.find((row) => {
+        const payload = row.json;
+        return row.eventType.endsWith("::competition::PaidAttemptStarted") &&
+          payload && typeof payload === "object" && "challenge" in payload && "difficulty" in payload &&
+          payload.challenge === suiDeployment.challengeId && Number(payload.difficulty) === difficultyCode(difficulty);
+      });
+      const eventPayload = event?.json;
+      const sessionId = eventPayload && typeof eventPayload === "object" && "session" in eventPayload &&
+        typeof eventPayload.session === "string" ? eventPayload.session : undefined;
+      if (!sessionId || !/^0x[0-9a-fA-F]{64}$/.test(sessionId)) {
+        throw new Error("A play was spent, but its Sui session could not be read. Check the transaction before trying again.");
+      }
+      const response = await fetch("/api/scoring/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, infoHex: preflight.infoHex, statusHex: preflight.statusHex }),
+      });
+      const started = await response.json() as { headerHex?: string; error?: string };
+      const header = started.headerHex;
+      if (!response.ok || !header || !/^0x[0-9a-fA-F]{584}$/.test(header)) {
+        throw new Error(started.error || "Signed capture could not start. This play was spent; no resume is available.");
+      }
+      await hardware.setHeader(header);
+      useGameStore.getState().startPaidGame(beatmapSet, beatmap.id, {
+        sessionId, player: account.address, challengeId: suiDeployment.challengeId, difficulty,
+        webBeatmapHash: parsed.sourceHash, scoreDeadlineMs: competition.scoreDeadlineMs, captureMode: "hardware",
+      });
+      setScreen("home");
+      setMessage(`1 play spent. ${Math.max(0, Number(remaining) - 1)} left. Leaving ends this run.`);
+    } catch (error) {
+      setMessage(`${error instanceof Error ? error.message : String(error)}${spent ? " This play was spent and cannot be resumed." : " No play was spent."}`);
+      if (spent) void hardware.abortRecording().catch(() => {});
+    } finally {
+      setBusy(false);
+      if (spent) void state.refetch();
+      actionLock.current = false;
+    }
+  }
+
+  function practice() {
+    if (!hardware.ready || !beatmapSet || !beatmap) {
+      setScreen("home");
+      setMessage("Connect the controller and load the demo chart before practicing.");
+      return;
+    }
     useGameStore.getState().setBeatmapSet(beatmapSet);
     useGameStore.getState().startGame(beatmap.id);
-    goHome();
-  };
-  if (screen === "setup")
-    return (
-      <QuickSetup
-        beatmap={beatmap}
-        beatmapSet={beatmapSet}
-        paid={!!pendingAttempt}
-        onBack={goHome}
-        onStart={() => {
-          if (pendingAttempt) {
-            useGameStore
-              .getState()
-              .startPaidGame(beatmapSet, beatmap.id, pendingAttempt);
-            setPendingAttempt(null);
-            goHome();
-          } else startPractice();
-        }}
-      />
-    );
-
-  const standings = (
-    <section className="arena-standings" aria-label="Leaderboard">
-      <div className="arena-section-heading">
-        <div>
-          <h2>{screen === "history" ? "Final standings" : "Leaderboard"}</h2>
-          <span>The score to beat is right here.</span>
-        </div>
-        <div className="arena-chart-name">
-          <i />
-          {beatmapSet.title}
-          <span className="arena-tag">4K</span>
-        </div>
-      </div>
-      <div className="arena-table-scroll">
-        <table className="arena-table">
-          <thead>
-            <tr>
-              <th>RANK</th>
-              <th>PLAYER</th>
-              <th>SCORE</th>
-              <th>ACCURACY</th>
-              <th>MAX COMBO</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rankings.map((row) => (
-              <tr
-                key={row.player}
-                className={row.rank === 1 ? "arena-first" : ""}
-              >
-                <td>{String(row.rank).padStart(2, "0")}</td>
-                <td>
-                  <div className="arena-player">
-                    <span className="arena-avatar">
-                      {row.player.slice(2, 4).toUpperCase()}
-                    </span>
-                    <div>
-                      <strong>
-                        {shortAddress(row.player)}
-                        {row.rank === 1 && " · Top score"}
-                      </strong>
-                      <small>
-                        {account.address?.toLowerCase() ===
-                        row.player.toLowerCase()
-                          ? "Your wallet"
-                          : "Verified player"}
-                      </small>
-                    </div>
-                    {row.rank === 1 && (
-                      <span className="arena-fire">
-                        <Flame size={23} /> ON FIRE
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td>{BigInt(row.score).toLocaleString()}</td>
-                <td aria-label="Accuracy not indexed">—</td>
-                <td aria-label="Combo not indexed">—</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!rankings.length && (
-        <div className="arena-empty">
-          <Trophy size={30} />
-          <h3>
-            {rankingsQuery.isFetching
-              ? "Loading the leaderboard…"
-              : rankingsQuery.data
-                ? "The top spot is waiting."
-                : "Every great run starts here."}
-          </h3>
-          <p>
-            {rankingsQuery.data
-              ? "No scores yet for this competition. Be the first to set the pace."
-              : "Live rankings are unavailable right now. Get ready with a practice run."}
-          </p>
-        </div>
-      )}
-      <div className="arena-table-footer">
-        <span>
-          {rankingsQuery.data
-            ? `On-chain scores · Accuracy and combo are not indexed${rankingsQuery.data.status.lastError || Number(rankingsQuery.data.status.lag || 0) > 20 ? " · Rankings may be delayed" : ""}`
-            : "Live standings appear when the competition is connected."}
-        </span>
-        {screen === "home" && (
-          <button
-            className="arena-text-button pink"
-            onClick={() => {
-              setSelectedDate(utcDate(dayOf(now) - 1));
-              setScreen("history");
-            }}
-          >
-            View leaderboard history <ArrowRight size={17} />
-          </button>
-        )}
-      </div>
-    </section>
-  );
+    setScreen("home");
+  }
 
   return (
     <>
-      <GameOverlay arena={{ pot: data ? pot : null, rankings }} />
-      {screen !== "home" && (
-        <button className="arena-text-button arena-back" onClick={goHome}>
-          <ArrowLeft size={16} /> Back to current leaderboard
-        </button>
-      )}
-      {screen === "home" && (
-        <section className="arena-hero">
-          <div>
-            <p className="arena-eyebrow">ONE BEATMAP. ONE TOP SPOT.</p>
-            <h1>
-              Feel the rhythm.
-              <br />
-              Take the leaderboard.
-            </h1>
-            <p className="arena-intro">
-              Put your timing to the test. Every play grows the prize pot.
-              <br />
-              Finish first and take it all.
-            </p>
-            <div className="arena-play-row">
-              <button
-                className="arena-primary arena-play"
-                onClick={() =>
-                  pendingAttempt ? setScreen("setup") : setPaymentOpen(true)
-                }
-              >
-                Play Osu! <Play size={25} fill="currentColor" />
-              </button>
-              <div>
-                <strong>1 USDC per play</strong>
-                <p>Scan. Pay. Find your rhythm.</p>
-              </div>
-            </div>
-          </div>
-          <aside className="arena-pot">
-            <p className="arena-label">CURRENT PRIZE POT</p>
-            <div className="arena-pot-value">
-              {pot}
-              <span>USDC</span>
-            </div>
-            <p className="arena-gold">1st place takes the entire pot</p>
-            <small>
-              {data
-                ? `${competitionChain.name} · Daily competition`
-                : "Awaiting live competition data"}
-            </small>
-            <button
-              className="arena-claim-link"
-              onClick={() => setScreen("claim")}
-            >
-              Claim prize <ArrowRight size={19} />
-            </button>
-          </aside>
-        </section>
-      )}
-      {screen === "history" && (
-        <>
-          <div className="arena-page-heading">
-            <div>
-              <p className="arena-eyebrow">THE RUNS THAT MADE HISTORY</p>
-              <h1>Leaderboard history</h1>
-              <p>Past competitions. Final scores. Every champion.</p>
-            </div>
-            <label className="arena-date">
-              Competition date · UTC
-              <input
-                aria-label="Competition UTC date"
-                type="date"
-                max={now ? utcDate(dayOf(now) - 1) : undefined}
-                value={selectedDate}
-                onChange={(event) =>
-                  setSelectedDate(event.target.value || utcDate(dayOf(now) - 1))
-                }
-              />
-            </label>
-          </div>
-          <div className="arena-history-summary">
-            <Trophy />
-            <div>
-              <span className="arena-label">
-                {hasWinner ? "CHAMPION" : "COMPETITION"}
-              </span>
-              <h2>{hasWinner ? shortAddress(winner) : "No accepted winner"}</h2>
-            </div>
-            <div className="arena-history-pot">
-              <strong>{pot} USDC</strong>
-              <p>
-                Prize pot
-                {data?.round[4] ? " · Claimed" : closed ? " · Closed" : ""}
-              </p>
-            </div>
-            <button
-              className="arena-text-button"
-              onClick={() => setScreen("claim")}
-            >
-              View prize <ArrowRight size={16} />
-            </button>
-          </div>
-        </>
-      )}
+      <GameOverlay hardware={hardware} />
       {screen === "claim" ? (
+        <section className="arena-panel arena-claim-screen" aria-label="Prize claims">
+          <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
+          <h1>Prize claims</h1>
+          <p>World ID: one claim per person. {difficulty}: {difficulty === "Easy" ? 30 : 70}% of the pot; top five split 40/20/20/10/10%.</p>
+          {configured && <label className="arena-date" htmlFor="claim-round">
+            Round
+            <select id="claim-round" value={claimId} onChange={(event) => setClaimId(event.target.value)}>
+              {[
+                { id: suiDeployment.challengeId, date: competition?.roundDate || "Current challenge" },
+                ...(rounds.data || []).filter((item) => item.id !== suiDeployment.challengeId),
+              ].map((item) => <option value={item.id} key={item.id}>{item.date}</option>)}
+            </select>
+          </label>}
+          {rounds.isError && <p role="status">Past rounds unavailable. Current round remains accessible.</p>}
+          {claimState.isError && <p role="alert">{claimState.error instanceof Error ? claimState.error.message : "Could not read this challenge from Sui."}</p>}
+          {selectedRound ? <>
+            <strong>{difficulty} prize slice ({difficulty === "Easy" ? 30 : 70}%): {(
+              Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(difficulty === "Easy" ? 30 : 70) / 100n) / 1_000_000
+            ).toFixed(2)} {tokenLabel}</strong>
+            {selectedRound.rankedClaims[difficulty].length > 0 ? <ol className="arena-winners">
+              {selectedRound.rankedClaims[difficulty].map((claim, index) => <li key={claim.wallet}>
+                <span>{index + 1}. {claim.wallet.slice(0, 8)}…{claim.wallet.slice(-4)}</span>
+                <strong>{payoutShares[index]}% of slice · {(
+                  Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(difficulty === "Easy" ? 30 : 70) * BigInt(payoutShares[index]) / 10_000n) / 1_000_000
+                ).toFixed(2)} {tokenLabel}</strong>
+              </li>)}
+            </ol> : <p>No World-verified {difficulty} claims yet.</p>}
+            {!selectedRound.settled && now <= selectedRound.scoreDeadlineMs && <p>Claims open after scores close.</p>}
+            {!selectedRound.settled && now > selectedRound.scoreDeadlineMs && now <= selectedRound.claimDeadlineMs && (
+              !account ? <SuiConnectButton /> : selectedRound.claimRegistered ? <p role="status">Claim registered. Rankings settle after the claim window.</p> :
+                <ClaimVerification challengeId={claimId} difficulty={difficulty === "Easy" ? "easy" : "hard"} onReady={updateClaim} />
+            )}
+            {canSettle && <>
+              {!account && <SuiConnectButton />}
+              <button className="arena-primary" disabled={!account || busy} onClick={() => {
+                setBusy(true);
+                void transact(settle(claimId)).then(() => setMessage("Prize shares distributed on Sui."),
+                  (error) => setMessage(String(error))).finally(() => setBusy(false));
+              }}>Distribute prizes</button>
+            </>}
+            {selectedRound.settled && <p role="status">Prize shares paid to verified wallets.</p>}
+            {canRefund && <button className="arena-secondary" disabled={busy} onClick={() => {
+              setBusy(true);
+              void transact(refund(address, claimId)).then(() => setMessage("Unused shares refunded on Sui."),
+                (error) => setMessage(String(error))).finally(() => setBusy(false));
+            }}>Refund unused share</button>}
+          </> : !configured ? <p role="status">No challenge yet.</p> : !claimState.isError && <p role="status">Loading claim…</p>}
+        </section>
+      ) : screen === "setup" ? (
+        beatmapSet && beatmap ? <>
+          {setupPaid && <section className="arena-entry" aria-label="Shared paid plays">
+            <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>
+            {selectedChart.isPending && <p role="status">Checking loaded chart against Sui before payment…</p>}
+            {selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart hash check failed."}</p>}
+          </section>}
+          {setupPaid && !canStart ? <section className="arena-panel" aria-label="Paid entry status">
+            <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
+            {remaining === 0n && <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 shared plays for 1 {tokenLabel}</button>}
+            {!safeTime && <p role="alert">Not enough time remains for this Forest chart and the configured proof reserve before the six-hour score cutoff.</p>}
+            {!deviceCapacityReady && <p role="alert">Controller capacity too low for {difficulty}: {2 * forestNoteCounts[difficulty]} events required.</p>}
+          </section> : <QuickSetup beatmap={beatmap} beatmapSet={beatmapSet} paid={setupPaid} busy={busy}
+            onBack={() => setScreen("home")} onStart={setupPaid ? () => void beginPaidRun() : practice} />}
+        </> : <section className="arena-panel" aria-busy={busy}>
+          <button className="arena-text-button" disabled={busy} onClick={() => setScreen("home")}>Back</button>
+          <p role="status">Loading {setupPaid ? `Forest ${difficulty}` : "practice"} chart…</p>
+        </section>
+      ) : (
         <>
-          <div className="arena-page-heading">
-            <div>
-              <p className="arena-eyebrow arena-gold">
-                FIRST PLACE. ALL YOURS.
-              </p>
-              <h1>Claim your prize.</h1>
-              <p>Send the prize pot to the winning wallet.</p>
+          <section className="arena-hero">
+            <div className="arena-hero-copy">
+              <h1>Forest of Clock</h1>
+              <p className="arena-intro">A hardware-verified rhythm game on-chain.</p>
+              <HomeKeysGuide />
             </div>
-          </div>
-          <div className="arena-claim-grid">
-            <div>
-              <p className="arena-label arena-gold">
-                <Trophy size={22} /> THE PRIZE POT
-              </p>
-              <div className="arena-pot-value">
-                {pot}
-                <span>USDC</span>
+            <aside className="arena-pot" aria-label="Shared prize pot"><div className="arena-pot-content">
+              <p className="arena-pot-title">Shared pot</p>
+              <div className="arena-pot-value">{competition ? (Number(competition.pot) / 1_000_000).toFixed(2) : "—"}<span>{tokenLabel}</span></div>
+              <div className="arena-pot-slices"><span>Easy <strong>30%</strong></span><span>Hard <strong>70%</strong></span></div>
+              <button className="arena-claim-link" onClick={() => setScreen("claim")}>Claims</button>
+            </div></aside>
+          </section>
+          <div className="arena-competition-layout">
+          <section className="arena-entry" aria-label="Enter competition">
+            <fieldset className="arena-difficulty" disabled={busy || !!paidAttempt || activeBeatmapId !== null}>
+              <legend>Difficulty</legend>
+              <div className="arena-difficulty-toggle">
+                {(["Easy", "Hard"] as const).map((next) => <button type="button" key={next} aria-pressed={difficulty === next} onClick={() => {
+                  if (actionLock.current) return;
+                  setDifficulty(next);
+                  setClaimId(suiDeployment.challengeId);
+                  setMessage("");
+                }}><strong>{next}</strong><span>{forestNoteCounts[next]} notes</span></button>)}
               </div>
-              <p className="arena-intro">
-                The entire prize pot.
-                <br />
-                Every entry helped build the reward.
-              </p>
-              {hasWinner && (
-                <div className="arena-winner">
-                  <span className="arena-label">WINNING WALLET</span>
-                  <p>{winner}</p>
-                  <span className="arena-label">WINNING SCORE</span>
-                  <h2>{data?.round[3].toLocaleString()}</h2>
-                </div>
-              )}
-            </div>
-            <div className="arena-panel">
-              <p className="arena-eyebrow arena-gold">
-                {data?.round[4]
-                  ? "PRIZE CLAIMED"
-                  : canClaim
-                    ? "READY TO CLAIM"
-                    : "AWAITING FINAL RESULTS"}
-              </p>
-              <h2>Collect the prize</h2>
-              <p>
-                {canClaim
-                  ? "Confirm the transaction in your wallet. The prize is sent directly to the winning player."
-                  : data?.round[4]
-                    ? "The prize has been sent to the winning wallet."
-                    : "The prize becomes available after the daily competition closes at midnight UTC."}
-              </p>
-              <div className="arena-payment-total">
-                <span>Competition date</span>
-                <strong>{now ? utcDate(selectedDay) : "—"}</strong>
+            </fieldset>
+            <p className="arena-entry-price">1 {tokenLabel} buys 3 shared plays.</p>
+            {account && competition && <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>}
+            {(paidAttempt || activeBeatmapId !== null) && <p className="arena-fine-print">Finish or leave this run before changing difficulty.</p>}
+            {!configured && <p className="arena-availability" role="status">Challenge not live.</p>}
+            {competition && now < competition.startedAtMs && <p role="status">Starts {new Date(competition.startedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC</p>}
+            {!proofBufferConfigured && <p role="alert">Paid starts paused: score submission time is not configured.</p>}
+            {hardware.ready && !deviceCapacityReady && <p role="alert">Controller supports {hardware.info?.maxEvents ?? 0} events; {difficulty} needs {2 * forestNoteCounts[difficulty]}. Provision a larger controller before buying.</p>}
+            {configured && selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart does not match this Sui challenge."}</p>}
+            {configured && scorer.isError && <p role="alert">{scorer.error instanceof Error ? scorer.error.message : "Scoring server unavailable."}</p>}
+            {configured ? (
+              <div className="arena-entry-step">
+                {!account ? <><SuiConnectButton />{phoneQrConfigured && <p className="arena-fine-print">Choose WalletConnect to scan with your phone.</p>}</> : !competition ? (
+                  <p role={state.isError ? "alert" : "status"}>{state.isError ? (state.error instanceof Error ? state.error.message : "Could not load this Sui challenge.") : "Loading Sui challenge…"}</p>
+                ) : !hardware.ready || !correctDevice ? (
+                  <>
+                    <HardwareGate hardware={hardware} />
+                    {hardware.ready && !correctDevice && <p role="alert">Choose the controller for this round.</p>}
+                  </>
+                ) : (
+                  <>
+                    {remaining > 0n ? (
+                      <div className="arena-play-row">
+                        <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
+                        {selectedChart.data && <button className="arena-text-button" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy more plays</button>}
+                      </div>
+                    ) : (
+                      <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run · 3 plays for 1 {tokenLabel}</button>
+                    )}
+                    <p className="arena-fine-print">Starting spends 1 shared play. The configured proof reserve is held back before the six-hour cutoff.</p>
+                  </>
+                )}
               </div>
-              <button
-                className="arena-primary"
-                disabled={!canClaim || busy}
-                onClick={() => void run(() => settle("claim"))}
-              >
-                {busy ? "Confirming…" : `Claim ${pot} USDC`}
-              </button>
-              {closed && !hasWinner && data && data.refundable > 0n && (
-                <button
-                  className="arena-text-button"
-                  disabled={busy}
-                  onClick={() => void run(() => settle("refund"))}
-                >
-                  Refund {formatUnits(data.refundable, 6)} USDC
-                </button>
-              )}
-              <button
-                className="arena-text-button"
-                onClick={() => {
-                  setSelectedDate(utcDate(dayOf(now) - 1));
-                  setScreen("history");
-                }}
-              >
-                Find a past competition <ArrowRight size={16} />
-              </button>
-            </div>
+            ) : <div className="arena-entry-step"><SuiConnectButton />{!hardware.ready && <HardwareGate hardware={hardware} />}</div>}
+            {hardware.ready && <button className="arena-text-button" onClick={() => void prepareSetup(false)}>Practice demo</button>}
+          </section>
+          <section className="arena-standings" aria-label="Verified leaderboard">
+            <div className="arena-section-heading"><h2>{difficulty} scores</h2></div>
+            {standings.isError ? <p role="alert">Live Sui scores could not be loaded. Try again shortly.</p> :
+              <div className="arena-table-scroll"><table className="arena-table"><thead><tr><th>Rank</th><th>Player</th><th>Verified score</th></tr></thead><tbody>
+                {(standings.data || []).map((row: Ranking, index: number) => <tr key={row.wallet}>
+                  <td>{index + 1}</td><td>{row.wallet.slice(0, 8)}…{row.wallet.slice(-4)}</td><td>{row.score.toLocaleString()}</td>
+                </tr>)}
+                {(!configured || standings.data?.length === 0) && <tr><td colSpan={3} className="arena-table-empty">No scores yet.</td></tr>}
+              </tbody></table></div>}
+          </section>
           </div>
         </>
-      ) : (
-        standings
       )}
-      {status && (
-        <p className="arena-service-status" role="status">
-          {status}
-        </p>
-      )}
-      {message && (
-        <p className="arena-service-status" role="status">
-          {message}
-        </p>
-      )}
-      {txHash && competitionChain.blockExplorers && (
-        <a
-          className="arena-text-button pink"
-          href={`${competitionChain.blockExplorers.default.url}/tx/${txHash}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          View transaction <ArrowRight size={16} />
-        </a>
-      )}
-      {screen === "home" && (
-        <div className="arena-bottom">
-          <span>
-            {data?.personal[0]
-              ? `Your best: ${data.personal[1].toLocaleString()}`
-              : "One song. Equal rules. Your best run."}
-          </span>
-          <button
-            className="arena-text-button"
-            disabled={!!pendingAttempt}
-            onClick={() => setScreen("setup")}
-          >
-            Free practice <ArrowRight size={16} />
-          </button>
-          {pendingAttempt && (
-            <button
-              className="arena-text-button pink"
-              onClick={() => setScreen("setup")}
-            >
-              Resume paid entry <ArrowRight size={16} />
-            </button>
-          )}
-        </div>
-      )}
-      {chart && <RecoveredAttempts chartHash={chart.chartHash} />}
-      <Dialog
-        open={paymentOpen}
-        onOpenChange={(open) => {
-          if (!busy) setPaymentOpen(open);
-        }}
-      >
-        <DialogContent
-          className="arena-payment"
-          aria-describedby="payment-description"
-        >
-          <button
-            className="arena-dialog-close"
-            aria-label="Close payment"
-            disabled={busy}
-            onClick={() => setPaymentOpen(false)}
-          >
-            <X size={20} />
-          </button>
-          <p className="arena-eyebrow">YOUR NEXT RUN STARTS HERE</p>
-          <DialogTitle>Pay once. Play your best.</DialogTitle>
-          <DialogDescription id="payment-description">
-            Use your wallet to enter the game.
-          </DialogDescription>
-          <div className="arena-payment-total">
-            <div>
-              <strong>One play</strong>
-              <p>Added to the shared prize pot</p>
-            </div>
-            <strong>1 USDC</strong>
-          </div>
-          <div className="arena-wallet-choice">
-            <QrCode size={44} />
-            <h3>
-              {account.address
-                ? "Wallet connected"
-                : "Your phone is your ticket."}
-            </h3>
-            <p>
-              {account.address
-                ? shortAddress(account.address)
-                : walletConnectConfigured
-                  ? "Choose WalletConnect to scan a secure QR code with your phone’s wallet."
-                  : "Connect a browser wallet to enter. Phone QR is not configured for this deployment."}
-            </p>
-            {!account.address && (
-              <button
-                className="arena-secondary"
-                disabled={busy}
-                onClick={() => {
-                  setPaymentOpen(false);
-                  setWaitingForWallet(true);
-                  openConnectModal?.();
-                }}
-              >
-                <Wallet size={18} /> Connect wallet
-              </button>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Button onClick={() => void connectHardware().then(status => setMessage(`Board state ${status.state}. IDLE=0; FINALIZED=3 can be recovered below; ERROR=255 requires discard.`)).catch(e => setMessage(String(e)))}>Connect / reconnect capture board</Button>
-            <Button onClick={() => { if (window.confirm('Discard the board recording/result permanently?')) void discardHardware().then(() => setMessage('Board reset to IDLE')).catch(e => setMessage(String(e))); }}>Discard board capture</Button>
-            {chart?.hardwareSrs && <p>Hardware capacity: {chart.hardwareSrs.maxEvents} events. {chart.hardwareSrs.developmentOnly ? 'Insecure development SRS — demo only.' : ''}</p>}
-          </div>
-          <button
-            className="arena-primary"
-            disabled={
-              busy ||
-              !chart?.ready ||
-              !room ||
-              !account.address
-            }
-            onClick={() => void run(enter)}
-          >
-            {busy ? "Waiting for confirmation…" : "Pay 1 USDC & continue"}
-            <ArrowRight size={19} />
-          </button>
-          <p className="arena-payment-note">
-            {status ||
-              (!room && chart
-                ? "Entries are closed near midnight to leave time for gameplay and proof confirmation."
-                : "Confirm approval and entry in your wallet. Quick setup opens after payment is confirmed.")}
-          </p>
-          {message && (
-            <p className="arena-payment-note" role="status">
-              {message}
-            </p>
-          )}
-          <button
-            className="arena-text-button"
-            disabled={busy}
-            onClick={() => {
-              setPaymentOpen(false);
-              setPendingAttempt(null);
-              setScreen("setup");
-            }}
-          >
-            Try free practice first <ArrowRight size={16} />
-          </button>
-        </DialogContent>
-      </Dialog>
+      {message && <p className="arena-service-status" role="status">{message}</p>}
     </>
   );
 }

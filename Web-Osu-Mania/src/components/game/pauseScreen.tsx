@@ -52,8 +52,8 @@ const PauseScreen = ({
   return (
     <>
       {/* Inset of -1px since it wasn't covering the top for some reason */}
-      <div className="bg-background/90 animate-in fade-in scrollbar fixed -inset-y-px left-0 h-[calc(100dvh+2px)] w-dvw overflow-auto duration-300">
-        <div className="mx-auto flex min-h-screen max-w-(--breakpoint-xl) flex-col justify-center p-8">
+      <div className="arena-pause bg-background/90 animate-in fade-in scrollbar fixed -inset-y-px left-0 h-[calc(100dvh+2px)] w-dvw overflow-auto duration-300">
+        <div className="mx-auto flex min-h-[100dvh] max-w-(--breakpoint-xl) flex-col justify-center p-8">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-2">
             <div>
               <h1 className="text-3xl font-semibold md:text-5xl">{title}</h1>

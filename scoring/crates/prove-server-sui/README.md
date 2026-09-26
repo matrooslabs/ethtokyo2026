@@ -1,87 +1,94 @@
-# GKR (Sui) prove server
+# Sui hardware-sealed proof bridge
 
-PlayInput을 JSON으로 보내면 BLS12-381 GKR/sumcheck proof(Sui Move verifier용)를 JSON으로 돌려주는
-**단일 binary** HTTP 서버입니다.
+This service accepts only BridgeOS vendor-HID captures for an existing on-chain Sui
+`registry::Session` opened in hardware mode **3**. It never accepts browser replay,
+synthetic signatures, or a bare `PlayInput` for paid scoring. Proofs use the Sui
+BLS12-381 GKR calldata verifier, but bind its statement digest to the **original**
+BridgeOS V2/BN254 465-byte signed result, not a rewritten V1 header. The signed
+BN254 trace commitment is retained in the registry submission; the signed SHA-256
+trace root binds the exact 14-byte-per-event HID GET_TRACE bytes to the calldata proof.
 
-## 빌드와 실행
+The trust boundary is the registry's active hardware public key and provisioned
+bitstream: HID GET_INFO by itself is self-reported, while the final original
+GET_RESULT must verify under that key. Never register the BridgeOS `dev-insecure`
+backend's key as a paid device.
 
-`scoring/gkr-scoring-sui/` 기준 (Rust workspace: `scoring/Cargo.toml`).
+## Run
 
-```sh
-cargo build --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server
-../target/release/mania-gkr-sui srs --smax 24 --out artifacts/dev-srs-24.bin   # INSECURE 개발용 SRS
-../target/release/mania-gkr-sui-prove-server                                    # 127.0.0.1:8092
-```
+From `scoring/`: `cargo run -p mania-gkr-sui-prove-server -- --srs PATH --jobs PATH`
+with required environment `SUI_RPC_URL`, `SUI_REGISTRY_ID`, `SUI_PACKAGE_ID`.
+For public testnet/mainnet set `SUI_NETWORK=testnet` (or `mainnet`), run
+`(cd scoring/gkr-scoring-sui/scripts && npm ci)`, and use the HTTPS Sui **gRPC**
+endpoint such as `https://fullnode.testnet.sui.io:443`. The read-only adapter
+`src/sui_grpc.mjs` uses that existing pinned `@mysten/sui` SDK (Node 22+ for
+supported deployments); the binary invokes it once per session read. JSON-RPC
+is used **only** for loopback localnet/test mocks, never public fullnodes.
+If deployed outside the source tree, set `SUI_GRPC_HELPER` to the copied
+`sui_grpc.mjs` path and `SUI_SDK_MANIFEST` to the absolute path of the pinned
+scripts `package.json` alongside installed `node_modules`. Default bind is
+`127.0.0.1:8092`.
+For non-loopback binding, `PROVER_API_TOKEN` (at least 32 bytes) is required;
+all paths except `/healthz` then require `Authorization: Bearer <token>`.
+Use TLS between browsers and this service. A dev SRS from `mania-gkr-sui srs`
+has a known toxic secret and **must not** be used for production prizes.
 
-| 옵션 | 기본값 |
-|---|---|
-| `--bind` | `127.0.0.1:8092` |
-| `--srs` | `artifacts/dev-srs-24.bin` |
+## Paid capture protocol
 
-개발용 SRS는 τ가 알려져 있어 proof를 위조할 수 있습니다. 운영에는 공개 BLS12-381 powers-of-tau로 만든 SRS가
-필요합니다([README](../../gkr-scoring-sui/README.md)). SRS의 `smax`보다 큰 채보는 `500`으로 실패합니다.
+All `*Hex` strings are `0x`-prefixed, exact original bytes from BridgeOS HID
+(no JSON reconstruction or event replay). `chart` uses the scoring-core Chart
+shape `{key_count:4,notes:[{lane,start_us,end_us},...]}`.
 
-## API
+1. Open and fund the on-chain Sui competition session (`mode=3`) before capture.
+2. Call HID GET_INFO (128 bytes) and GET_STATUS (16 bytes). POST
+   `/v1/sessions/start` with `{ "sessionId":"0x<32-byte-Sui-ID>",
+   "infoHex":"0x<128 bytes>", "statusHex":"0x<16 bytes>" }`.
+   The service checks the on-chain Session/Registry, active registered device,
+   bitstream, policy hash, expiration, zero/idle status, hardware SRS readiness;
+   reply contains `{sessionId,headerHex,mode}`. Send `headerHex` unchanged to HID
+   SET_HEADER (292 bytes), then HID START; only actual device events count.
+3. On HID STOP, read HID GET_RESULT (465 bytes) and GET_TRACE (`14*n` bytes).
+   POST `/v1/sessions/submit` with
+   `{ "sessionId":"0x...", "resultHex":"0x...", "traceHex":"0x...", "chart":{...} }`.
+   The 202 response contains `{sessionId,state:"proving",statusUrl}`. Invalid or
+   missing signature/trace never produces a `ready` payload.
+   The current Sui calldata `TraceUpload` object is capped at ~250 KiB; this
+   service fails closed above **7,000 events**, even though BridgeOS itself can
+   record 50,000. Mode 3 cannot silently switch to Sui's BLS commitment mode.
+4. GET `/v1/jobs/{sessionId}`: `{sessionId,state,payload,error}`. State is
+   `proving`, `ready`, `failed`, or `interrupted` (server restarted while proving).
+   POST `/v1/jobs/{sessionId}/retry` reprocesses the persisted capture if failed
+   or interrupted; a completed result is idempotently returned. `/healthz` only
+   tests process liveness. `/v1/info` reports SRS and configured registry/package.
 
-| 요청 | 응답 |
-|---|---|
-| `GET /healthz` | `{"status":"ok"}` |
-| `GET /v1/info` | proof system, 검증 키 ID, 사용 가능한 mode |
-| `POST /v1/prove` `{"mode": …, "input": PlayInput}` | **proof JSON** (아래) |
+Jobs live as JSON in `--jobs` (default `artifacts/sui-proof-jobs`); protect this
+directory and its raw capture bytes. One proof runs at a time (`503` if busy).
+The server is a **secure-relay payload producer**, not a Sui transaction signer.
 
-`input`은 `scoring/fixtures/*.json`과 같은 `PlayInput`입니다. 요청은 proof가 끝날 때까지 기다렸다가
-결과를 같은 응답으로 돌려받습니다(job ID나 polling 없음).
+## Ready payload → Sui PTB
 
-```sh
-python3 -c "import json;print(json.dumps({'mode':'committed','input':json.load(open('../fixtures/perfect.json'))}))" > /tmp/request.json
-curl -s -X POST http://127.0.0.1:8092/v1/prove -H 'Content-Type: application/json' \
-  --data-binary @/tmp/request.json > proof.json
-```
+The `ready` job's `payload` has `kind:"sui-programmable-transaction"`,
+`registryId`, `sessionId`, `packageId`, `clockId:"0x6"`, `traceBatches`,
+`proofGroups`, `sessionDigest`, `result`, and an ordered `steps` plan:
 
-오류는 `{"error": "..."}`입니다.
+- Call `package::registry::new_trace_upload(session)` to obtain a TraceUpload.
+- For each `traceBatches[i]` call `append_trace(&mut trace, vector<vector<u8>>)`;
+  each hex member is an original ≤32-event HID chunk, grouped to stay below Sui's
+  16 KiB PTB argument limit.
+  For traces that would exceed Sui's transaction size, split these calls across
+  PTBs: create the TraceUpload and transfer the owned object to the relayer,
+  then mutate it using its returned object ID in subsequent append PTBs; the
+  final `submit_hardware` consumes that same TraceUpload. Never recalculate or
+  drop the original chunks. The SHA root and device signature are checked on-chain.
+- Encode each `proofGroups[i]` as one pure `vector<vector<u8>>` (<15 KiB), combine
+  those values with PTB `MakeMoveVec` into `vector<vector<vector<u8>>>`, then call
+  `submit_hardware(registry, &mut session, trace, duration:u64,
+  device_bn254_commitment:vector<u8>[64], lane_bits:vector<u64>[4],
+  counts:vector<u64>[5], proof, original_sig:vector<u8>[65], &Clock)` using values
+  from `steps[2].arguments` in exact order. The Sui wallet/relay signs the PTB,
+  **never the game trace**. Confirm on-chain `ScoreAccepted` and the competition
+  vault's reward/claim state before displaying payment; a `ready` proof alone is
+  not settlement. Failures return `{"error":"..."}` or a failed job with `error`.
 
-| 코드 | 의미 |
-|---|---|
-| 401 | `PROVER_API_TOKEN`을 설정한 서버에 token 없음/불일치 |
-| 400/413/415/422 | 잘못된 JSON·필드, 16 MiB 초과, 지원하지 않는 mode, 채점 검증에 실패한 입력 |
-| 503 | 다른 proof 실행 중. 잠시 후 재시도 |
-| 500 | proving 실패 |
+The older `mania-gkr-sui prove-session` CLI uses a known demo signing key for
+localnet fixtures only. It is **not** a production scoring path.
 
-## 동작
-
-- **하나의 binary.** proving 키/SRS를 시작할 때 한 번 메모리에 올리고, 요청마다 같은 프로세스 안에서 proof를 만듭니다.
-- **입력 검증.** proving 전에 native 채점(`core::evaluate`)으로 입력을 검증합니다.
-- **자체 검증.** 반환 전에 proof를 검증하고, 결과가 native 채점 결과와 같은지 확인합니다.
-- **한 번에 proof 하나.** 요청한 client가 연결을 끊어도 시작된 proof는 끝까지 실행되고, 그동안 새 요청은 `503`을 받습니다.
-- **종료.** SIGINT/SIGTERM을 받으면 실행 중인 proof를 기다리지 않고 종료합니다.
-- **보안.** 기본은 `127.0.0.1`에만 바인딩합니다. 다른 기기에서 접속하려면 `PROVER_API_TOKEN`(32바이트 이상)을
-  설정해야 하며, 그러면 `/healthz`를 제외한 요청에 `Authorization: Bearer <token>`이 필요합니다.
-  외부 공개 시에는 HTTPS reverse proxy 뒤에서 실행하세요.
-- **범위 밖.** CORS, 작업 큐, 결과 보관은 하지 않습니다.
-- **코드 구성.** HTTP 계층 `src/http.rs`는 `prove-server-evm`, `prove-server-sui`에서 같은 파일이고,
-  `src/prover.rs`만 proof system별로 다릅니다.
-
-mode: `calldata`(모드 A), `committed`(모드 B).
-
-## 응답
-
-`mania-gkr-sui prove` 출력과 같은 필드에 `srsId`를 더한 JSON입니다.
-
-| 필드 | 내용 |
-|---|---|
-| `mode`, `srsId` | `Calldata`/`Committed`, SRS 검증 키 ID |
-| `result` | `score`, `achieved_points`, `maximum_points`, `judgements` |
-| `laneBits`, `counts`, `proof` | proof 공개값과 proof bytes (hex) |
-| `chartCommitment`, `traceCommitment`, `sessionDigest` | 채보·trace commitment(모드 B, 압축 G1), 서명 대상 digest |
-| `timings` | 단계별 proving 시간 (ms) |
-
-온체인 세션에 맞춘 제출 데이터(header 재바인딩, event chunk, 장치 서명)는 기존 `mania-gkr-sui prove-session`이 만듭니다.
-
-## 테스트와 검증 상태
-
-```sh
-cargo test --release --locked -p mania-gkr-sui-prove-server
-```
-
-- HTTP 계층 테스트 2개와 실제 proving 테스트 1개가 통과했습니다. proving 테스트는 개발용 SRS로 `demo.json`을 두 mode로 증명하고, 점수·판정이 native 결과와 같은지 확인합니다.
-- 2026-09-26 실제 binary로 `curl` 요청을 보내 확인했습니다: `perfect.json`, `calldata` → HTTP 200, 약 0.12초, 1,000,000점, proof 12,416 bytes.

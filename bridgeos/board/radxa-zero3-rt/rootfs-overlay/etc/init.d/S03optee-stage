@@ -1,0 +1,10 @@
+#!/bin/sh
+# Preserve the OP-TEE stage marker, then clear the live marker once Linux runs.
+[ "${1:-}" = start ] || exit 0
+stage="$(devmem 0xfdc2022c 32 2>/dev/null || true)"
+case "$stage" in
+    0x4F50*|0x4f50*)
+        devmem 0xfdc20228 32 "$stage" >/dev/null 2>&1 || true
+        devmem 0xfdc2022c 32 0 >/dev/null 2>&1 || true
+        ;;
+esac

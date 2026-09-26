@@ -1,5 +1,9 @@
 # Browser hardware paid play
 
+Historical EVM Mode B design reference. The current browser player uses Sui and
+does not implement the EVM capture/storage/submit path described below; see the
+[Forest challenge guide](../Web-Osu-Mania/DAILY_LEADERBOARD.md) instead.
+
 Paid Mode B is a new deployment. Existing manifests and localStorage records are
 historical and remain untouched. Run deployment tooling with a new journal
 (default `<chain>.mode-b.json`); never overwrite an old deployment. Configure

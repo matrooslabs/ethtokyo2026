@@ -3,9 +3,11 @@ import type { BeatmapData } from "@/lib/beatmapParser";
 import { cn } from "@/lib/utils";
 import { Game } from "@/osuMania/game";
 import type { ReplayData } from "@/osuMania/systems/replayRecorder";
+import type { BridgeHardware } from "@/lib/hardware/useBridgeHardware";
 import { useSettingsStore } from "@/stores/settingsStore";
 import type { PlayResults } from "@/types";
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { Howler } from "howler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGameStore } from "../../stores/gameStore";
 import ArenaHud, { type ArenaSnapshot } from "./arenaHud";
@@ -17,6 +19,7 @@ import RetryWidget from "./retryWidget";
 import VolumeWidget from "./volumeWidget";
 
 const GameScreens = ({
+  hardware,
   arena,
   beatmapData,
   replayData,
@@ -25,6 +28,7 @@ const GameScreens = ({
   showHud,
   setShowHud,
 }: {
+  hardware: BridgeHardware;
   arena?: ArenaSnapshot;
   beatmapData: BeatmapData;
   replayData: ReplayData | null;
@@ -34,6 +38,7 @@ const GameScreens = ({
   setShowHud: Dispatch<SetStateAction<boolean>>;
 }) => {
   const paidAttempt = useGameStore.use.paidAttempt();
+  const devRun = useGameStore.use.devRun();
   const backgroundDim = useSettingsStore.use.backgroundDim();
   const backgroundBlur = useSettingsStore.use.backgroundBlur();
   const lightenBackgroundDuringBreaks =
@@ -75,10 +80,20 @@ const GameScreens = ({
       replayData,
       retry,
       videoEl,
+      paidAttempt ? hardware.startRecording : undefined,
     );
-    gameInstance
-      .main(containerRef.current, initialShowHud.current)
-      .then(() => setGame(gameInstance)).catch(e => { toast("Capture start failed", {description:String(e)}); useGameStore.getState().closeGame(); });
+    gameInstance.main(containerRef.current, initialShowHud.current)
+      .then(() => setGame(gameInstance))
+      .catch((error: unknown) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : paidAttempt
+              ? "Hardware capture could not start. This play was spent."
+              : "Game could not start.",
+        );
+        useGameStore.getState().closeGame();
+      });
 
     return () => {
       Howler.stop();
@@ -90,7 +105,7 @@ const GameScreens = ({
         videoEl.currentTime = 0;
       }
     };
-  }, [beatmapData, replayData, retry, beatmapId, videoRef]);
+  }, [beatmapData, replayData, retry, beatmapId, videoRef, hardware.startRecording, paidAttempt]);
 
   // Pause logic
   useEffect(() => {
@@ -99,10 +114,11 @@ const GameScreens = ({
     }
 
     if (isPaused) {
-      if (paidAttempt) {
-        toast(
-          "Paid attempt ended because gameplay paused. The entry fee remains in the daily pot.",
-        );
+      if (paidAttempt || devRun) {
+        toast(devRun
+          ? "Simulation ended. This play was used; there is no resume."
+          : "Paid run ended. This play was used; there is no resume.");
+        if (paidAttempt) void hardware.abortRecording().catch(() => {});
         useGameStore.getState().closeGame();
         return;
       }
@@ -110,7 +126,20 @@ const GameScreens = ({
     } else if (game.state === "PAUSE") {
       game.resume();
     }
-  }, [isPaused, game, paidAttempt]);
+  }, [isPaused, game, paidAttempt, devRun, hardware.abortRecording]);
+
+  useEffect(() => {
+    if (results || replayData) return;
+    const disconnected = () => {
+      toast.error(paidAttempt || devRun
+        ? "Controller disconnected. This play was used."
+        : "Controller disconnected. Practice ended.");
+      useGameStore.getState().closeGame();
+    };
+    if (hardware.disconnectSignal.aborted) disconnected();
+    else hardware.disconnectSignal.addEventListener("abort", disconnected, { once: true });
+    return () => hardware.disconnectSignal.removeEventListener("abort", disconnected);
+  }, [hardware.disconnectSignal, paidAttempt, devRun, replayData, results]);
 
   // Event listeners
   useEffect(() => {
@@ -185,11 +214,11 @@ const GameScreens = ({
           <ArenaHud game={game} arena={arena} />
         )}
         {game && !results && <VolumeWidget game={game} />}
-        {game && !results && !paidAttempt && <RetryWidget retry={retry} />}
+        {game && !results && !paidAttempt && !devRun && <RetryWidget retry={retry} />}
         {game && !results && <PauseButton setIsPaused={setIsPaused} />}
         {game && !results && replayData && <ReplayControls game={game} />}
 
-        {isPaused && game && (
+        {isPaused && game && !paidAttempt && !devRun && (
           <PauseScreen
             beatmapData={beatmapData}
             setIsPaused={setIsPaused}
@@ -200,6 +229,7 @@ const GameScreens = ({
         )}
         {results && (
           <ResultsScreen
+            hardware={hardware}
             beatmapData={beatmapData}
             playResults={results}
             retry={retry}

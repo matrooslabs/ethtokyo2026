@@ -1,7 +1,8 @@
 # Shared application environment
 
-For the full install → deploy → register → run workflow, start with the
-[root README](../README.md). This page details the shared environment and Sui setup.
+For the historical EVM install → deploy → register → run workflow, see the
+[root README](../README.md). The active Sui browser competition is documented in
+[the Forest challenge guide](../Web-Osu-Mania/DAILY_LEADERBOARD.md).
 
 Copy the root template once and fill in your WalletConnect project ID and any
 deployment-specific values:
@@ -39,10 +40,10 @@ After loading `.env`, run one command per terminal, from the repository root:
 
 Build the Rust binaries with
 `cargo build --manifest-path scoring/Cargo.toml --workspace --release --locked`.
-The paid EVM game calls the scoring HTTP server directly. With `SCORING_CONFIG`
-set, this process validates paid sessions and original hardware captures, then
-returns Mode B proofs. The browser owns WebHID capture and wallet submission. The Sui HTTP prover remains a separate interface; the browser
-competition is wired to EVM.
+The EVM scoring HTTP server validates Mode B sessions and hardware captures for
+the separate EVM stack. The current browser competition instead uses Sui;
+its Sui proof bridge and deployment requirements are described in the
+[Forest challenge guide](../Web-Osu-Mania/DAILY_LEADERBOARD.md).
 
 ## Paid scoring configuration
 
@@ -144,7 +145,7 @@ its own local account. `--force-regenesis` can be added for a deliberately fresh
 non-persistent network.
 
 The `SUI_*` values above are shell inputs to the documented flags;
-`PROVER_API_TOKEN` is read directly by the HTTP server. The template does not
-configure the browser competition or leaderboard indexer for Sui:
-those components currently implement EVM only. The Move stack proves and verifies
-scores; it is not the EVM daily USDC-pot application ported to Sui.
+`PROVER_API_TOKEN` is read directly by the HTTP server. This template does not
+configure the current Sui browser competition: use its `VITE_SUI_*` deployment
+values and Sui scoring bridge as described in the Forest challenge guide.
+The EVM indexer remains a separate service.

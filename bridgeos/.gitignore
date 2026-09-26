@@ -1,0 +1,13 @@
+/sources/
+/output/
+/output-debug/
+*.pyc
+debian-zero3e.img
+/output*
+/optee/osumania_signer/ta/*.o
+/optee/osumania_signer/ta/*.ta
+/optee/osumania_signer/ta/*.elf
+/optee/osumania_signer/ta/*.map
+/optee/osumania_signer/ta/*.dmp
+/optee/osumania_signer/ta/.*.cmd
+/optee/osumania_signer/ta/.*.d

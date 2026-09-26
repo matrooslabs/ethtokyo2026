@@ -1,0 +1,16 @@
+diff --git a/arch/arm/mach-rockchip/sdram.c b/arch/arm/mach-rockchip/sdram.c
+index ea0e3621af7..4d686f62491 100644
+--- a/arch/arm/mach-rockchip/sdram.c
++++ b/arch/arm/mach-rockchip/sdram.c
+@@ -336,9 +336,9 @@ int dram_init_banksize(void)
+ 	} else {
+ 		gd->bd->bi_dram[0].start = CFG_SYS_SDRAM_BASE;
+ 		gd->bd->bi_dram[0].size = 0x8400000;
+-		/* Reserve 32M for OPTEE with TA */
++		/* Reserve 32 MiB TZDRAM plus 4 MiB static OP-TEE shared memory. */
+ 		gd->bd->bi_dram[1].start = CFG_SYS_SDRAM_BASE
+-					+ gd->bd->bi_dram[0].size + 0x2000000;
++					+ gd->bd->bi_dram[0].size + 0x2400000;
+ 		gd->bd->bi_dram[1].size = top - gd->bd->bi_dram[1].start;
+ 	}
+ #else

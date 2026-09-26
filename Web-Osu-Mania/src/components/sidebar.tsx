@@ -6,7 +6,7 @@ import KeybindsTab from "./keybinds/keybindsTab";
 import ModsTab from "./mods/modsTab";
 import SettingsTab from "./settings/settingsTab";
 
-const SidebarContent = ({ className }: { className?: string }) => {
+const SidebarContent = ({ className, paid = false }: { className?: string; paid?: boolean }) => {
   const beatmapId = useGameStore.use.beatmapId();
 
   return (
@@ -19,19 +19,19 @@ const SidebarContent = ({ className }: { className?: string }) => {
           className,
         )}
       >
-        <TabsList className="grid grid-cols-3">
-          <TabsTrigger value="mods">Mods</TabsTrigger>
+        <TabsList className={cn("grid", paid ? "grid-cols-2" : "grid-cols-3")}>
+          {!paid && <TabsTrigger value="mods">Mods</TabsTrigger>}
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="keybinds">Keybinds</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="mods" className="h-0 grow">
+        {!paid && <TabsContent value="mods" className="h-0 grow">
           <Card className="flex max-h-full flex-col overflow-hidden">
             <CardContent className="scrollbar scrollbar-track-card overflow-auto p-4 sm:p-6">
               <ModsTab />
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
         <TabsContent value="settings" className="h-0 grow">
           <Card className="flex h-full flex-col overflow-hidden">

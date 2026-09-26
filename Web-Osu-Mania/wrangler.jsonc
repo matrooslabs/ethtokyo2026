@@ -6,6 +6,12 @@
     "compatibility_flags": [
         "nodejs_compat"
     ],
+    "vars": {
+        "WORLD_ID_APP_ID": "app_3b09fd5fe1c151bd37b19ceb95c45170",
+        "WORLD_ID_RP_ID": "rp_78581d63ee7bed85",
+        "WORLD_ID_ACTION": "versu-prize-claim",
+        "WORLD_ID_ENVIRONMENT": "production"
+    },
     "kv_namespaces": [
         {
             "binding": "OSU_API",
