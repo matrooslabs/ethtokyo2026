@@ -1,0 +1,8 @@
+[package]
+name = "mania_gkr"
+edition = "2024"
+
+[dependencies]
+
+[addresses]
+mania_gkr = "0x0"

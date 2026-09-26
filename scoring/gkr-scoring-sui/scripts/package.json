@@ -1,0 +1,8 @@
+{
+  "name": "mania-gkr-sui-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mysten/sui": "2.33.1"
+  }
+}

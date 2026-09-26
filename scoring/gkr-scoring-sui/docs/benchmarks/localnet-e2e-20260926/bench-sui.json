@@ -1,0 +1,319 @@
+{
+  "rows": [
+    {
+      "case": "500",
+      "chartRegistrationProveMs": 26.323459,
+      "deviceCommitMs": null,
+      "events": 1000,
+      "lastTimings": {
+        "commit_ms": 23.878,
+        "gkr_ms": 63.483582999999996,
+        "opening_ms": 295.9255,
+        "reduction_ms": 19.942792,
+        "row_sumcheck_ms": 111.82241599999999,
+        "total_ms": 517.615791,
+        "witness_ms": 2.5552499999999996
+      },
+      "leafVars": 16,
+      "mode": "Calldata",
+      "notes": 500,
+      "openingVars": 17,
+      "proofBytes": 21424,
+      "proveMsAll": [
+        513.293875,
+        503.45275000000004,
+        488.73699999999997,
+        501.04404200000005,
+        517.615791
+      ],
+      "proveMsMedian": 503.45275000000004,
+      "score": 1000000,
+      "tableBits": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        10,
+        8
+      ],
+      "verifyNativeMsMedian": 6.018917
+    },
+    {
+      "case": "500",
+      "chartRegistrationProveMs": 26.323459,
+      "deviceCommitMs": 0.8490420000000001,
+      "events": 1000,
+      "lastTimings": {
+        "commit_ms": 23.243958,
+        "gkr_ms": 62.468042000000004,
+        "opening_ms": 273.120584,
+        "reduction_ms": 19.861167,
+        "row_sumcheck_ms": 99.726709,
+        "total_ms": 481.07949999999994,
+        "witness_ms": 2.6502499999999998
+      },
+      "leafVars": 16,
+      "mode": "Committed",
+      "notes": 500,
+      "openingVars": 17,
+      "proofBytes": 21456,
+      "proveMsAll": [
+        493.857667,
+        505.09524999999996,
+        511.66841600000004,
+        493.808667,
+        481.07949999999994
+      ],
+      "proveMsMedian": 493.857667,
+      "score": 1000000,
+      "tableBits": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        10,
+        8
+      ],
+      "verifyNativeMsMedian": 4.063542
+    },
+    {
+      "case": "1500",
+      "chartRegistrationProveMs": 53.900792,
+      "deviceCommitMs": null,
+      "events": 3000,
+      "lastTimings": {
+        "commit_ms": 72.822,
+        "gkr_ms": 110.459875,
+        "opening_ms": 979.548417,
+        "reduction_ms": 42.578625,
+        "row_sumcheck_ms": 165.91345800000002,
+        "total_ms": 1379.910624,
+        "witness_ms": 8.577166
+      },
+      "leafVars": 18,
+      "mode": "Calldata",
+      "notes": 1500,
+      "openingVars": 19,
+      "proofBytes": 25328,
+      "proveMsAll": [
+        1432.3043750000002,
+        1395.0524169999999,
+        1391.396208,
+        1389.3366670000003,
+        1379.910624
+      ],
+      "proveMsMedian": 1391.396208,
+      "score": 1000000,
+      "tableBits": [
+        11,
+        11,
+        11,
+        11,
+        11,
+        12,
+        8
+      ],
+      "verifyNativeMsMedian": 8.126583
+    },
+    {
+      "case": "1500",
+      "chartRegistrationProveMs": 53.900792,
+      "deviceCommitMs": 5.0735,
+      "events": 3000,
+      "lastTimings": {
+        "commit_ms": 79.229083,
+        "gkr_ms": 93.087708,
+        "opening_ms": 957.064625,
+        "reduction_ms": 37.432292,
+        "row_sumcheck_ms": 172.206791,
+        "total_ms": 1347.4470410000001,
+        "witness_ms": 8.416791
+      },
+      "leafVars": 18,
+      "mode": "Committed",
+      "notes": 1500,
+      "openingVars": 19,
+      "proofBytes": 25360,
+      "proveMsAll": [
+        1365.048042,
+        1284.0230419999998,
+        1359.6335840000002,
+        1300.993292,
+        1347.4470410000001
+      ],
+      "proveMsMedian": 1347.4470410000001,
+      "score": 1000000,
+      "tableBits": [
+        11,
+        11,
+        11,
+        11,
+        11,
+        12,
+        8
+      ],
+      "verifyNativeMsMedian": 4.358875
+    },
+    {
+      "case": "3000",
+      "chartRegistrationProveMs": 92.19612500000001,
+      "deviceCommitMs": null,
+      "events": 6000,
+      "lastTimings": {
+        "commit_ms": 138.375458,
+        "gkr_ms": 127.07674999999999,
+        "opening_ms": 1895.122083,
+        "reduction_ms": 59.910333,
+        "row_sumcheck_ms": 204.383792,
+        "total_ms": 2442.1810000000005,
+        "witness_ms": 17.301792
+      },
+      "leafVars": 19,
+      "mode": "Calldata",
+      "notes": 3000,
+      "openingVars": 20,
+      "proofBytes": 27424,
+      "proveMsAll": [
+        2418.898291,
+        2425.409584,
+        2392.1363330000004,
+        2331.5915830000004,
+        2442.1810000000005
+      ],
+      "proveMsMedian": 2418.898291,
+      "score": 1000000,
+      "tableBits": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        13,
+        8
+      ],
+      "verifyNativeMsMedian": 9.495375000000001
+    },
+    {
+      "case": "3000",
+      "chartRegistrationProveMs": 92.19612500000001,
+      "deviceCommitMs": 10.198459,
+      "events": 6000,
+      "lastTimings": {
+        "commit_ms": 137.618292,
+        "gkr_ms": 126.50520800000001,
+        "opening_ms": 1777.142125,
+        "reduction_ms": 61.8025,
+        "row_sumcheck_ms": 210.696333,
+        "total_ms": 2330.0764999999997,
+        "witness_ms": 16.301083000000002
+      },
+      "leafVars": 19,
+      "mode": "Committed",
+      "notes": 3000,
+      "openingVars": 20,
+      "proofBytes": 27456,
+      "proveMsAll": [
+        2421.1899580000004,
+        2360.484875,
+        2325.907667,
+        2236.4137920000003,
+        2330.0764999999997
+      ],
+      "proveMsMedian": 2330.0764999999997,
+      "score": 1000000,
+      "tableBits": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        13,
+        8
+      ],
+      "verifyNativeMsMedian": 4.491625
+    },
+    {
+      "case": "10000",
+      "chartRegistrationProveMs": 307.602917,
+      "deviceCommitMs": null,
+      "events": 20000,
+      "lastTimings": {
+        "commit_ms": 457.764334,
+        "gkr_ms": 259.896041,
+        "opening_ms": 5733.016125,
+        "reduction_ms": 195.790875,
+        "row_sumcheck_ms": 421.454458,
+        "total_ms": 7129.713083000001,
+        "witness_ms": 61.780875
+      },
+      "leafVars": 21,
+      "mode": "Calldata",
+      "notes": 10000,
+      "openingVars": 22,
+      "proofBytes": 31904,
+      "proveMsAll": [
+        6802.238666,
+        7342.610792,
+        7219.578707999999,
+        6734.942083,
+        7129.713083000001
+      ],
+      "proveMsMedian": 7129.713083000001,
+      "score": 1000000,
+      "tableBits": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        15,
+        8
+      ],
+      "verifyNativeMsMedian": 18.651083999999997
+    },
+    {
+      "case": "10000",
+      "chartRegistrationProveMs": 307.602917,
+      "deviceCommitMs": 29.497958,
+      "events": 20000,
+      "lastTimings": {
+        "commit_ms": 473.332583,
+        "gkr_ms": 263.227,
+        "opening_ms": 5737.752417000001,
+        "reduction_ms": 210.087166,
+        "row_sumcheck_ms": 479.789084,
+        "total_ms": 7224.748666,
+        "witness_ms": 60.549082999999996
+      },
+      "leafVars": 21,
+      "mode": "Committed",
+      "notes": 10000,
+      "openingVars": 22,
+      "proofBytes": 31936,
+      "proveMsAll": [
+        7048.69375,
+        7012.61075,
+        6980.227792,
+        6834.087542,
+        7224.748666
+      ],
+      "proveMsMedian": 7012.61075,
+      "score": 1000000,
+      "tableBits": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        15,
+        8
+      ],
+      "verifyNativeMsMedian": 4.724
+    }
+  ],
+  "srsLoadMs": 397.574292,
+  "srsSmax": 24,
+  "threads": 16
+}

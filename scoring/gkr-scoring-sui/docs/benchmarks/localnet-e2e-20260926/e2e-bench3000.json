@@ -1,0 +1,117 @@
+{
+  "network": "localnet",
+  "case": "bench3000",
+  "rows": [
+    {
+      "step": "publish",
+      "digest": "2pfeiEazQhnPvSdNCfGRj48s77QCZmaHCJBo8pVGDqtK",
+      "ok": true,
+      "txBytes": 38840,
+      "computationUnits": 3030,
+      "computationSui": 0.00303,
+      "storageSui": 0.2840766
+    },
+    {
+      "step": "create registry",
+      "digest": "AsvecsqxGJg2BTbZLw2QSGujZR4XisBFp4DiDvHwdKaw",
+      "ok": true,
+      "txBytes": 2870,
+      "computationUnits": 1280,
+      "computationSui": 0.00128,
+      "storageSui": 0.02322788
+    },
+    {
+      "step": "set device",
+      "digest": "C8Zh8dMxrcbTRsnkVVpbe3fZeSuo3ryA8R23xnxeUdiz",
+      "ok": true,
+      "txBytes": 492,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.00264366
+    },
+    {
+      "step": "chart upload 0",
+      "digest": "4a7EiXaxYZWEmuY5B9ubNf6qxenKEk4zarbz6Fvm6aqn",
+      "ok": true,
+      "txBytes": 51629,
+      "computationUnits": 482600,
+      "computationSui": 0.4826,
+      "storageSui": 0.38916028
+    },
+    {
+      "step": "chart check 3000/3000",
+      "digest": "5WpAoxsAf21bCS8eHeqfb2EDYddoccBqr2uuHDx31kbh",
+      "ok": true,
+      "txBytes": 538,
+      "computationUnits": 1562000,
+      "computationSui": 1.562,
+      "storageSui": 0.010270184
+    },
+    {
+      "step": "chart register (opening)",
+      "digest": "9LY7BUura6edqwjPCqBJT3w73ftyHzxpA1xHbdEaWGxX",
+      "ok": true,
+      "txBytes": 1389,
+      "computationUnits": 1890,
+      "computationSui": 0.00189,
+      "storageSui": -0.388692348
+    },
+    {
+      "step": "open session (a)",
+      "digest": "J7AS47hjVcvk5t2z7JRVhW5GnxjoomJ7RuxmyiMMjBeY",
+      "ok": true,
+      "txBytes": 615,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.004258964
+    },
+    {
+      "step": "trace upload 0 (a)",
+      "digest": "GhAvbGSU4gG5g8hBEn5Qz4nSNCNPcGPV5MvNynoDqfmT",
+      "ok": true,
+      "txBytes": 85157,
+      "computationUnits": 1804000,
+      "computationSui": 1.804,
+      "storageSui": 1.55240108
+    },
+    {
+      "step": "submit forged counts (a)",
+      "ok": false,
+      "rejectedBy": "simulation",
+      "error": "MoveAbort in 2nd command, abort code: 3, in '0x62f6e502decb610e1f90d9a5ddbd7c761f2ad6891d1d5f107fef9afa0c3f9daa::gkr::verify' (instruction 244)"
+    },
+    {
+      "step": "submit (a)",
+      "digest": "34ykDT2iSCX2RnD5oAuavacCZwcUZoK8W7VQ4prnkmu4",
+      "ok": true,
+      "txBytes": 28968,
+      "computationUnits": 927200,
+      "computationSui": 0.9272,
+      "storageSui": -1.536450276
+    },
+    {
+      "step": "open session (b)",
+      "digest": "HdXDPqQU4ubhvTPdR836WxMPjV2TtheHiqgtZZt6NCb9",
+      "ok": true,
+      "txBytes": 615,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.004258964
+    },
+    {
+      "step": "submit forged counts (b)",
+      "ok": false,
+      "rejectedBy": "simulation",
+      "error": "MoveAbort in 2nd command, abort code: 3, in '0x62f6e502decb610e1f90d9a5ddbd7c761f2ad6891d1d5f107fef9afa0c3f9daa::gkr::verify' (instruction 244)"
+    },
+    {
+      "step": "submit (b)",
+      "digest": "AXxD6uW1JopAudvbJ7eb5cNhX8ozSytfEn7AH9wLUC9c",
+      "ok": true,
+      "txBytes": 29029,
+      "computationUnits": 356100,
+      "computationSui": 0.3561,
+      "storageSui": 0.000417012
+    }
+  ]
+}

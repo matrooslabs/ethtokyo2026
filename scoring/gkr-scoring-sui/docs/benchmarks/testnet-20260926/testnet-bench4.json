@@ -1,0 +1,84 @@
+{
+  "network": "testnet",
+  "case": "bench4",
+  "rows": [
+    {
+      "step": "publish",
+      "digest": "CCxvRcbNWczysMLd8fTDv432hWq2EsAoQEqUFeoCT3xW",
+      "ok": true,
+      "txBytes": 37731,
+      "computationUnits": 3000,
+      "computationSui": 0.003,
+      "storageSui": 0.2977604
+    },
+    {
+      "step": "create registry",
+      "digest": "5gSwcLWuhs5Vf9N4hcBWZZUpZhTWvs9L9794LrXopU4V",
+      "ok": true,
+      "txBytes": 2783,
+      "computationUnits": 1280,
+      "computationSui": 0.00128,
+      "storageSui": 0.023218
+    },
+    {
+      "step": "set device",
+      "digest": "GNA1U9bEiCfe8pgWNiY15uUPUntN5w4zh4xCFoDhTwFJ",
+      "ok": true,
+      "txBytes": 405,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.00263378
+    },
+    {
+      "step": "chart upload 0",
+      "digest": "GER7t1PhTqSsjX7pLvNbE9HP7So4egWwdLBwCFUVBRPE",
+      "ok": true,
+      "txBytes": 404,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.002052
+    },
+    {
+      "step": "chart check 4/4",
+      "digest": "9w7qtmt2K6rKHrWLJK49bVz9FDvrf2F91xrQSAaQesRp",
+      "ok": true,
+      "txBytes": 451,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.00388132
+    },
+    {
+      "step": "chart register (opening)",
+      "digest": "2EoY42ssqzHVuZFM6akYQ7m43k5NGHHqry4pGYE5k1uL",
+      "ok": true,
+      "txBytes": 812,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": -0.002991892
+    },
+    {
+      "step": "open session (b)",
+      "digest": "3NohSECdKdT8SbNR3MtcKpayMLfRjngBvyNft5Z7qFvp",
+      "ok": true,
+      "txBytes": 528,
+      "computationUnits": 1000,
+      "computationSui": 0.001,
+      "storageSui": 0.004249084
+    },
+    {
+      "step": "submit forged counts (b)",
+      "ok": false,
+      "rejectedBy": "simulation",
+      "error": "MoveAbort in 2nd command, abort code: 3, in '0x031595e9aec31931c3a4d5def7c4f0f3212336b96b18650ab8c8086e87261f22::gkr::verify' (instruction 244)"
+    },
+    {
+      "step": "submit (b)",
+      "digest": "4apKVLbdsm7V5ca1mLsQ3MWgUttiV39ZuX4ma5NLN8X7",
+      "ok": true,
+      "txBytes": 13462,
+      "computationUnits": 148300,
+      "computationSui": 0.1483,
+      "storageSui": 0.000407132
+    }
+  ]
+}

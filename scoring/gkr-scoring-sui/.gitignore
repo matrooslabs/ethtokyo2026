@@ -1,0 +1,12 @@
+target/
+**/target/
+artifacts/
+move/build/
+scripts/node_modules/
+
+# Rust entry points are source, despite the parent repository's [Bb]in/ rule.
+!/engine/src/bin/
+!/engine/src/bin/*.rs
+
+.env
+.env.*

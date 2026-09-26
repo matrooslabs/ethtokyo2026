@@ -1,0 +1,264 @@
+INCLUDING DEPENDENCY MoveStdlib
+INCLUDING DEPENDENCY Sui
+BUILDING mania_gkr
+Running Move unit tests
+[ PASS    ] mania_gkr::fr::canonical_decoding
+[ PASS    ] mania_gkr::fr::rejects_r
+[ PASS    ] mania_gkr::mle::interpolation_recovers_cubic
+[ PASS    ] mania_gkr::mle::public_mles
+[ PASS    ] mania_gkr::registry_tests::chart_check_resumes
+[ PASS    ] mania_gkr::registry_tests::duplicate_chart_is_rejected
+[ PASS    ] mania_gkr::registry_tests::expired_session_is_rejected
+[ PASS    ] mania_gkr::registry_tests::foreign_cap_is_rejected
+[ PASS    ] mania_gkr::registry_tests::foreign_chart_commitment_is_rejected
+[ PASS    ] mania_gkr::registry_tests::forged_signature_is_rejected
+[ PASS    ] mania_gkr::registry_tests::inflated_counts_are_rejected
+[ PASS    ] mania_gkr::registry_tests::mode_confusion_is_rejected
+[ PASS    ] mania_gkr::registry_tests::modified_duration_breaks_signature
+[ PASS    ] mania_gkr::registry_tests::modified_trace_breaks_signature
+[ PASS    ] mania_gkr::registry_tests::open_session_issues_header
+[ PASS    ] mania_gkr::registry_tests::replay_is_rejected
+[ PASS    ] mania_gkr::generated_tests::chart_bench3000
+[ PASS    ] mania_gkr::registry_tests::revoked_device_is_rejected
+[ PASS    ] mania_gkr::registry_tests::trace_sequence_is_enforced
+[ PASS    ] mania_gkr::generated_tests::chart_bench500
+[ PASS    ] mania_gkr::generated_tests::chart_demo
+[ PASS    ] mania_gkr::generated_tests::chart_perfect
+[ PASS    ] mania_gkr::generated_tests::chart_random0
+[ PASS    ] mania_gkr::generated_tests::chart_random1
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_adv_commitment
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_adv_eval
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_chart_eval
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_claim_first
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_claim_last
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_extended
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_gkr_children
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_gkr_layer1
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_gkr_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_noncanonical
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_red_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_row_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_truncated
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_zm_pi
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_zm_q0
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_zm_qhat
+[ PASS    ] mania_gkr::generated_tests::reject_demo_a_zm_qhat_shift
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_adv_commitment
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_adv_eval
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_chart_eval
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_claim_first
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_claim_last
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_extended
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_gkr_children
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_gkr_layer1
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_gkr_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_noncanonical
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_red_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_row_round
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_trace_eval
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_truncated
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_zm_pi
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_zm_q0
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_zm_qhat
+[ PASS    ] mania_gkr::generated_tests::reject_demo_b_zm_qhat_shift
+[ PASS    ] mania_gkr::generated_tests::submit_bench3000_a
+[ PASS    ] mania_gkr::generated_tests::submit_bench3000_b
+[ PASS    ] mania_gkr::generated_tests::submit_bench500_a
+[ PASS    ] mania_gkr::generated_tests::submit_bench500_b
+[ PASS    ] mania_gkr::generated_tests::submit_demo_a
+[ PASS    ] mania_gkr::generated_tests::submit_demo_b
+[ PASS    ] mania_gkr::generated_tests::submit_perfect_a
+[ PASS    ] mania_gkr::generated_tests::submit_perfect_b
+[ PASS    ] mania_gkr::generated_tests::submit_random0_a
+[ PASS    ] mania_gkr::generated_tests::submit_random1_b
+[ PASS    ] mania_gkr::generated_tests::upload_bench3000_a
+[ PASS    ] mania_gkr::generated_tests::upload_bench500_a
+[ PASS    ] mania_gkr::generated_tests::upload_demo_a
+[ PASS    ] mania_gkr::generated_tests::upload_perfect_a
+[ PASS    ] mania_gkr::generated_tests::upload_random0_a
+[ PASS    ] mania_gkr::generated_tests::verify_bench3000_a
+[ PASS    ] mania_gkr::generated_tests::verify_bench3000_b
+[ PASS    ] mania_gkr::generated_tests::verify_bench500_a
+[ PASS    ] mania_gkr::generated_tests::verify_bench500_b
+[ PASS    ] mania_gkr::generated_tests::verify_demo_a
+[ PASS    ] mania_gkr::generated_tests::verify_demo_b
+[ PASS    ] mania_gkr::generated_tests::verify_perfect_a
+[ PASS    ] mania_gkr::generated_tests::verify_perfect_b
+[ PASS    ] mania_gkr::generated_tests::verify_random0_a
+[ PASS    ] mania_gkr::generated_tests::verify_random1_b
+
+Test Statistics:
+
+┌─────────────────────────────────────────────────────────────────┬────────────┬───────────────────────────┐
+│                            Test Name                            │    Time    │         Gas Used          │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::fr::canonical_decoding                               │   0.282    │      49999995000006       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::fr::rejects_r                                        │   0.000    │      49999995000001       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_bench3000                     │   0.421    │      49999996847354       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_bench500                      │   0.027    │      49999995246740       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_demo                          │   0.006    │      49999995001169       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_perfect                       │   0.006    │      49999995001169       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_random0                       │   0.008    │      49999995015419       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::chart_random1                       │   0.007    │      49999995001635       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_adv_commitment        │   0.004    │      49999995001191       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_adv_eval              │   0.021    │      49999995139922       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_chart_eval            │   0.021    │      49999995139922       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_claim_first           │   0.017    │      49999995100381       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_claim_last            │   0.017    │      49999995100381       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_extended              │   0.024    │      49999995169615       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_gkr_children          │   0.009    │      49999995008641       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_gkr_layer1            │   0.003    │      49999995001131       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_gkr_round             │   0.004    │      49999995001419       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_noncanonical          │   0.003    │      49999995001121       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_red_round             │   0.020    │      49999995139922       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_row_round             │   0.017    │      49999995100381       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_truncated             │   0.021    │      49999995145874       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_zm_pi                 │   0.024    │      49999995169619       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_zm_q0                 │   0.025    │      49999995169619       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_zm_qhat               │   0.024    │      49999995169619       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_a_zm_qhat_shift         │   0.024    │      49999995169619       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_adv_commitment        │   0.003    │      49999995001183       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_adv_eval              │   0.020    │      49999995137178       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_chart_eval            │   0.020    │      49999995137178       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_claim_first           │   0.017    │      49999995100084       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_claim_last            │   0.017    │      49999995100084       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_extended              │   0.024    │      49999995167911       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_gkr_children          │   0.008    │      49999995008510       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_gkr_layer1            │   0.003    │      49999995001123       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_gkr_round             │   0.004    │      49999995001411       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_noncanonical          │   0.003    │      49999995001114       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_red_round             │   0.020    │      49999995137178       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_row_round             │   0.017    │      49999995100084       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_trace_eval            │   0.020    │      49999995137178       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_truncated             │   0.021    │      49999995144168       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_zm_pi                 │   0.024    │      49999995167915       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_zm_q0                 │   0.024    │      49999995167915       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_zm_qhat               │   0.024    │      49999995167915       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::reject_demo_b_zm_qhat_shift         │   0.024    │      49999995167915       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_bench3000_a                  │   0.101    │      49999996181286       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_bench3000_b                  │   0.042    │      49999995390756       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_bench500_a                   │   0.048    │      49999995468386       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_bench500_b                   │   0.036    │      49999995308424       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_demo_a                       │   0.029    │      49999995196528       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_demo_b                       │   0.028    │      49999995192640       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_perfect_a                    │   0.028    │      49999995196526       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_perfect_b                    │   0.028    │      49999995192638       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_random0_a                    │   0.037    │      49999995337302       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::submit_random1_b                    │   0.032    │      49999995251363       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::upload_bench3000_a                  │   0.090    │      49999996839202       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::upload_bench500_a                   │   0.017    │      49999995240919       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::upload_demo_a                       │   0.003    │      49999995000946       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::upload_perfect_a                    │   0.003    │      49999995000946       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::upload_random0_a                    │   0.004    │      49999995002026       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_bench3000_a                  │   0.100    │      49999996168205       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_bench3000_b                  │   0.041    │      49999995377412       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_bench500_a                   │   0.047    │      49999995455303       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_bench500_b                   │   0.035    │      49999995295097       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_demo_a                       │   0.024    │      49999995169688       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_demo_b                       │   0.024    │      49999995167984       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_perfect_a                    │   0.024    │      49999995169688       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_perfect_b                    │   0.024    │      49999995167984       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_random0_a                    │   0.030    │      49999995239129       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::generated_tests::verify_random1_b                    │   0.027    │      49999995205722       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::mle::interpolation_recovers_cubic                    │   0.285    │      49999995000084       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::mle::public_mles                                     │   0.000    │      49999995000026       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::chart_check_resumes                  │   0.301    │      49999995035845       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::duplicate_chart_is_rejected          │   0.010    │      49999995001867       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::expired_session_is_rejected          │   0.007    │      49999995001526       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::foreign_cap_is_rejected              │   0.009    │      49999995004582       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::foreign_chart_commitment_is_rejected │   0.010    │      49999995001895       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::forged_signature_is_rejected         │   0.008    │      49999995001905       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::inflated_counts_are_rejected         │   0.008    │      49999995002209       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::mode_confusion_is_rejected           │   0.007    │      49999995001526       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::modified_duration_breaks_signature   │   0.007    │      49999995001904       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::modified_trace_breaks_signature      │   0.007    │      49999995002187       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::open_session_issues_header           │   0.007    │      49999995001735       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::replay_is_rejected                   │   0.035    │      49999995200867       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::revoked_device_is_rejected           │   0.007    │      49999995001563       │
+├─────────────────────────────────────────────────────────────────┼────────────┼───────────────────────────┤
+│ mania_gkr::registry_tests::trace_sequence_is_enforced           │   0.003    │      49999995000863       │
+└─────────────────────────────────────────────────────────────────┴────────────┴───────────────────────────┘
+
+Test result: OK. Total tests: 84; passed: 84; failed: 0

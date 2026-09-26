@@ -4,6 +4,7 @@
 - [scoring](scoring/): scoring and proof generation
     - [Shared scoring core](scoring/core/) and [canonical scoring specification](scoring/SCORING_SPEC.md).
     - [GKR scoring](scoring/gkr-scoring/): scoring and proof generation using GKR. To see the specification, see [README](scoring/gkr-scoring/README.md)
+    - [GKR scoring on Sui](scoring/gkr-scoring-sui/): the GKR proofs verified on-chain by a Sui Move verifier (BLS12-381). See [README](scoring/gkr-scoring-sui/README.md) and [SPEC-SUI](scoring/gkr-scoring-sui/SPEC-SUI.md)
 
 For osu! development, open `Web-Osu-Mania/` as the workspace and run build commands from that directory. See the [osu! README](Web-Osu-Mania/README.md) for setup instructions.
 ## Daily leaderboard demo
