@@ -65,5 +65,21 @@ class MacCommitmentTest(unittest.TestCase):
 
 
 
+    def test_mvp_public_identity_rejects_wrong_device_and_release(self):
+        expected = {'device_address': '0x' + '12' * 20,
+                    'build_marker': '0x' + 'ab' * 32,
+                    'srs_sha256': 'cd' * 32}
+        info = SimpleNamespace(device_address=expected['device_address'],
+                               bitstream_hash='ab' * 32, srs_hash='cd' * 32,
+                               max_events=50000)
+        with self.assertRaises(RuntimeError):
+            mac.verify_expected_identity(SimpleNamespace(**{**vars(info), 'device_address': '0x' + '34' * 20}), expected)
+        with self.assertRaises(RuntimeError):
+            mac.verify_expected_identity(SimpleNamespace(**{**vars(info), 'bitstream_hash': 'ef' * 32}), expected)
+        with self.assertRaises(RuntimeError):
+            mac.verify_expected_identity(SimpleNamespace(**{**vars(info), 'srs_hash': 'ff' * 32}), expected)
+        with self.assertRaises(RuntimeError):
+            mac.verify_expected_identity(SimpleNamespace(**{**vars(info), 'max_events': 50001}), expected)
+
 if __name__ == '__main__':
     unittest.main()

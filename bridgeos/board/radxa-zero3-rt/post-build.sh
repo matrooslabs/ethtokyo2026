@@ -27,13 +27,22 @@ optee-debug|optee-runtime|hardware-root|signed-lab|mvp-keyed)
     else
         rm -f "$target/etc/bridge-rt.conf"
         if [ "${2:-}" = mvp-keyed ]; then
-            # Debug diagnostics are kept, but none of the debug overlay's
-            # public development signing scalar or backend configuration is.
-            rm -f "$target/etc/osumania-provision.conf" \
+            # Reused Buildroot targets retain previously installed files.
+            rm -f "$target/etc/init.d/S99zzdiag" \
+                  "$target/etc/osumania-provision.conf" \
+                  "$target/usr/bin/osumania-optee-test" \
+                  "$target/usr/bin/cyclictest" "$target/usr/bin/cyclicdeadline" \
+                  "$target/usr/bin/deadline_test" "$target/usr/bin/hackbench" \
+                  "$target/usr/bin/pi_stress" "$target/usr/bin/pip_stress" \
+                  "$target/usr/bin/pmqtest" "$target/usr/bin/ptsematest" \
+                  "$target/usr/bin/rt-migrate-test" "$target/usr/bin/signaltest" \
+                  "$target/usr/bin/sigwaittest" "$target/usr/bin/svsematest" \
+                  "$target/usr/bin/queuelat" "$target/usr/bin/ssdd" \
+                  "$target/usr/bin/oslat" "$target/usr/bin/determine_maximum_mpps.sh" \
+                  "$target/usr/bin/trace-cmd" "$target/usr/bin/stress-ng" \
                   "$target/usr/share/osumania/srs-g1-be.bin" \
                   "$target/usr/share/osumania/srs-manifest.json"
-            printf '%s\n' 'BRIDGE_DIAG_LOG=/run/bridge-startup.log' \
-                'OSUMANIA_SIGNER_BACKEND=optee' \
+            printf '%s\n' 'OSUMANIA_SIGNER_BACKEND=optee' \
                 'OSUMANIA_SRS=/usr/share/osumania/srs-g1-be.bin' > "$target/etc/bridge-rt.conf"
             printf '%s\n' 'mvp-keyed-extractable-ta-key' > "$target/etc/optee-runtime-mode"
             : "${OSUMANIA_MVP_SRS_BANK:?mvp-keyed requires externally sourced OSUMANIA_MVP_SRS_BANK}"
@@ -72,6 +81,9 @@ public = {
     'srsId': '0x' + pin['srs_id'],
     'maxEvents': points // 4,
     'keyProtection': 'extractable private scalar compiled into OP-TEE TA; not hardware protected',
+    'keyExtractable': True,
+    'hardwareRoot': False,
+    'bitstreamAttestation': False,
     'otpProvenance': False,
     'romFuseEnforcementVerified': False,
     'bitstreamField': 'deterministic build marker; not FPGA attestation',

@@ -1,8 +1,8 @@
-/// One shared six-hour hardware challenge, with Easy and Hard native Sui GKR charts.
+/// One six-hour hardware challenge with independent Easy and Hard USDC pools.
 /// Coin<T> must be instantiated with the canonical six-decimal Circle USDC type:
-/// exactly 1_000_000 units buys three nontransferable wallet play starts, usable on
-/// either chart. World ID is checked only for claims; the IdentityCap operator must
-/// verify the round-scoped World proof and wallet ownership before registering one.
+/// exactly 1_000_000 units buys three nontransferable wallet starts on the
+/// selected chart. World ID is checked only for claims; the IdentityCap operator
+/// verifies the round-scoped World proof and wallet before registering one.
 module mania_gkr::competition;
 
 use mania_gkr::registry::{Self, OrganizerCap, Registry, Session};
@@ -46,7 +46,8 @@ public struct Challenge<phantom T> has key {
     score_deadline_ms: u64,
     claim_window_ms: u64,
     claim_deadline_ms: u64,
-    pot: Balance<T>,
+    easy_pot: Balance<T>,
+    hard_pot: Balance<T>,
     buyers: Table<address, Buyer>,
     attempts: Table<ID, Attempt>,
     claims: Table<address, ClaimBinding>,
@@ -54,10 +55,14 @@ public struct Challenge<phantom T> has key {
     easy_top: vector<RankedClaim>,
     hard_top: vector<RankedClaim>,
     score_order: u64,
-    total_purchases: u64,
-    refund_purchases_remaining: u64,
-    original_pot: u64,
-    refund_pool: u64,
+    easy_total_purchases: u64,
+    hard_total_purchases: u64,
+    easy_refund_purchases_remaining: u64,
+    hard_refund_purchases_remaining: u64,
+    easy_original_pot: u64,
+    hard_original_pot: u64,
+    easy_refund_pool: u64,
+    hard_refund_pool: u64,
     settled: bool,
 }
 
@@ -74,9 +79,12 @@ public struct Best has copy, drop, store {
 }
 
 public struct Buyer has store {
-    plays: u64,
-    purchases: u64,
-    refunded: bool,
+    easy_plays: u64,
+    hard_plays: u64,
+    easy_purchases: u64,
+    hard_purchases: u64,
+    easy_refunded: bool,
+    hard_refunded: bool,
     best_easy: Option<Best>,
     best_hard: Option<Best>,
 }
@@ -115,6 +123,7 @@ public struct ChallengeCreated has copy, drop {
 public struct PlaysPurchased has copy, drop {
     challenge: ID,
     wallet: address,
+    difficulty: u8,
     remaining_plays: u64,
 }
 
@@ -151,16 +160,18 @@ public struct PrizePaid has copy, drop {
     difficulty: u8,
     session: ID,
     rank: u64,
-    slice_percent: u64,
     share_percent: u64,
     amount: u64,
 }
 
 public struct ChallengeSettled has copy, drop {
     challenge: ID,
-    original_pot: u64,
-    paid_prizes: u64,
-    refund_pool: u64,
+    easy_original_pot: u64,
+    hard_original_pot: u64,
+    easy_paid_prizes: u64,
+    hard_paid_prizes: u64,
+    easy_refund_pool: u64,
+    hard_refund_pool: u64,
     easy_winner_count: u64,
     hard_winner_count: u64,
 }
@@ -168,6 +179,7 @@ public struct ChallengeSettled has copy, drop {
 public struct EntryRefunded has copy, drop {
     challenge: ID,
     wallet: address,
+    difficulty: u8,
     amount: u64,
 }
 
@@ -232,35 +244,50 @@ public fun create<T>(
     transfer::share_object(Challenge<T> {
         id, registry, round_date, round_id, easy_chart_hash, hard_chart_hash, device,
         started_at_ms, score_deadline_ms, claim_window_ms, claim_deadline_ms,
-        pot: balance::zero(), buyers: table::new(ctx), attempts: table::new(ctx),
+        easy_pot: balance::zero(), hard_pot: balance::zero(),
+        buyers: table::new(ctx), attempts: table::new(ctx),
         claims: table::new(ctx), nullifiers: table::new(ctx),
         easy_top: vector[], hard_top: vector[], score_order: 0,
-        total_purchases: 0, refund_purchases_remaining: 0,
-        original_pot: 0, refund_pool: 0, settled: false,
+        easy_total_purchases: 0, hard_total_purchases: 0,
+        easy_refund_purchases_remaining: 0, hard_refund_purchases_remaining: 0,
+        easy_original_pot: 0, hard_original_pot: 0,
+        easy_refund_pool: 0, hard_refund_pool: 0, settled: false,
     });
     IdentityCap { id: object::new(ctx), challenge }
 }
 
-/// Exactly one canonical six-decimal USDC buys three plays for the sender, on either
-/// difficulty. No World identity, organizer relay or refundable interruption.
-public fun buy_plays<T>(c: &mut Challenge<T>, payment: Coin<T>, clock: &Clock, ctx: &TxContext) {
+/// Exactly one canonical six-decimal USDC buys three plays on the selected chart.
+/// No World identity or organizer relay is needed to buy an entry.
+public fun buy_plays<T>(
+    c: &mut Challenge<T>, payment: Coin<T>, difficulty: u8, clock: &Clock, ctx: &TxContext,
+) {
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     let now = clock.timestamp_ms();
     assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     assert!(coin::value(&payment) == PRICE, EPrice);
     let wallet = ctx.sender();
     if (!c.buyers.contains(wallet)) {
         c.buyers.add(wallet, Buyer {
-            plays: 0, purchases: 0, refunded: false,
+            easy_plays: 0, hard_plays: 0, easy_purchases: 0, hard_purchases: 0,
+            easy_refunded: false, hard_refunded: false,
             best_easy: option::none(), best_hard: option::none(),
         });
     };
     let buyer = c.buyers.borrow_mut(wallet);
-    buyer.plays = buyer.plays + PLAYS_PER_PURCHASE;
-    buyer.purchases = buyer.purchases + 1;
-    let remaining_plays = buyer.plays;
-    c.total_purchases = c.total_purchases + 1;
-    balance::join(&mut c.pot, coin::into_balance(payment));
-    event::emit(PlaysPurchased { challenge: object::id(c), wallet, remaining_plays });
+    let remaining_plays = if (difficulty == EASY) {
+        buyer.easy_plays = buyer.easy_plays + PLAYS_PER_PURCHASE;
+        buyer.easy_purchases = buyer.easy_purchases + 1;
+        c.easy_total_purchases = c.easy_total_purchases + 1;
+        balance::join(&mut c.easy_pot, coin::into_balance(payment));
+        buyer.easy_plays
+    } else {
+        buyer.hard_plays = buyer.hard_plays + PLAYS_PER_PURCHASE;
+        buyer.hard_purchases = buyer.hard_purchases + 1;
+        c.hard_total_purchases = c.hard_total_purchases + 1;
+        balance::join(&mut c.hard_pot, coin::into_balance(payment));
+        buyer.hard_plays
+    };
+    event::emit(PlaysPurchased { challenge: object::id(c), wallet, difficulty, remaining_plays });
 }
 
 /// The selected chart and one consumed wallet credit are bound to a fresh hardware
@@ -279,9 +306,15 @@ public fun start_paid<T>(
     let wallet = ctx.sender();
     assert!(c.buyers.contains(wallet), ENoPlays);
     let buyer = c.buyers.borrow_mut(wallet);
-    assert!(buyer.plays > 0, ENoPlays);
-    buyer.plays = buyer.plays - 1;
-    let remaining_plays = buyer.plays;
+    let remaining_plays = if (difficulty == EASY) {
+        assert!(buyer.easy_plays > 0, ENoPlays);
+        buyer.easy_plays = buyer.easy_plays - 1;
+        buyer.easy_plays
+    } else {
+        assert!(buyer.hard_plays > 0, ENoPlays);
+        buyer.hard_plays = buyer.hard_plays - 1;
+        buyer.hard_plays
+    };
     // Registry's inclusive expiry aligns with this vault's exclusive six-hour cutoff.
     let session = registry::open_competition_session(
         reg, c.round_id, chart_hash, wallet, c.device, c.score_deadline_ms - 1, clock, ctx,
@@ -413,72 +446,99 @@ fun pay_ranked<T>(
 ): u64 {
     let mut paid = 0;
     let len = if (difficulty == EASY) c.easy_top.length() else c.hard_top.length();
-    let slice_percent: u64 = if (difficulty == EASY) 30 else 70;
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     let mut i = 0;
     while (i < len) {
         let claim = if (difficulty == EASY) c.easy_top[i] else c.hard_top[i];
         let share_percent = share_percent(i);
-        let amount = (((original_pot as u128) * (slice_percent as u128) *
-            (share_percent as u128)) / 10_000) as u64;
+        let amount = (((original_pot as u128) * (share_percent as u128)) / 100) as u64;
         paid = paid + amount;
         if (amount > 0) {
-            let prize = coin::from_balance(balance::split(&mut c.pot, amount), ctx);
+            let share = if (difficulty == EASY) {
+                balance::split(&mut c.easy_pot, amount)
+            } else balance::split(&mut c.hard_pot, amount);
+            let prize = coin::from_balance(share, ctx);
             transfer::public_transfer(prize, claim.wallet);
         };
         event::emit(PrizePaid {
             challenge: object::id(c), wallet: claim.wallet, difficulty,
-            session: claim.session, rank: i + 1,
-            slice_percent, share_percent, amount,
+            session: claim.session, rank: i + 1, share_percent, amount,
         });
         i = i + 1;
     };
     paid
 }
 
-/// Permissionless payout after the full, immutable claim window. Easy gets 30%,
-/// Hard 70% of the SAME original pot; each slice's ranks receive 40/20/20/10/10.
-/// Unoccupied ranks and rounding remain in the vault for purchaser refunds.
+/// Permissionless payout after the full, immutable claim window. Each chart's
+/// ranks receive 40/20/20/10/10 of that chart's own pool; unoccupied shares
+/// and rounding remain there for that chart's purchasers.
 public fun settle<T>(c: &mut Challenge<T>, clock: &Clock, ctx: &mut TxContext) {
     assert!(clock.timestamp_ms() >= c.claim_deadline_ms, EClosed);
     assert!(!c.settled, ESettlement);
     c.settled = true;
-    let original_pot = balance::value(&c.pot);
-    c.original_pot = original_pot;
-    c.refund_purchases_remaining = c.total_purchases;
-    let paid_prizes = pay_ranked(c, EASY, original_pot, ctx) +
-        pay_ranked(c, HARD, original_pot, ctx);
-    c.refund_pool = original_pot - paid_prizes;
+    let easy_original_pot = balance::value(&c.easy_pot);
+    let hard_original_pot = balance::value(&c.hard_pot);
+    c.easy_original_pot = easy_original_pot;
+    c.hard_original_pot = hard_original_pot;
+    c.easy_refund_purchases_remaining = c.easy_total_purchases;
+    c.hard_refund_purchases_remaining = c.hard_total_purchases;
+    let easy_paid_prizes = pay_ranked(c, EASY, easy_original_pot, ctx);
+    let hard_paid_prizes = pay_ranked(c, HARD, hard_original_pot, ctx);
+    c.easy_refund_pool = easy_original_pot - easy_paid_prizes;
+    c.hard_refund_pool = hard_original_pot - hard_paid_prizes;
     event::emit(ChallengeSettled {
-        challenge: object::id(c), original_pot, paid_prizes,
-        refund_pool: c.refund_pool,
+        challenge: object::id(c), easy_original_pot, hard_original_pot,
+        easy_paid_prizes, hard_paid_prizes,
+        easy_refund_pool: c.easy_refund_pool, hard_refund_pool: c.hard_refund_pool,
         easy_winner_count: c.easy_top.length(), hard_winner_count: c.hard_top.length(),
     });
 }
 
-/// Refunds EVERY buyer their pro-rata share of vacant prizes, irrespective of
-/// their own verified claim. Anyone can trigger a refund straight to that wallet.
-/// Last buyer gets integer division dust; no expiry or operator sweep.
-public fun refund<T>(c: &mut Challenge<T>, wallet: address, clock: &Clock, ctx: &mut TxContext) {
+/// Refunds purchasers of the selected chart their pro-rata share of its vacant
+/// prizes, even if they won. Anyone may trigger payment straight to the buyer.
+/// The last purchaser of each chart receives that chart's division dust.
+public fun refund<T>(
+    c: &mut Challenge<T>, wallet: address, difficulty: u8, clock: &Clock, ctx: &mut TxContext,
+) {
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     assert!(c.settled && clock.timestamp_ms() >= c.claim_deadline_ms, ERefund);
     assert!(c.buyers.contains(wallet), ENotBuyer);
     let buyer = c.buyers.borrow_mut(wallet);
-    assert!(!buyer.refunded && buyer.purchases > 0, ERefund);
-    let purchases = buyer.purchases;
-    buyer.refunded = true;
-    c.refund_purchases_remaining = c.refund_purchases_remaining - purchases;
-    let amount = if (c.refund_purchases_remaining == 0) balance::value(&c.pot) else {
-        (((c.refund_pool as u128) * (purchases as u128)) / (c.total_purchases as u128)) as u64
+    let purchases = if (difficulty == EASY) {
+        assert!(!buyer.easy_refunded && buyer.easy_purchases > 0, ERefund);
+        buyer.easy_refunded = true;
+        buyer.easy_purchases
+    } else {
+        assert!(!buyer.hard_refunded && buyer.hard_purchases > 0, ERefund);
+        buyer.hard_refunded = true;
+        buyer.hard_purchases
+    };
+    let amount = if (difficulty == EASY) {
+        c.easy_refund_purchases_remaining = c.easy_refund_purchases_remaining - purchases;
+        if (c.easy_refund_purchases_remaining == 0) balance::value(&c.easy_pot) else {
+            (((c.easy_refund_pool as u128) * (purchases as u128)) /
+                (c.easy_total_purchases as u128)) as u64
+        }
+    } else {
+        c.hard_refund_purchases_remaining = c.hard_refund_purchases_remaining - purchases;
+        if (c.hard_refund_purchases_remaining == 0) balance::value(&c.hard_pot) else {
+            (((c.hard_refund_pool as u128) * (purchases as u128)) /
+                (c.hard_total_purchases as u128)) as u64
+        }
     };
     if (amount > 0) {
-        let payment = coin::from_balance(balance::split(&mut c.pot, amount), ctx);
-        transfer::public_transfer(payment, wallet);
+        let share = if (difficulty == EASY) {
+            balance::split(&mut c.easy_pot, amount)
+        } else balance::split(&mut c.hard_pot, amount);
+        transfer::public_transfer(coin::from_balance(share, ctx), wallet);
     };
-    event::emit(EntryRefunded { challenge: object::id(c), wallet, amount });
+    event::emit(EntryRefunded { challenge: object::id(c), wallet, difficulty, amount });
 }
 
-public fun remaining_plays<T>(c: &Challenge<T>, wallet: address): u64 {
+public fun remaining_plays<T>(c: &Challenge<T>, wallet: address, difficulty: u8): u64 {
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     if (!c.buyers.contains(wallet)) return 0;
-    c.buyers[wallet].plays
+    if (difficulty == EASY) c.buyers[wallet].easy_plays else c.buyers[wallet].hard_plays
 }
 
 public fun claim_registered<T>(c: &Challenge<T>, wallet: address): bool { c.claims.contains(wallet) }
@@ -490,12 +550,18 @@ public fun ranked_wallet<T>(c: &Challenge<T>, difficulty: u8, rank: u64): addres
     top[rank - 1].wallet
 }
 
-public fun pot_value<T>(c: &Challenge<T>): u64 { balance::value(&c.pot) }
+public fun pot_value<T>(c: &Challenge<T>, difficulty: u8): u64 {
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
+    if (difficulty == EASY) balance::value(&c.easy_pot) else balance::value(&c.hard_pot)
+}
 
-public fun refund_eligible<T>(c: &Challenge<T>, wallet: address): bool {
-    if (!c.settled || c.refund_pool == 0 || !c.buyers.contains(wallet)) return false;
+public fun refund_eligible<T>(c: &Challenge<T>, wallet: address, difficulty: u8): bool {
+    assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
+    if (!c.settled || !c.buyers.contains(wallet)) return false;
     let buyer = c.buyers.borrow(wallet);
-    buyer.purchases > 0 && !buyer.refunded
+    if (difficulty == EASY) {
+        c.easy_refund_pool > 0 && buyer.easy_purchases > 0 && !buyer.easy_refunded
+    } else c.hard_refund_pool > 0 && buyer.hard_purchases > 0 && !buyer.hard_refunded
 }
 
 public fun attempt_recorded<T>(c: &Challenge<T>, session: ID): bool {

@@ -33,7 +33,7 @@ case "$profile" in
         image_cfg="$board_dir/genimage-debug.cfg" ;;
     mvp-keyed)
         firmware="$project/sources/boot-firmware/out-optee-mvp-keyed/u-boot-rockchip.bin"
-        image_cfg="$board_dir/genimage-debug.cfg" ;;
+        image_cfg="$board_dir/genimage.cfg" ;;
 	*) echo "Unknown post-image profile: $profile" >&2; exit 2 ;;
 esac
 : "${BINARIES_DIR:?Buildroot BINARIES_DIR is required}"
@@ -62,6 +62,10 @@ if [ "$profile" = hardware-root ] || [ "$profile" = signed-lab ] || [ "$profile"
             "$project/sources/boot-firmware/out-optee-$mode/u-boot-spl-pubkey.dtb" \
             "$trusted" "$BINARIES_DIR/boot-key-identity.json"
     fi
+    if [ "$profile" = mvp-keyed ]; then
+        install -m 0644 "$project/sources/optee-os-artifacts/mvp-policy/mvp-identity.json" \
+            "$BINARIES_DIR/mvp-identity.json"
+    fi
 else
     mkdir -p "$boot/boot/extlinux"
     cp "$BINARIES_DIR/Image" "$BINARIES_DIR/$ZERO3_DTB" "$BINARIES_DIR/rootfs.cpio.gz" "$boot/boot/"
@@ -76,5 +80,8 @@ LABEL rt
 EOF
 fi
 rm -rf "$BUILD_DIR/genimage.tmp"
+if [ "$profile" = mvp-keyed ]; then
+    rm -f "$BINARIES_DIR/diag.vfat"
+fi
 E2FSPROGS_FAKE_TIME=1779278600 genimage --rootpath "$boot" --tmppath "$BUILD_DIR/genimage.tmp" --inputpath "$BINARIES_DIR" --outputpath "$BINARIES_DIR" --config "$image_cfg"
 test "$(stat -c %s "$BINARIES_DIR/radxa-zero3-rt.img")" -le $((128*1024*1024)) || { echo 'Image exceeds 128 MiB size ceiling' >&2; exit 1; }

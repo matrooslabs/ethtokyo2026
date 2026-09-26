@@ -50,10 +50,12 @@ fun finish_challenge(sc: Scenario, org: OrganizerCap, cap: IdentityCap, clk: Clo
     finish(sc, org, clk);
 }
 
-fun buy(sc: &mut Scenario, wallet: address, clk: &Clock) {
+fun buy(sc: &mut Scenario, wallet: address, difficulty: u8, clk: &Clock) {
     sc.next_tx(wallet);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), clk, sc.ctx());
+    competition::buy_plays(
+        &mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), difficulty, clk, sc.ctx(),
+    );
     ts::return_shared(c);
     sc.next_tx(ORGANIZER);
 }
@@ -79,9 +81,10 @@ fun verified_score(sc: &mut Scenario, wallet: address, difficulty: u8, score: u6
 }
 
 #[test]
-fun one_wallet_buys_shared_plays_and_both_charts_are_bound() {
+fun one_wallet_buys_independent_plays_and_both_charts_are_bound() {
     let (mut sc, org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, ONE, 1, &clk);
     let easy_sid = verified_score(&mut sc, ONE, 0, 0, &clk);
     let hard_sid = verified_score(&mut sc, ONE, 1, 80, &clk);
     let reg = sc.take_shared<Registry>();
@@ -97,7 +100,8 @@ fun one_wallet_buys_shared_plays_and_both_charts_are_bound() {
     ts::return_shared(hard);
     ts::return_shared(reg);
     let c = sc.take_shared<Challenge<SUI>>();
-    assert!(competition::remaining_plays(&c, ONE) == 1);
+    assert!(competition::remaining_plays(&c, ONE, 0) == 2);
+    assert!(competition::remaining_plays(&c, ONE, 1) == 2);
     assert!(competition::attempt_recorded(&c, easy_sid));
     assert!(competition::attempt_recorded(&c, hard_sid));
     ts::return_shared(c);
@@ -105,12 +109,52 @@ fun one_wallet_buys_shared_plays_and_both_charts_are_bound() {
     clk.set_for_testing(CLAIM_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
     competition::settle(&mut c, &clk, sc.ctx());
-    assert!(competition::refund_eligible(&c, ONE));
-    competition::refund(&mut c, ONE, &clk, sc.ctx());
-    assert!(!competition::refund_eligible(&c, ONE));
-    assert!(competition::pot_value(&c) == 0);
+    assert!(competition::refund_eligible(&c, ONE, 0));
+    assert!(competition::refund_eligible(&c, ONE, 1));
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
+    assert!(!competition::refund_eligible(&c, ONE, 0));
+    assert!(competition::refund_eligible(&c, ONE, 1));
+    competition::refund(&mut c, ONE, 1, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 0);
+    assert!(competition::pot_value(&c, 1) == 0);
     ts::return_shared(c);
     finish_challenge(sc, org, cap, clk);
+}
+
+#[test, expected_failure(abort_code = competition::ENoPlays)]
+fun easy_credits_cannot_start_hard_session() {
+    let (mut sc, _org, _cap, clk) = setup();
+    buy(&mut sc, ONE, 0, &clk);
+    sc.next_tx(ONE);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    competition::start_paid(&mut c, &reg, 1, &clk, sc.ctx());
+    abort 0
+}
+
+#[test, expected_failure(abort_code = competition::ENoPlays)]
+fun hard_credits_cannot_start_easy_session() {
+    let (mut sc, _org, _cap, clk) = setup();
+    buy(&mut sc, ONE, 1, &clk);
+    sc.next_tx(ONE);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    competition::start_paid(&mut c, &reg, 0, &clk, sc.ctx());
+    abort 0
+}
+
+#[test, expected_failure(abort_code = competition::ERefund)]
+fun easy_purchaser_cannot_refund_hard_pool() {
+    let (mut sc, _org, _cap, mut clk) = setup();
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, TWO, 1, &clk);
+    clk.set_for_testing(CLAIM_END);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    competition::settle(&mut c, &clk, sc.ctx());
+    assert!(!competition::refund_eligible(&c, ONE, 1));
+    assert!(competition::refund_eligible(&c, TWO, 1));
+    competition::refund(&mut c, ONE, 1, &clk, sc.ctx());
+    abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EConfig)]
@@ -129,7 +173,7 @@ fun cannot_schedule_start_in_the_past() {
 fun future_start_rejects_purchase_before_start() {
     let (mut sc, _org, _cap, clk) = setup_at(FUTURE_START);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), &clk, sc.ctx());
+    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), 0, &clk, sc.ctx());
     abort 0
 }
 
@@ -146,7 +190,7 @@ fun future_start_rejects_paid_session_before_start() {
 fun scheduled_start_and_last_millisecond_accept_scores_and_cutoff_opens_claims() {
     let (mut sc, org, cap, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
     sc.next_tx(ONE);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -177,7 +221,7 @@ fun scheduled_start_and_last_millisecond_accept_scores_and_cutoff_opens_claims()
 fun scheduled_claim_cannot_open_before_exact_cutoff() {
     let (mut sc, _org, cap, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
     clk.set_for_testing(FUTURE_END - 1);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -189,7 +233,7 @@ fun scheduled_claim_cannot_open_before_exact_cutoff() {
 fun scheduled_score_rejects_exact_cutoff() {
     let (mut sc, _org, _cap, mut clk) = setup_at(FUTURE_START);
     clk.set_for_testing(FUTURE_START);
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     sc.next_tx(ONE);
     let mut c = sc.take_shared<Challenge<SUI>>();
     let reg = sc.take_shared<Registry>();
@@ -210,14 +254,14 @@ fun six_hour_entry_cutoff_cannot_be_shortened() {
     let (mut sc, _org, _cap, mut clk) = setup();
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), &clk, sc.ctx());
+    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), 0, &clk, sc.ctx());
     abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EClosed)]
 fun six_hour_start_cutoff_is_exact() {
     let (mut sc, _org, _cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
     let reg = sc.take_shared<Registry>();
@@ -241,14 +285,14 @@ fun tiny_claim_window_is_rejected() {
 fun wrong_coin_amount_rejected() {
     let (mut sc, _org, _cap, clk) = setup();
     let mut c = sc.take_shared<Challenge<SUI>>();
-    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(999_999, sc.ctx()), &clk, sc.ctx());
+    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(999_999, sc.ctx()), 0, &clk, sc.ctx());
     abort 0
 }
 
 #[test, expected_failure(abort_code = competition::EScore)]
 fun claim_requires_native_score_on_selected_difficulty() {
     let (mut sc, _org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     verified_score(&mut sc, ONE, 0, 100, &clk);
     clk.set_for_testing(GAME_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
@@ -259,8 +303,8 @@ fun claim_requires_native_score_on_selected_difficulty() {
 #[test, expected_failure(abort_code = competition::EIdentity)]
 fun same_person_cannot_claim_easy_and_hard_from_two_wallets() {
     let (mut sc, _org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
-    buy(&mut sc, TWO, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, TWO, 1, &clk);
     verified_score(&mut sc, ONE, 0, 20, &clk);
     verified_score(&mut sc, TWO, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
@@ -273,7 +317,8 @@ fun same_person_cannot_claim_easy_and_hard_from_two_wallets() {
 #[test, expected_failure(abort_code = competition::EIdentity)]
 fun one_wallet_cannot_claim_both_prize_slices() {
     let (mut sc, _org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, ONE, 1, &clk);
     verified_score(&mut sc, ONE, 0, 20, &clk);
     verified_score(&mut sc, ONE, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
@@ -286,8 +331,8 @@ fun one_wallet_cannot_claim_both_prize_slices() {
 #[test]
 fun claim_order_cannot_sweep_other_people_and_missing_shares_refund() {
     let (mut sc, org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
-    buy(&mut sc, TWO, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, TWO, 1, &clk);
     verified_score(&mut sc, ONE, 0, 50, &clk);
     verified_score(&mut sc, TWO, 1, 30, &clk);
     clk.set_for_testing(GAME_END);
@@ -297,15 +342,17 @@ fun claim_order_cannot_sweep_other_people_and_missing_shares_refund() {
     competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"easy-person"), &clk);
     assert!(competition::ranked_wallet(&c, 0, 1) == ONE);
     assert!(competition::ranked_wallet(&c, 1, 1) == TWO);
-    assert!(competition::pot_value(&c) == 2_000_000); // no early payout
+    assert!(competition::pot_value(&c, 0) == 1_000_000);
+    assert!(competition::pot_value(&c, 1) == 1_000_000); // no early payout
     clk.set_for_testing(CLAIM_END);
     competition::settle(&mut c, &clk, sc.ctx());
-    // Easy: 30% * 40% = 240k; Hard: 70% * 40% = 560k.
-    assert!(competition::pot_value(&c) == 1_200_000);
-    competition::refund(&mut c, TWO, &clk, sc.ctx());
-    assert!(competition::pot_value(&c) == 600_000);
-    competition::refund(&mut c, ONE, &clk, sc.ctx());
-    assert!(competition::pot_value(&c) == 0);
+    assert!(competition::pot_value(&c, 0) == 600_000);
+    assert!(competition::pot_value(&c, 1) == 600_000);
+    competition::refund(&mut c, TWO, 1, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 600_000);
+    assert!(competition::pot_value(&c, 1) == 0);
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 0);
     ts::return_shared(c);
     finish_challenge(sc, org, cap, clk);
 }
@@ -313,8 +360,8 @@ fun claim_order_cannot_sweep_other_people_and_missing_shares_refund() {
 #[test]
 fun earliest_high_score_beats_late_claims_within_difficulty() {
     let (mut sc, org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
-    buy(&mut sc, TWO, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, TWO, 0, &clk);
     verified_score(&mut sc, ONE, 0, 80, &clk);
     verified_score(&mut sc, TWO, 0, 80, &clk);
     clk.set_for_testing(GAME_END);
@@ -328,17 +375,18 @@ fun earliest_high_score_beats_late_claims_within_difficulty() {
 }
 
 /// One isolated Sui round with test-only accepted hardware scores and mock human
-/// identities. All credits, two chart ranks, settlement and refunds run in the
-/// actual vault code; SUI here stands in for unavailable Circle testnet USDC.
+/// identities. Independent credits, chart ranks, settlement and refunds run in
+/// the actual vault code; SUI stands in for unavailable Circle testnet USDC.
 #[test]
-fun six_wallet_round_spends_shared_credits_and_refunds_unclaimed_slices() {
+fun six_wallet_round_refunds_unclaimed_shares_per_difficulty() {
     let (mut sc, org, cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
-    buy(&mut sc, TWO, &clk);
-    buy(&mut sc, THREE, &clk);
-    buy(&mut sc, FOUR, &clk);
-    buy(&mut sc, FIVE, &clk);
-    buy(&mut sc, SIX, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    buy(&mut sc, ONE, 1, &clk);
+    buy(&mut sc, TWO, 0, &clk);
+    buy(&mut sc, THREE, 0, &clk);
+    buy(&mut sc, FOUR, 0, &clk);
+    buy(&mut sc, FIVE, 1, &clk);
+    buy(&mut sc, SIX, 1, &clk);
 
     verified_score(&mut sc, ONE, 0, 90, &clk);
     verified_score(&mut sc, ONE, 1, 80, &clk);
@@ -350,9 +398,11 @@ fun six_wallet_round_spends_shared_credits_and_refunds_unclaimed_slices() {
     verified_score(&mut sc, SIX, 1, 60, &clk);
 
     let mut c = sc.take_shared<Challenge<SUI>>();
-    assert!(competition::pot_value(&c) == 6_000_000);
-    assert!(competition::remaining_plays(&c, ONE) == 1); // one wallet used both charts
-    assert!(competition::remaining_plays(&c, SIX) == 2);
+    assert!(competition::pot_value(&c, 0) == 4_000_000);
+    assert!(competition::pot_value(&c, 1) == 3_000_000);
+    assert!(competition::remaining_plays(&c, ONE, 0) == 2);
+    assert!(competition::remaining_plays(&c, ONE, 1) == 2);
+    assert!(competition::remaining_plays(&c, SIX, 1) == 2);
     clk.set_for_testing(GAME_END);
     competition::register_claim(&mut c, &cap, SIX, 1, sha2_256(b"human-six"), &clk);
     competition::register_claim(&mut c, &cap, THREE, 0, sha2_256(b"human-three"), &clk);
@@ -364,20 +414,27 @@ fun six_wallet_round_spends_shared_credits_and_refunds_unclaimed_slices() {
     assert!(competition::ranked_wallet(&c, 0, 3) == THREE);
     assert!(competition::ranked_wallet(&c, 1, 1) == FIVE);
     assert!(competition::ranked_wallet(&c, 1, 2) == SIX);
-    assert!(competition::pot_value(&c) == 6_000_000); // no early prize payment
+    assert!(competition::pot_value(&c, 0) == 4_000_000);
+    assert!(competition::pot_value(&c, 1) == 3_000_000); // no early payout
 
     clk.set_for_testing(CLAIM_END);
     competition::settle(&mut c, &clk, sc.ctx());
-    // Easy 1.8M * 80% + Hard 4.2M * 60% = 3.96M paid.
-    assert!(competition::pot_value(&c) == 2_040_000);
-    competition::refund(&mut c, ONE, &clk, sc.ctx());
-    assert!(competition::pot_value(&c) == 1_700_000);
-    competition::refund(&mut c, TWO, &clk, sc.ctx());
-    competition::refund(&mut c, THREE, &clk, sc.ctx());
-    competition::refund(&mut c, FOUR, &clk, sc.ctx());
-    competition::refund(&mut c, FIVE, &clk, sc.ctx());
-    competition::refund(&mut c, SIX, &clk, sc.ctx());
-    assert!(competition::pot_value(&c) == 0);
+    // Three Easy ranks pay 80% of Easy; two Hard ranks pay 60% of Hard.
+    assert!(competition::pot_value(&c, 0) == 800_000);
+    assert!(competition::pot_value(&c, 1) == 1_200_000);
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 600_000);
+    assert!(competition::pot_value(&c, 1) == 1_200_000);
+    competition::refund(&mut c, ONE, 1, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 600_000);
+    assert!(competition::pot_value(&c, 1) == 800_000);
+    competition::refund(&mut c, TWO, 0, &clk, sc.ctx());
+    competition::refund(&mut c, THREE, 0, &clk, sc.ctx());
+    competition::refund(&mut c, FOUR, 0, &clk, sc.ctx());
+    competition::refund(&mut c, FIVE, 1, &clk, sc.ctx());
+    competition::refund(&mut c, SIX, 1, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 0);
+    assert!(competition::pot_value(&c, 1) == 0);
     ts::return_shared(c);
     finish_challenge(sc, org, cap, clk);
 }
@@ -385,7 +442,7 @@ fun six_wallet_round_spends_shared_credits_and_refunds_unclaimed_slices() {
 #[test, expected_failure(abort_code = competition::EScore)]
 fun recorded_session_cannot_be_replayed() {
     let (mut sc, _org, _cap, clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     let sid = verified_score(&mut sc, ONE, 0, 0, &clk);
     let mut c = sc.take_shared<Challenge<SUI>>();
     let session = sc.take_shared_by_id<Session>(sid);
@@ -396,11 +453,11 @@ fun recorded_session_cannot_be_replayed() {
 #[test, expected_failure(abort_code = competition::ERefund)]
 fun refund_once_only() {
     let (mut sc, _org, _cap, mut clk) = setup();
-    buy(&mut sc, ONE, &clk);
+    buy(&mut sc, ONE, 0, &clk);
     clk.set_for_testing(CLAIM_END);
     let mut c = sc.take_shared<Challenge<SUI>>();
     competition::settle(&mut c, &clk, sc.ctx());
-    competition::refund(&mut c, ONE, &clk, sc.ctx());
-    competition::refund(&mut c, ONE, &clk, sc.ctx());
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
     abort 0
 }

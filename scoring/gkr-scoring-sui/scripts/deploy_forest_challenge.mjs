@@ -1,7 +1,7 @@
 // Two-phase real Sui testnet deployment. `--prepare` publishes the native package,
 // creates a Registry and validates BOTH Forest charts; NO Challenge clock starts.
-// `--activate` reads the confirmed manifest, provisions an operator's REAL device
-// public key, then schedules ONE Challenge<Circle USDC> for an exact six-hour window.
+// `--activate` registers a device and schedules ONE Challenge<Circle USDC>.
+// `--insecure-demo` permits only explicitly labeled, unsafe testnet activation.
 //
 // node deploy_forest_challenge.mjs --prepare --srs /approved/bls12-381-srs.bin --out ./forest-deployment
 // node deploy_forest_challenge.mjs --resume --srs /approved/bls12-381-srs.bin --out ./forest-deployment
@@ -104,6 +104,8 @@ function cliKeypair() {
 const preparing = process.argv.includes('--prepare');
 const resuming = process.argv.includes('--resume');
 const activating = process.argv.includes('--activate');
+const insecureDemo = process.argv.includes('--insecure-demo');
+if (insecureDemo && !activating) throw new Error('--insecure-demo is only valid with --activate');
 if (Number(preparing) + Number(resuming) + Number(activating) !== 1) {
   throw new Error('Choose exactly one of --prepare, --resume or --activate');
 }
@@ -129,6 +131,7 @@ if (!preparing && !existsSync(manifestPath)) {
 }
 const charts = extractForest();
 let manifest = preparing ? null : JSON.parse(readFileSync(manifestPath, 'utf8'));
+const resumingDevice = activating && manifest.phase === 'device-registered';
 const rpc = optional('--rpc', preparing ? 'https://fullnode.testnet.sui.io:443' : manifest.rpc);
 const signer = process.env.SUI_ORGANIZER_PRIVATE_KEY
   ? Ed25519Keypair.fromSecretKey(process.env.SUI_ORGANIZER_PRIVATE_KEY)
@@ -151,7 +154,7 @@ if (preparing) {
     transactions: [], phase: 'preparing',
   };
 } else {
-  if (manifest.phase !== (resuming ? 'preparing' : 'prepared') || manifest.challengeId ||
+  if (!(resumingDevice || manifest.phase === (resuming ? 'preparing' : 'prepared')) || manifest.challengeId ||
       manifest.network !== 'testnet' || manifest.organizer !== owner || manifest.rpc !== rpc ||
       manifest.asset !== USDC || manifest.challengeDurationMs !== 21_600_000 ||
       !manifest.packageId || !manifest.registryId || !manifest.organizerCapId ||
@@ -248,6 +251,7 @@ async function verifyRegistryObjects() {
   if (parsed.id !== manifest.organizerCapId || parsed.registry !== manifest.registryId) {
     throw new Error('Organizer capability belongs to a different native Registry');
   }
+  return reg;
 }
 
 
@@ -400,8 +404,9 @@ manifest.phase = 'prepared';
 checkpoint();
 console.log(JSON.stringify(manifest, null, 2));
 } else {
-if (manifest.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID || !manifest.srsSecurity || manifest.srsSecurity.startsWith('INSECURE DEVELOPMENT SRS')) {
-  throw new Error('Secure paid activation requires a reviewed ceremony Sui GKR SRS. This Registry uses dev-srs-24.bin with a known toxic secret; prepare a new Registry and both charts from an approved SRS.');
+const insecureSrs = manifest.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID || !manifest.srsSecurity || manifest.srsSecurity.startsWith('INSECURE DEVELOPMENT SRS');
+if (insecureSrs && !insecureDemo) {
+  throw new Error('Secure paid activation requires a reviewed ceremony Sui GKR SRS. This Registry uses dev-srs-24.bin with a known toxic secret; prepare a new Registry and both charts from an approved SRS. Use --insecure-demo only for an explicitly unsafe testnet demonstration.');
 }
 const roundDate = new Date(startAtMs).toISOString().slice(0, 10);
 const devicePubkey = bytes(required('--device-pubkey'), 33, 'device pubkey');
@@ -428,6 +433,12 @@ const { coinMetadata } = await client.getCoinMetadata({ coinType: USDC });
 if (!coinMetadata || coinMetadata.decimals !== 6 || coinMetadata.symbol !== 'USDC') {
   throw new Error('No six-decimal Circle-issued native testnet USDC metadata at RPC');
 }
+const { function: createAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'create' });
+const { function: buyAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'buy_plays' });
+if (createAbi.parameters.length !== 11 || createAbi.parameters[8].body.$kind !== 'u64' ||
+    buyAbi.parameters.length !== 5 || buyAbi.parameters[2].body.$kind !== 'u8') {
+  throw new Error('Published competition package has the old shared-pot ABI; prepare and activate a new difficulty-isolated package. No device or Challenge was created by this invocation.');
+}
 
 const published = await confirmed(manifest.packagePublishTx);
 if (!published.effects.changedObjects.some((obj) => obj.outputState === 'PackageWrite' && obj.objectId === manifest.packageId)) {
@@ -438,7 +449,7 @@ if (created(registry, '::registry::Registry') !== manifest.registryId ||
     created(registry, '::registry::OrganizerCap') !== manifest.organizerCapId) {
   throw new Error('Registry/cap IDs do not match registry creation transaction');
 }
-await verifyRegistryObjects();
+const verifiedRegistry = await verifyRegistryObjects();
 for (const key of ['easy', 'hard']) {
   const registration = await confirmed(manifest.charts[key].registrationTx);
   const data = chartRegistered.parse(emitted(registration, '::registry::ChartRegistered'));
@@ -450,6 +461,18 @@ for (const key of ['easy', 'hard']) {
     throw new Error(`${key} prepared Rust opening differs from confirmed Forest chart`);
   }
 }
+if (resumingDevice) {
+  if (!manifest.deviceRegistrationTx || manifest.scheduledStartAtMs !== String(startAtMs) ||
+      manifest.deviceAddress !== deviceAddress || manifest.devicePubkey !== hex(devicePubkey) ||
+      manifest.bitstreamHash !== hex(bitstreamHash) || manifest.identityAttestor !== attestor ||
+      manifest.insecureDemo !== insecureDemo) {
+    throw new Error('Registered device checkpoint differs from the requested activation; do not create a second round');
+  }
+  const registeredDevice = await confirmed(manifest.deviceRegistrationTx);
+  if (!registeredDevice.effects.changedObjects.some((obj) => obj.objectId === manifest.registryId)) {
+    throw new Error('Device registration receipt did not update the expected Registry');
+  }
+}
 ensureScheduledStart();
 manifest.roundDate = roundDate;
 manifest.scheduledStartAtMs = startAtMs.toString();
@@ -458,21 +481,30 @@ manifest.claimWindowMs = claimWindowMs.toString();
 manifest.deviceAddress = deviceAddress;
 manifest.devicePubkey = hex(devicePubkey);
 manifest.bitstreamHash = hex(bitstreamHash);
-manifest.deviceProvisioning = 'OPERATOR-SUPPLIED PUBLIC KEY ONLY; no board attestation or hardware score is implied';
+manifest.deviceProvisioning = insecureDemo
+  ? 'INSECURE DEMO: extractable SD-image signing key; bitstream hash is a build marker, not FPGA attestation; signature-only test did not verify commitment'
+  : 'OPERATOR-SUPPLIED PUBLIC KEY ONLY; no board attestation or hardware score is implied';
+manifest.insecureDemo = insecureDemo;
 manifest.identityAttestor = attestor;
-// Fail closed after any activation submission: never recreate a challenge by retrying.
-manifest.phase = 'activating';
-checkpoint();
-
-// One PTB: neither a device nor a six-hour Challenge is left half activated.
+// Register the device with &mut Registry, then use &Registry immutably for
+// Challenge creation in a separate transaction. Checkpoint each confirmed digest.
+if (!resumingDevice) {
+  manifest.phase = 'activating';
+  checkpoint();
+  tx = new Transaction();
+  tx.moveCall({ target: fn('registry', 'set_device'), arguments: [tx.object(manifest.registryId),
+    tx.object(manifest.organizerCapId), tx.pure.vector('u8', devicePubkey),
+    tx.pure.vector('u8', bitstreamHash), tx.pure.bool(true)] });
+  res = await execute('register device for Forest Challenge', tx, ensureScheduledStart);
+  manifest.deviceRegistrationTx = res.digest;
+  manifest.phase = 'device-registered';
+  checkpoint();
+}
 tx = new Transaction();
-tx.moveCall({ target: fn('registry', 'set_device'), arguments: [tx.object(manifest.registryId),
-  tx.object(manifest.organizerCapId), tx.pure.vector('u8', devicePubkey),
-  tx.pure.vector('u8', bitstreamHash), tx.pure.bool(true)] });
 
 // Schedule scoring from the immutable requested UTC start, not the creation transaction time.
 const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArguments: [USDC], arguments: [
-  tx.object(manifest.registryId), tx.object(manifest.organizerCapId),
+  tx.sharedObjectRef({ objectId: manifest.registryId, initialSharedVersion: verifiedRegistry.owner.Shared.initialSharedVersion, mutable: false }), tx.object(manifest.organizerCapId),
   tx.pure.vector('u8', new TextEncoder().encode(roundDate)),
   tx.pure.vector('u8', sha256(`versu:${roundDate}`)),
   tx.pure.vector('u8', bytes(charts.easy.chartHash, 32, 'Easy chart hash')),
@@ -481,7 +513,7 @@ const identityCap = tx.moveCall({ target: fn('competition', 'create'), typeArgum
   tx.pure.u64(startAtMs), tx.pure.u64(claimWindowMs), tx.object.clock(),
 ] });
 tx.transferObjects([identityCap], attestor);
-res = await execute('register device and schedule Forest Challenge<CircleUSDC>', tx, ensureScheduledStart);
+res = await execute('schedule Forest Challenge<CircleUSDC>', tx, ensureScheduledStart);
 manifest.challengeId = created(res, '::competition::Challenge<'+USDC+'>');
 manifest.identityCapId = created(res, '::competition::IdentityCap');
 const event = challengeCreated.parse(emitted(res, '::competition::ChallengeCreated'));
@@ -508,6 +540,7 @@ manifest.browserConfiguration = {
   VITE_SUI_EASY_CHART_HASH: charts.easy.chartHash,
   VITE_SUI_HARD_CHART_HASH: charts.hard.chartHash,
   VITE_SUI_USDC_TYPE: USDC,
+  VITE_SUI_INSECURE_DEMO: insecureDemo ? 'true' : 'false',
   VITE_BEATMAP_URL: '/beatmaps/forest.osz',
 };
 manifest.phase = 'active';

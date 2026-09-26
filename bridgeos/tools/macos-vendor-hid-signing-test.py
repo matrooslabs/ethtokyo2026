@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import importlib.util
 import pathlib
 import secrets
@@ -231,8 +232,12 @@ def load_srs(path: pathlib.Path, info: Any, trusted_hash: str | None = None) -> 
     if not path.is_file():
         raise RuntimeError(f"local SRS bank missing: {path}; copy srs-g1-be.bin beside this script or use --srs")
     bank = path.read_bytes()
-    if len(bank) % 64 or len(bank) < 4 * info.max_events * 64 or info.max_events > 50000:
-        raise RuntimeError("local SRS bank length does not cover GET_INFO max_events")
+    if len(bank) != 4 * info.max_events * 64 or info.max_events > 50000:
+        raise RuntimeError(
+            f"local SRS has {len(bank) // 64} points; GET_INFO requires "
+            f"{4 * info.max_events} points. Supply the matching full bank with "
+            "--srs and --srs-sha256, or use --signature-only to skip commitment verification"
+        )
     if trusted_hash is None:
         if info.max_events == 65 and info.bitstream_hash.lower() == '04' * 32:
             trusted_hash = DEV_SRS_SHA256
@@ -379,6 +384,23 @@ def get_info(device: Any, timeout_ms: int) -> Any:
     return base.parse_info(payload)
 
 
+def verify_expected_identity(info: Any, expected: dict[str, Any]) -> str:
+    address = expected.get('device_address')
+    marker = expected.get('build_marker')
+    bank_hash = expected.get('srs_sha256')
+    if not all(isinstance(value, str) for value in (address, marker, bank_hash)):
+        raise RuntimeError('MVP identity requires address, build marker and SRS hash')
+    if info.device_address.lower() != address.lower():
+        raise RuntimeError(f'GET_INFO device {info.device_address} differs from MVP identity {address}')
+    if info.bitstream_hash.lower().removeprefix('0x') != marker.lower().removeprefix('0x'):
+        raise RuntimeError('GET_INFO build marker differs from MVP identity')
+    if info.srs_hash.lower().removeprefix('0x') != bank_hash.lower().removeprefix('0x'):
+        raise RuntimeError('GET_INFO SRS hash differs from MVP identity')
+    if info.max_events != 50000:
+        raise RuntimeError(f'GET_INFO max_events {info.max_events} != contract cap 50000')
+    return bank_hash
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SET_HEADER/START/STOP/GET_RESULT and verify the TA signature"
@@ -393,6 +415,9 @@ def main() -> int:
                         help='local contiguous BN254 G1 bank; defaults to srs-g1-be.bin beside this script')
     parser.add_argument('--srs-sha256',
                         help='trusted SRS digest from approved manifest; required outside development profile')
+    parser.add_argument('--signature-only', action='store_true',
+                        help='verify the signature and trace root without a local SRS; commitment is NOT verified')
+    parser.add_argument('--identity', help='public mvp-identity.json from the exact flashed image build')
     args = parser.parse_args()
     if args.capture_seconds < 0 or args.min_events < 0 or args.timeout_ms <= 0:
         parser.error("capture seconds, min events and timeout must be nonnegative/positive")
@@ -406,7 +431,14 @@ def main() -> int:
         except (AttributeError, OSError):
             pass
         info = get_info(device, args.timeout_ms)
-        bank = load_srs(pathlib.Path(args.srs).expanduser(), info, args.srs_sha256)
+        trusted_srs_hash = args.srs_sha256
+        if args.identity:
+            expected = json.loads(pathlib.Path(args.identity).expanduser().read_text())
+            pinned_hash = verify_expected_identity(info, expected)
+            if trusted_srs_hash and trusted_srs_hash.lower().removeprefix('0x') != pinned_hash.lower().removeprefix('0x'):
+                raise RuntimeError('--srs-sha256 conflicts with public MVP identity')
+            trusted_srs_hash = pinned_hash
+        bank = None if args.signature_only else load_srs(pathlib.Path(args.srs).expanduser(), info, trusted_srs_hash)
         print(f"TA ready: {info.device_address}")
         try:
             transact(device, ABORT, timeout_ms=args.timeout_ms)
@@ -431,8 +463,10 @@ def main() -> int:
         result = transact(device, GET_RESULT, timeout_ms=args.timeout_ms)
         trace = transact(device, GET_TRACE, timeout_ms=args.timeout_ms)
         verified = verify_result(info, header, session_id, result, trace, args.min_events)
-        verify_commitment(trace, result[336:400], bank)
-        print("TA stateful signing: PASS")
+        if bank is not None:
+            verify_commitment(trace, result[336:400], bank)
+        print("TA stateful signing: PASS" if bank is not None else
+              "TA stateful signing: PASS (commitment unchecked)")
         print(f"event_count:          {verified['event_count']}")
         print(f"duration_us:          {verified['duration_us']}")
         print(f"trace_root:           {result[304:336].hex()}")
@@ -446,7 +480,8 @@ def main() -> int:
         print(f"bitstream_hash:       0x{info.bitstream_hash}")
         print("signature_low_s:      yes")
         print("trace_root_verified:  yes")
-        print('commitment_recompute: verified against trusted local SRS')
+        print('commitment_recompute: verified against trusted local SRS' if bank is not None else
+              'commitment_recompute: SKIPPED (--signature-only)')
         transact(device, ABORT, timeout_ms=args.timeout_ms)
         return 0
     finally:

@@ -21,7 +21,7 @@ def require(test, description):
 
 require(profile in ('production', 'debug', 'optee-debug', 'rng-lab', 'otp-lab', 'optee-runtime', 'signed-lab', 'mvp-keyed', 'hardware-root'),
         'known profile')
-debug_profile = profile in ('debug', 'optee-debug', 'rng-lab', 'otp-lab', 'signed-lab', 'mvp-keyed')
+debug_profile = profile in ('debug', 'optee-debug', 'rng-lab', 'otp-lab', 'signed-lab')
 optee_profile = profile in ('optee-debug', 'rng-lab', 'otp-lab', 'optee-runtime', 'signed-lab', 'mvp-keyed', 'hardware-root')
 require(config.is_file(), 'Buildroot .config')
 build_config = config.read_text()
@@ -258,11 +258,9 @@ if debug_profile:
         require('etc/bridge-rt.conf' in members, 'debug bridge startup configuration')
         if optee_profile:
             ta_member = 'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta'
-            required = {ta_member}
-            if profile != 'mvp-keyed':
-                required.add('usr/bin/osumania-optee-test')
-            require(required <= members, 'selected OP-TEE TA packaged in initramfs')
-            mode = profile if profile in ('signed-lab', 'mvp-keyed') else 'dev'
+            require({ta_member, 'usr/bin/osumania-optee-test'} <= members,
+                    'selected OP-TEE TA and smoke client packaged in debug initramfs')
+            mode = 'signed-lab' if profile == 'signed-lab' else 'dev'
             expected_firmware = project / f'sources/boot-firmware/out-optee-{mode}/u-boot-rockchip.bin'
             description = 'source OP-TEE debug firmware matches selected signed/unsigned profile'
         else:
@@ -306,6 +304,23 @@ else:
                     'hardware OP-TEE uses reviewed OTP offset with no insecure HUK')
 if profile == 'mvp-keyed':
     from stat import S_IMODE
+    mvp_firmware = project / 'sources/boot-firmware/out-optee-mvp-keyed/u-boot-rockchip.bin'
+    require(mvp_firmware.is_file() and
+            hashlib.sha256(firmware.read_bytes()).digest() == hashlib.sha256(mvp_firmware.read_bytes()).digest(),
+            'MVP disk includes its own signed OP-TEE firmware')
+    public_identity = images / 'mvp-identity.json'
+    source_identity = project / 'sources/optee-os-artifacts/mvp-policy/mvp-identity.json'
+    require(public_identity.is_file() and source_identity.is_file() and
+            public_identity.read_bytes() == source_identity.read_bytes(),
+            'MVP public device identity accompanies flash image')
+    identity_data = json.loads(public_identity.read_text())
+    require(len(identity_data['device_address']) == 42 and
+            len(identity_data['build_marker']) == 66 and
+            identity_data['srs_sha256'] == locked['device_srs_ceremony']['device_bank_sha256'] and
+            identity_data['hardware_root'] is False and
+            identity_data['bitstream_attestation'] is False and
+            identity_data['key_security'] == 'EXTRACTABLE_FROM_SD_IMAGE',
+            'public MVP identity discloses actual key extraction boundary')
 
     require('BR2_ROOTFS_POST_SCRIPT_ARGS="mvp-keyed"' in build_config and
             'BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO=y' not in build_config,
@@ -314,13 +329,12 @@ if profile == 'mvp-keyed':
             not (root / 'etc/osumania-provision.conf').exists() and
             'usr/bin/osumania-optee-test' not in members,
             'MVP initramfs excludes development key provision and competing TA test client')
-    require((root / 'etc/optee-runtime-mode').read_text().strip() == 'mvp-keyed-extractable-ta-key',
-            'diagnostics disclose extractable keyed TA profile')
-    startup = (root / 'etc/bridge-rt.conf').read_text().splitlines()
-    require(startup == ['BRIDGE_DIAG_LOG=/run/bridge-startup.log',
-                        'OSUMANIA_SIGNER_BACKEND=optee',
-                        'OSUMANIA_SRS=/usr/share/osumania/srs-g1-be.bin'],
-            'MVP always selects OP-TEE signing and pinned bank')
+    startup = dict(line.split('=', 1) for line in
+                   (root / 'etc/bridge-rt.conf').read_text().splitlines() if '=' in line)
+    require(startup.get('OSUMANIA_SIGNER_BACKEND') == 'optee' and
+            startup.get('OSUMANIA_SRS') == '/usr/share/osumania/srs-g1-be.bin' and
+            'BRIDGE_DIAG_LOG' not in startup,
+            'MVP uses OP-TEE signer and PSE bank without diagnostic logging')
     daemon = root / 'usr/bin/bridge-daemon'
     require(daemon.is_file() and
             b'DEV_INSECURE_KEY_BACKEND active' not in daemon.read_bytes() and
@@ -359,13 +373,13 @@ if profile == 'mvp-keyed':
             bank_sha != locked['development_srs']['sha256'],
             'packaged bank matches only pinned PSE device ceremony')
     public = json.loads(record.read_text())
-    require(public['file'] == 'srs-g1-be.bin' and public['pointCount'] == 200000 and
-            public['bytesPerPoint'] == 64 and public['sha256'] == '0x' + bank_sha and
+    require(public['pointCount'] == 200000 and public['bytesPerPoint'] == 64 and
+            public['sha256'] == '0x' + bank_sha and
             public['srsId'] == '0x' + pin['srs_id'] and public['maxEvents'] == 50000 and
-            'extractable' in public['keyProtection'] and public['otpProvenance'] is False and
-            public['romFuseEnforcementVerified'] is False and
-            'not FPGA attestation' in public['bitstreamField'],
-            'public MVP manifest describes PSE bank, key exposure and absent OTP/FPGA attestation')
+            public['keyExtractable'] is True and public['hardwareRoot'] is False and
+            public['otpProvenance'] is False and public['romFuseEnforcementVerified'] is False and
+            public['bitstreamAttestation'] is False,
+            'MVP bank and security boundary public manifest')
 tuning = root / 'etc/bridge-rt.conf'
 require(not tuning.exists() or 'BRIDGE_KEYBOARD_HID_INTERVAL=' not in tuning.read_text(),
         'both profiles use the same kernel-default HID interval')
@@ -377,13 +391,21 @@ settings = dict(line.split('=', 1) for line in identity.read_text().splitlines()
 require(settings.get('BRIDGE_USB_VID') == locked['usb_gadget']['vid'] and
         settings.get('BRIDGE_USB_PID') == locked['usb_gadget']['pid'],
         'supplied USB VID:PID matches manifest')
-if profile in ('production', 'optee-runtime', 'hardware-root'):
+if profile in ('production', 'optee-runtime', 'hardware-root', 'mvp-keyed'):
     require('# CONFIG_DEBUG_FS is not set' in symbols, 'no production debugfs')
     for path in ('lib/systemd', 'usr/lib/systemd', 'usr/bin/python3',
                  'usr/bin/python', 'usr/bin/apt', 'usr/bin/apt-get', 'usr/bin/dpkg',
                  'usr/bin/opkg', 'usr/bin/rpm', 'usr/bin/pacman', 'usr/sbin/sshd',
                  'usr/bin/dbus-daemon', 'usr/sbin/NetworkManager',
-                 'sbin/syslogd', 'usr/sbin/syslogd', 'etc/init.d/S40network'):
+                 'sbin/syslogd', 'usr/sbin/syslogd', 'etc/init.d/S40network',
+                 'etc/init.d/S99zzdiag', 'usr/bin/osumania-optee-test',
+                 'usr/bin/cyclictest', 'usr/bin/cyclicdeadline', 'usr/bin/deadline_test',
+                 'usr/bin/hackbench', 'usr/bin/pi_stress', 'usr/bin/pip_stress',
+                 'usr/bin/pmqtest', 'usr/bin/ptsematest', 'usr/bin/rt-migrate-test',
+                 'usr/bin/signaltest', 'usr/bin/sigwaittest', 'usr/bin/svsematest',
+                 'usr/bin/queuelat', 'usr/bin/ssdd', 'usr/bin/oslat',
+                 'usr/bin/determine_maximum_mpps.sh', 'usr/bin/trace-cmd',
+                 'usr/bin/stress-ng'):
         require(not (root / path).exists() and path not in members,
                 'forbidden production path ' + path)
 shutil.copy2(kconfig, images / 'kernel.config')
@@ -396,6 +418,8 @@ if profile in ('hardware-root', 'signed-lab', 'mvp-keyed'):
     files.append(images / 'kernel.itb')
 if profile in ('signed-lab', 'mvp-keyed'):
     files.append(images / 'boot-key-identity.json')
+if profile == 'mvp-keyed':
+    files.append(images / 'mvp-identity.json')
 if debug_profile:
     files.append(images / 'diag.vfat')
 with (images / 'SHA256SUMS').open('w') as sums:

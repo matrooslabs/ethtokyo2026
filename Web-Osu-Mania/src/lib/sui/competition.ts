@@ -47,7 +47,8 @@ const challengeObject = bcs.struct("Challenge", {
   score_deadline_ms: bcs.u64(),
   claim_window_ms: bcs.u64(),
   claim_deadline_ms: bcs.u64(),
-  pot: bcs.u64(),
+  easy_pot: bcs.u64(),
+  hard_pot: bcs.u64(),
   buyers: dynamicTable,
   attempts: dynamicTable,
   claims: dynamicTable,
@@ -55,16 +56,21 @@ const challengeObject = bcs.struct("Challenge", {
   easy_top: bcs.vector(rankedClaim),
   hard_top: bcs.vector(rankedClaim),
   score_order: bcs.u64(),
-  total_purchases: bcs.u64(),
-  refund_purchases_remaining: bcs.u64(),
-  original_pot: bcs.u64(),
-  refund_pool: bcs.u64(),
+  easy_total_purchases: bcs.u64(),
+  hard_total_purchases: bcs.u64(),
+  easy_refund_purchases_remaining: bcs.u64(),
+  hard_refund_purchases_remaining: bcs.u64(),
+  easy_original_pot: bcs.u64(),
+  hard_original_pot: bcs.u64(),
+  easy_refund_pool: bcs.u64(),
+  hard_refund_pool: bcs.u64(),
   settled: bcs.bool(),
 });
 
 export type RankedClaim = { wallet: string; session: string; score: bigint; order: bigint };
 export type ChallengeState = {
   pot: bigint;
+  pots: Record<Difficulty, bigint>;
   originalPot: bigint;
   refundPool: bigint;
   remaining: bigint;
@@ -84,15 +90,15 @@ function hex(bytes: number[]): string {
   return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
-async function walletState(client: SuiGrpcClient, wallet: string, challengeId: string): Promise<{ remaining: bigint; claimRegistered: boolean; refundEligible: boolean }> {
+async function walletState(client: SuiGrpcClient, wallet: string, challengeId: string, difficulty: Difficulty): Promise<{ remaining: bigint; claimRegistered: boolean; refundEligible: boolean }> {
   const tx = new Transaction();
   tx.setSender(wallet);
   tx.moveCall({ target: target("remaining_plays"), typeArguments: coinType,
-    arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
+    arguments: [tx.object(challengeId), tx.pure.address(wallet), tx.pure.u8(difficultyCode(difficulty))] });
   tx.moveCall({ target: target("claim_registered"), typeArguments: coinType,
     arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
   tx.moveCall({ target: target("refund_eligible"), typeArguments: coinType,
-    arguments: [tx.object(challengeId), tx.pure.address(wallet)] });
+    arguments: [tx.object(challengeId), tx.pure.address(wallet), tx.pure.u8(difficultyCode(difficulty))] });
   const result = await client.simulateTransaction({ transaction: tx, include: { commandResults: true }, checksEnabled: false });
   const remainingBytes = result.Transaction && result.commandResults?.[0]?.returnValues?.[0]?.bcs;
   const claimBytes = result.Transaction && result.commandResults?.[1]?.returnValues?.[0]?.bcs;
@@ -107,7 +113,7 @@ export async function readCompetition(client: SuiGrpcClient, wallet: string, cha
   if (!configured) throw new Error("Sui challenge deployment is not configured.");
   const [object, player] = await Promise.all([
     client.getObject({ objectId: challengeId, include: { content: true } }),
-    walletState(client, wallet, challengeId),
+    walletState(client, wallet, challengeId, difficulty),
   ]);
   const content = object.object?.content;
   if (!content || object.object?.type !== `${suiDeployment.packageId}::competition::Challenge<${suiDeployment.usdcType}>`) {
@@ -126,7 +132,10 @@ export async function readCompetition(client: SuiGrpcClient, wallet: string, cha
     wallet: claim.wallet, session: claim.session, score: BigInt(claim.score), order: BigInt(claim.order),
   }));
   return {
-    pot: BigInt(parsed.pot), originalPot: BigInt(parsed.original_pot), refundPool: BigInt(parsed.refund_pool),
+    pot: BigInt(parsed[difficulty === "Easy" ? "easy_pot" : "hard_pot"]),
+    pots: { Easy: BigInt(parsed.easy_pot), Hard: BigInt(parsed.hard_pot) },
+    originalPot: BigInt(parsed[difficulty === "Easy" ? "easy_original_pot" : "hard_original_pot"]),
+    refundPool: BigInt(parsed[difficulty === "Easy" ? "easy_refund_pool" : "hard_refund_pool"]),
     remaining: player.remaining, claimRegistered: player.claimRegistered, refundEligible: player.refundEligible,
     roundDate: new TextDecoder().decode(Uint8Array.from(parsed.round_date)),
     device: hex(parsed.device), chartHashes,
@@ -136,11 +145,11 @@ export async function readCompetition(client: SuiGrpcClient, wallet: string, cha
   };
 }
 
-export function buyPlays(challengeId: string): Transaction {
+export function buyPlays(challengeId: string, difficulty: Difficulty): Transaction {
   const tx = new Transaction();
   tx.moveCall({
     target: target("buy_plays"), typeArguments: coinType,
-    arguments: [tx.object(challengeId), tx.coin({ balance: 1_000_000n, type: suiDeployment.usdcType }), tx.object.clock()],
+    arguments: [tx.object(challengeId), tx.coin({ balance: 1_000_000n, type: suiDeployment.usdcType }), tx.pure.u8(difficultyCode(difficulty)), tx.object.clock()],
   });
   return tx;
 }
@@ -161,10 +170,10 @@ export function settle(challengeId: string): Transaction {
   return tx;
 }
 
-export function refund(wallet: string, challengeId: string): Transaction {
+export function refund(wallet: string, challengeId: string, difficulty: Difficulty): Transaction {
   const tx = new Transaction();
   tx.moveCall({ target: target("refund"), typeArguments: coinType,
-    arguments: [tx.object(challengeId), tx.pure.address(wallet), tx.object.clock()] });
+    arguments: [tx.object(challengeId), tx.pure.address(wallet), tx.pure.u8(difficultyCode(difficulty)), tx.object.clock()] });
   return tx;
 }
 

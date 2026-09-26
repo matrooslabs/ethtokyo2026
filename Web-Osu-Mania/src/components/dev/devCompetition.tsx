@@ -14,7 +14,7 @@ import type { BeatmapSet } from "@/lib/beatmapTypes";
 import { useGameStore } from "@/stores/gameStore";
 import { useChallengeClockStore } from "@/stores/challengeClockStore";
 
-const STORAGE_KEY = "versu:local-simulation:v1";
+const STORAGE_KEY = "versu:local-simulation:v2";
 const unreachableBridge = async (): Promise<never> => { throw new Error("The simulator cannot use a Bridge device."); };
 const simulatedHardware: BridgeHardware = {
   phase: "ready", ready: true, info: null, status: null, error: null,
@@ -188,7 +188,7 @@ export default function DevCompetition() {
           <button className="arena-primary" disabled={!loaded || !scheduledStart} onClick={() =>
             act((current) => launchChallenge(current, crypto.randomUUID(), new Date(scheduledStart).getTime()))}>Schedule six-hour challenge</button>
         </> : <>
-          <span>Pot: {money(state.pot)} demo USDC</span>
+          <span>Easy pool: {money(state.pots.Easy)} demo USDC · Hard pool: {money(state.pots.Hard)} demo USDC</span>
           {state.startedAtMs !== null && state.nowMs < state.startedAtMs && <button className="arena-text-button" onClick={() =>
             act((current) => advanceClock(current, current.startedAtMs!))}>Advance to scheduled start</button>}
           {scoreOpen && <button className="arena-text-button" onClick={() => act((current) => advanceClock(current, current.scoreDeadlineMs!))}>Close scoring (+6h)</button>}
@@ -199,7 +199,7 @@ export default function DevCompetition() {
         <section className="arena-entry" aria-label="Simulated entry">
           <fieldset className="arena-difficulty"><legend>Difficulty</legend><div className="arena-difficulty-toggle">
             {(["Easy", "Hard"] as const).map((name) => <button type="button" key={name} aria-pressed={name === difficulty}
-              disabled={!!state.run} onClick={() => setDifficulty(name)}><strong>{name}</strong><span>{name === "Easy" ? "30%" : "70%"} of pot</span></button>)}
+              disabled={!!state.run} onClick={() => setDifficulty(name)}><strong>{name}</strong><span>{money(state.pots[name])} demo USDC</span></button>)}
           </div></fieldset>
           <div className="arena-dev-controls">
             <label>Mock wallet <select value={wallet} onChange={(event) => { setWallet(event.target.value); setHumanId(event.target.value); setConnected(false); }}>
@@ -208,16 +208,17 @@ export default function DevCompetition() {
             {!connected ? <button className="arena-secondary" onClick={() => setConnected(true)}>Connect mock wallet</button> :
               <span>{player.name}: {money(player.balance)} demo USDC</span>}
           </div>
-          {connected && <div className="arena-play-balance" role="status"><strong>{player.credits}</strong><span>plays left</span></div>}
+          {connected && <div className="arena-play-balance" role="status"><strong>{player.credits[difficulty]}</strong><span>{difficulty} plays left</span></div>}
           {scoreOpen && connected && <div className="arena-dev-controls">
-            {player.credits > 0 ? <>
+            {player.credits[difficulty] > 0 ? <>
               <button className="arena-primary" disabled={busy || !!state.run} onClick={() => void prepare(true)}>Set up Forest run</button>
-              <button className="arena-text-button" onClick={() => act((current) => buyPlays(current, wallet))}>Buy more plays</button>
-              <button className="arena-text-button" disabled={busy || !!state.run} onClick={mockScore}>Mock score (1 play)</button>
-            </> : <button className="arena-primary" onClick={() => act((current) => buyPlays(current, wallet))}>Buy 3 plays (1 demo USDC)</button>}
+              <button className="arena-text-button" onClick={() => act((current) => buyPlays(current, wallet, difficulty))}>Buy more {difficulty} plays</button>
+              <button className="arena-text-button" disabled={busy || !!state.run} onClick={mockScore}>Mock score (1 {difficulty} play)</button>
+            </> : <button className="arena-primary" onClick={() => act((current) => buyPlays(current, wallet, difficulty))}>Buy 3 {difficulty} plays (1 demo USDC)</button>}
           </div>}
           <button className="arena-text-button" disabled={busy || !!state.run} onClick={() => void prepare(false)}>Practice demo</button>
           {claimOpen && connected && <div className="arena-dev-claim">
+            <p>One claim per simulated person across both charts. The top five claimed {difficulty} scores share only the {difficulty} pool; unused shares refund only {difficulty} purchasers.</p>
             <label>Mock World ID <select value={humanId} onChange={(event) => setHumanId(event.target.value)}>
               {DEV_WALLETS.map((identity) => <option value={identity.wallet} key={identity.wallet}>{identity.name}</option>)}
             </select></label>
@@ -228,15 +229,16 @@ export default function DevCompetition() {
           {state.settled && <div className="arena-dev-claim">
             <p>Prizes sent: {DEV_WALLETS.filter((identity) => state.players[identity.wallet].payout > 0).map((identity) =>
               `${identity.name} ${money(state.players[identity.wallet].payout)}`).join(", ") || "none"}</p>
-            {DEV_WALLETS.filter((identity) => state.players[identity.wallet].purchases > 0 && !state.players[identity.wallet].refunded).map((identity) =>
-              <button className="arena-text-button" key={identity.wallet} onClick={() => act((current) => refund(current, identity.wallet))}>Refund {identity.name}</button>)}
-            <p>Remaining: {money(state.pot)} demo USDC</p>
+            {DEV_WALLETS.filter((identity) => state.players[identity.wallet].purchases[difficulty] > 0 && !state.players[identity.wallet].refunded[difficulty]).map((identity) =>
+              <button className="arena-text-button" key={identity.wallet} onClick={() => act((current) => refund(current, identity.wallet, difficulty))}>Refund {identity.name} ({difficulty})</button>)}
+            <p>Remaining {difficulty} pool: {money(state.pots[difficulty])} demo USDC</p>
           </div>}
           {notice && <p role="status">{notice}</p>}
           {error && <p role="alert">{error}</p>}
         </section>
         <section className="arena-standings" aria-label="Simulated leaderboard">
           <div className="arena-section-heading"><h2>{difficulty} simulated scores</h2></div>
+          <p>{difficulty} purchases fund this chart alone; prizes split 40/20/20/10/10% across its top five claimed scores.</p>
           <div className="arena-table-scroll"><table className="arena-table"><thead><tr><th>Rank</th><th>Player</th><th>Local score</th><th>Claim</th></tr></thead><tbody>
             {scores.map((row, index) => <tr key={row.wallet}><td>{index + 1}</td><td>{row.name}</td><td>{row.score.toLocaleString()}</td><td>{row.claimRank ?? "—"}</td></tr>)}
             {scores.length === 0 && <tr><td colSpan={4} className="arena-table-empty">No simulated scores yet.</td></tr>}

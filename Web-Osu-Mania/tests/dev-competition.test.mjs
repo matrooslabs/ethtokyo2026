@@ -12,14 +12,14 @@ function play(state, wallet, difficulty, id, score, failed = false) {
   return recordScore(startPlay(state, wallet, difficulty, id), { runId: id, score, failed });
 }
 
-test('six local demo wallets share paid credits, rank their best scores, and divide only claimed prizes', () => {
+test('six local demo wallets buy chart-specific credits, rank their best scores, and settle isolated pools', () => {
   const empty = initialState(start);
   assert.equal(DEV_WALLETS.length, 6);
   assert.ok(DEV_WALLETS.every(({ name, wallet }) => /simulat/i.test(name) && wallet.startsWith('SIM-')));
   assert.equal(empty.id, null);
-  assert.equal(empty.pot, 0);
-  assert.ok(Object.values(empty.players).every(player => player.balance === 10_000_000 && player.credits === 0));
-  assert.throws(() => buyPlays(empty, a), /Launch/);
+  assert.deepEqual(empty.pots, { Easy: 0, Hard: 0 });
+  assert.ok(Object.values(empty.players).every(player => player.balance === 10_000_000 && player.credits.Easy === 0 && player.credits.Hard === 0));
+  assert.throws(() => buyPlays(empty, a, 'Easy'), /Launch/);
 
   const scheduledStart = start + 60_000;
   let state = launchChallenge(empty, 'LOCAL-FOREST-ROUND', scheduledStart);
@@ -30,15 +30,16 @@ test('six local demo wallets share paid credits, rank their best scores, and div
   assert.equal(empty.id, null); // Input state is never changed.
   assert.throws(() => launchChallenge(state, 'another', scheduledStart), /already launched/);
   state = advanceClock(state, scheduledStart);
-  for (const wallet of [a, b, c, d, e, f, a]) state = buyPlays(state, wallet);
-  assert.equal(state.pot, 7_000_000);
-  assert.equal(state.players[a].balance, 8_000_000);
-  assert.equal(state.players[a].credits, 6);
-  assert.equal(state.players[b].credits, 3);
+  for (const wallet of [a, b, c, f, a]) state = buyPlays(state, wallet, 'Easy');
+  for (const wallet of [a, d, e]) state = buyPlays(state, wallet, 'Hard');
+  assert.deepEqual(state.pots, { Easy: 5_000_000, Hard: 3_000_000 });
+  assert.equal(state.players[a].balance, 7_000_000);
+  assert.deepEqual(state.players[a].credits, { Easy: 6, Hard: 3 });
+  assert.deepEqual(state.players[b].credits, { Easy: 3, Hard: 0 });
   assert.throws(() => startPlay(state, b, 'Hard', ' '), /fresh/);
 
   state = startPlay(state, a, 'Hard', 'a-hard-failed');
-  assert.equal(state.players[a].credits, 5);
+  assert.equal(state.players[a].credits.Hard, 2);
   assert.throws(() => startPlay(state, b, 'Easy', 'locked'), /Finish or abort/);
   assert.throws(() => recordScore(state, { runId: 'forged', score: 999_999, failed: false }), /matching active/);
   state = recordScore(state, { runId: 'a-hard-failed', score: 999_999, failed: true });
@@ -46,7 +47,7 @@ test('six local demo wallets share paid credits, rank their best scores, and div
   assert.equal(state.scoreOrder, 0);
   assert.throws(() => startPlay(state, a, 'Hard', 'a-hard-failed'), /fresh/);
   state = abortRun(startPlay(state, a, 'Hard', 'a-abort'), 'a-abort');
-  assert.equal(state.players[a].credits, 4);
+  assert.equal(state.players[a].credits.Hard, 1);
   assert.throws(() => recordScore(state, { runId: 'a-abort', score: 1, failed: false }), /matching active/);
   assert.throws(() => startPlay(state, a, 'Hard', 'a-abort'), /fresh/);
 
@@ -67,7 +68,7 @@ test('six local demo wallets share paid credits, rank their best scores, and div
   state = advanceClock(state, state.scoreDeadlineMs - 1);
   assert.throws(() => claimPrize(state, a, 'Easy', 'human-a'), /after scoring/);
   state = advanceClock(state, state.scoreDeadlineMs);
-  assert.throws(() => buyPlays(state, a), /closed/);
+  assert.throws(() => buyPlays(state, a, 'Easy'), /closed/);
   assert.throws(() => startPlay(state, a, 'Easy', 'too-late'), /closed/);
   assert.throws(() => settle(state), /Wait until/);
   assert.throws(() => claimPrize(state, d, 'Easy', 'wrong-chart'), /recorded/);
@@ -86,24 +87,28 @@ test('six local demo wallets share paid credits, rank their best scores, and div
   assert.throws(() => settle(state), /Wait until/);
   state = advanceClock(state, state.claimDeadlineMs);
   assert.throws(() => claimPrize(state, c, 'Easy', 'human-c'), /close at/);
-  assert.throws(() => refund(state, a), /Settle/);
+  assert.throws(() => refund(state, a, 'Easy'), /Settle/);
 
   const beforeSettlement = state;
   state = settle(state);
-  assert.equal(beforeSettlement.pot, 7_000_000);
-  assert.equal(state.originalPot, 7_000_000);
+  assert.deepEqual(beforeSettlement.pots, { Easy: 5_000_000, Hard: 3_000_000 });
+  assert.deepEqual(state.originalPots, { Easy: 5_000_000, Hard: 3_000_000 });
   assert.deepEqual([a, b, c, d, e, f].map(wallet => state.players[wallet].payout),
-    [840_000, 420_000, 0, 980_000, 1_960_000, 420_000]);
-  assert.equal(state.refundPool, 2_380_000); // Empty Easy slots + three empty Hard slots.
-  assert.equal(state.pot, 2_380_000);
+    [2_000_000, 1_000_000, 0, 600_000, 1_200_000, 1_000_000]);
+  assert.deepEqual(state.refundPools, { Easy: 1_000_000, Hard: 1_200_000 });
+  assert.deepEqual(state.pots, { Easy: 1_000_000, Hard: 1_200_000 });
   assert.throws(() => settle(state), /already settled/);
-  for (const wallet of [b, c, d, e, f, a]) state = refund(state, wallet);
+  assert.throws(() => refund(state, d, 'Easy'), /Easy purchasers/);
+  for (const wallet of [b, c, f, a]) state = refund(state, wallet, 'Easy');
+  assert.deepEqual(state.pots, { Easy: 0, Hard: 1_200_000 });
+  for (const wallet of [d, e, a]) state = refund(state, wallet, 'Hard');
   assert.deepEqual([a, b, c, d, e, f].map(wallet => state.players[wallet].refund),
-    [680_000, 340_000, 340_000, 340_000, 340_000, 340_000]);
+    [800_000, 200_000, 200_000, 400_000, 400_000, 200_000]);
   assert.deepEqual([a, b, c, d, e, f].map(wallet => state.players[wallet].balance),
-    [9_520_000, 9_760_000, 9_340_000, 10_320_000, 11_300_000, 9_760_000]);
-  assert.equal(state.pot, 0);
-  assert.throws(() => refund(state, a), /already received/);
+    [9_800_000, 10_200_000, 9_200_000, 10_000_000, 10_600_000, 10_200_000]);
+  assert.deepEqual(state.pots, { Easy: 0, Hard: 0 });
+  assert.throws(() => refund(state, a, 'Easy'), /already received/);
+  assert.throws(() => refund(state, a, 'Hard'), /already received/);
 });
 
 test('a future scheduled start keeps the clock unchanged and gates purchases, runs and scores', () => {
@@ -118,64 +123,80 @@ test('a future scheduled start keeps the clock unchanged and gates purchases, ru
   assert.equal(state.startedAtMs, scheduledStart);
   assert.equal(state.scoreDeadlineMs - state.startedAtMs, 21_600_000);
   assert.equal(state.claimDeadlineMs - state.scoreDeadlineMs, 86_400_000);
-  assert.throws(() => buyPlays(state, a), /not started/);
+  assert.throws(() => buyPlays(state, a, 'Easy'), /not started/);
   assert.throws(() => startPlay(state, a, 'Easy', 'early'), /not started/);
   assert.throws(() => recordScore(state, { runId: 'early', score: 1, failed: false }), /not started/);
   state = advanceClock(state, scheduledStart - 1);
   assert.equal(state.startedAtMs, scheduledStart);
-  assert.throws(() => buyPlays(state, a), /not started/);
+  assert.throws(() => buyPlays(state, a, 'Easy'), /not started/);
   assert.throws(() => startPlay(state, a, 'Easy', 'early'), /not started/);
   assert.throws(() => recordScore(state, { runId: 'early', score: 1, failed: false }), /not started/);
   assert.throws(() => claimPrize(state, a, 'Easy', 'human-a'), /after scoring/);
   assert.equal(state.players[a].balance, 10_000_000);
-  assert.equal(state.pot, 0);
+  assert.deepEqual(state.pots, { Easy: 0, Hard: 0 });
 
   state = advanceClock(state, scheduledStart);
-  state = buyPlays(state, a);
+  state = buyPlays(state, a, 'Easy');
   state = play(state, a, 'Easy', 'at-start', 100);
   assert.equal(state.players[a].best.Easy.score, 100);
   state = advanceClock(state, state.scoreDeadlineMs - 1);
   state = play(state, a, 'Easy', 'last-millisecond', 200);
   assert.equal(state.players[a].best.Easy.score, 200);
   state = advanceClock(state, state.scoreDeadlineMs);
-  assert.throws(() => buyPlays(state, a), /closed/);
+  assert.throws(() => buyPlays(state, a, 'Easy'), /closed/);
   assert.throws(() => startPlay(state, a, 'Easy', 'at-cutoff'), /closed/);
   assert.throws(() => recordScore(state, { runId: 'at-cutoff', score: 300, failed: false }), /closed/);
   state = claimPrize(state, a, 'Easy', 'human-a');
   assert.equal(state.players[a].claim, 'Easy');
 });
 
+test('one chart purchase cannot fund a run or refund on the other chart', () => {
+  let state = launchChallenge(initialState(start), 'isolated-wallet', start);
+  state = buyPlays(state, a, 'Easy');
+  assert.deepEqual(state.players[a].credits, { Easy: 3, Hard: 0 });
+  assert.throws(() => startPlay(state, a, 'Hard', 'hard-with-easy-credit'), /Buy simulated Hard plays/);
+  state = play(state, a, 'Easy', 'easy-run', 100);
+  assert.deepEqual(state.players[a].credits, { Easy: 2, Hard: 0 });
+  state = claimPrize(advanceClock(state, state.scoreDeadlineMs), a, 'Easy', 'one-human');
+  state = settle(advanceClock(state, state.claimDeadlineMs));
+  assert.deepEqual(state.originalPots, { Easy: 1_000_000, Hard: 0 });
+  assert.deepEqual(state.refundPools, { Easy: 600_000, Hard: 0 });
+  assert.throws(() => refund(state, a, 'Hard'), /Hard purchasers/);
+  state = refund(state, a, 'Easy');
+  assert.deepEqual(state.pots, { Easy: 0, Hard: 0 });
+  assert.equal(state.players[a].balance, 10_000_000);
+});
+
 test('strict run, balance and clock boundaries preserve spent credits and score provenance', () => {
   assert.throws(() => initialState(-1), /clock/);
   let state = launchChallenge(initialState(start), 'boundary-round', start);
-  assert.throws(() => startPlay(state, a, 'Easy', 'free-run'), /Buy simulated plays/);
-  assert.throws(() => buyPlays(state, 'unknown-wallet'), /Unknown/);
-  for (let i = 0; i < 10; i++) state = buyPlays(state, a);
+  assert.throws(() => buyPlays(state, 'unknown-wallet', 'Easy'), /Unknown/);
+  for (let i = 0; i < 10; i++) state = buyPlays(state, a, 'Easy');
   assert.equal(state.players[a].balance, 0);
-  assert.throws(() => buyPlays(state, a), /Insufficient/);
+  assert.throws(() => buyPlays(state, a, 'Easy'), /Insufficient/);
   assert.throws(() => advanceClock(state, start - 1), /backwards/);
   state = startPlay(state, a, 'Easy', 'expires');
   assert.throws(() => abortRun(state, 'different'), /matching/);
   const beforeRejection = state;
   state = advanceClock(state, state.scoreDeadlineMs);
   assert.throws(() => recordScore(state, { runId: 'expires', score: 999, failed: false }), /closed/);
-  assert.equal(beforeRejection.players[a].credits, 29);
+  assert.equal(beforeRejection.players[a].credits.Easy, 29);
   state = abortRun(state, 'expires');
-  assert.equal(state.players[a].credits, 29);
+  assert.equal(state.players[a].credits.Easy, 29);
   assert.equal(state.players[a].best.Easy, null);
   assert.throws(() => claimPrize(state, a, 'Easy', 'human-a'), /recorded/);
   state = advanceClock(state, state.claimDeadlineMs);
   state = settle(state);
-  assert.equal(state.refundPool, 10_000_000);
-  assert.throws(() => refund(state, b), /purchasers/);
-  state = refund(state, a);
+  assert.deepEqual(state.refundPools, { Easy: 10_000_000, Hard: 0 });
+  assert.throws(() => refund(state, b, 'Easy'), /purchasers/);
+  state = refund(state, a, 'Easy');
   assert.equal(state.players[a].balance, 10_000_000);
-  assert.equal(state.pot, 0);
+  assert.deepEqual(state.pots, { Easy: 0, Hard: 0 });
 });
 
 test('six eligible claims retain only five prize ranks regardless of arrival order', () => {
   let state = launchChallenge(initialState(start), 'top-five', start);
-  for (const wallet of [a, b, c, d, e, f]) state = buyPlays(state, wallet);
+  for (const wallet of [a, b, c, d, e, f]) state = buyPlays(state, wallet, 'Easy');
   for (const [index, wallet] of [a, b, c, d, e, f].entries()) {
     state = play(state, wallet, 'Easy', `score-${index}`, 100 + index);
   }
@@ -185,6 +206,6 @@ test('six eligible claims retain only five prize ranks regardless of arrival ord
   assert.deepEqual(rankings(state, 'Easy').map(({ wallet }) => wallet), [f, e, d, c, b, a]);
   state = settle(advanceClock(state, state.claimDeadlineMs));
   assert.deepEqual([a, b, c, d, e, f].map(wallet => state.players[wallet].payout),
-    [0, 180_000, 180_000, 360_000, 360_000, 720_000]);
-  assert.equal(state.refundPool, 4_200_000); // All unclaimed Hard prizes remain refundable.
+    [0, 600_000, 600_000, 1_200_000, 1_200_000, 2_400_000]);
+  assert.deepEqual(state.refundPools, { Easy: 0, Hard: 0 });
 });

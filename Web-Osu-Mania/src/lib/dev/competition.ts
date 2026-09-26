@@ -16,14 +16,14 @@ export type DevPlayer = {
   wallet: string;
   /** Demo USDC in six-decimal integer base units. */
   balance: number;
-  /** Unspent plays, shared across Easy and Hard. */
-  credits: number;
-  purchases: number;
+  /** Unspent plays and purchases belong to their selected chart only. */
+  credits: Record<DevDifficulty, number>;
+  purchases: Record<DevDifficulty, number>;
   best: Record<DevDifficulty, { score: number; order: number } | null>;
   claim: DevDifficulty | null;
   payout: number;
   refund: number;
-  refunded: boolean;
+  refunded: Record<DevDifficulty, boolean>;
 };
 
 export type DevState = {
@@ -32,16 +32,16 @@ export type DevState = {
   startedAtMs: number | null;
   scoreDeadlineMs: number | null;
   claimDeadlineMs: number | null;
-  /** Demo USDC remaining in the prize vault. */
-  pot: number;
+  /** Demo USDC remaining in each independent prize vault. */
+  pots: Record<DevDifficulty, number>;
   players: Record<string, DevPlayer>;
   run: DevRun | null;
   settled: boolean;
   scoreOrder: number;
-  /** Fixed at settlement; retained to display original prize calculations. */
-  originalPot: number;
-  /** Original unallocated prize share, before any purchaser refunds. */
-  refundPool: number;
+  /** Fixed at settlement; retained to display each chart's original prize calculations. */
+  originalPots: Record<DevDifficulty, number>;
+  /** Original unallocated prize shares before purchaser refunds, by chart. */
+  refundPools: Record<DevDifficulty, number>;
   /** Local identity keys used only to prevent a second simulated claim. */
   humanClaims: Record<string, string>;
   /** Spent run identifiers; an aborted run cannot be resumed or replayed. */
@@ -96,14 +96,14 @@ export function initialState(nowMs: number): DevState {
   const players: Record<string, DevPlayer> = {};
   for (const { name, wallet } of DEV_WALLETS) {
     players[wallet] = {
-      name, wallet, balance: 10_000_000, credits: 0, purchases: 0,
-      best: { Easy: null, Hard: null }, claim: null, payout: 0, refund: 0, refunded: false,
+      name, wallet, balance: 10_000_000, credits: { Easy: 0, Hard: 0 }, purchases: { Easy: 0, Hard: 0 },
+      best: { Easy: null, Hard: null }, claim: null, payout: 0, refund: 0, refunded: { Easy: false, Hard: false },
     };
   }
   return {
     id: null, nowMs, startedAtMs: null, scoreDeadlineMs: null, claimDeadlineMs: null,
-    pot: 0, players, run: null, settled: false, scoreOrder: 0, originalPot: 0,
-    refundPool: 0, humanClaims: {}, runIds: [],
+    pots: { Easy: 0, Hard: 0 }, players, run: null, settled: false, scoreOrder: 0,
+    originalPots: { Easy: 0, Hard: 0 }, refundPools: { Easy: 0, Hard: 0 }, humanClaims: {}, runIds: [],
   };
 }
 
@@ -124,16 +124,17 @@ export function launchChallenge(state: DevState, id: string, startAtMs: number):
   return next;
 }
 
-export function buyPlays(state: DevState, wallet: string): DevState {
+export function buyPlays(state: DevState, wallet: string, difficulty: DevDifficulty): DevState {
   requireScoring(state);
+  requireDifficulty(difficulty);
   const player = playerFor(state, wallet);
   if (player.balance < PRICE) throw new Error("Insufficient demo USDC to buy three plays.");
   const next = copy(state);
   const buyer = next.players[wallet];
   buyer.balance -= PRICE;
-  buyer.credits += 3;
-  buyer.purchases += 1;
-  next.pot += PRICE;
+  buyer.credits[difficulty] += 3;
+  buyer.purchases[difficulty] += 1;
+  next.pots[difficulty] += PRICE;
   return next;
 }
 
@@ -142,9 +143,9 @@ export function startPlay(state: DevState, wallet: string, difficulty: DevDiffic
   requireDifficulty(difficulty);
   if (state.run) throw new Error("Finish or abort the current simulated run first.");
   if (!runId.trim() || state.runIds.includes(runId)) throw new Error("Use a fresh simulated run ID.");
-  if (playerFor(state, wallet).credits < 1) throw new Error("Buy simulated plays before starting.");
+  if (playerFor(state, wallet).credits[difficulty] < 1) throw new Error(`Buy simulated ${difficulty} plays before starting.`);
   const next = copy(state);
-  next.players[wallet].credits -= 1;
+  next.players[wallet].credits[difficulty] -= 1;
   next.run = { id: runId, wallet, difficulty };
   next.runIds.push(runId);
   return next;
@@ -223,39 +224,40 @@ export function settle(state: DevState): DevState {
   }
   if (state.settled) throw new Error("The simulated challenge is already settled.");
   const next = copy(state);
-  next.originalPot = state.pot;
-  let paid = 0;
-  for (const [difficulty, slice] of [["Easy", 30], ["Hard", 70]] as const) {
+  for (const difficulty of ["Easy", "Hard"] as const) {
+    next.originalPots[difficulty] = state.pots[difficulty];
+    let paid = 0;
     for (const entry of rankings(state, difficulty)) {
       if (entry.claimRank === null) continue;
       const share = PAYOUT_SHARES[entry.claimRank - 1];
-      const amount = Number(BigInt(state.pot) * BigInt(slice) * BigInt(share) / 10_000n);
+      const amount = Number(BigInt(state.pots[difficulty]) * BigInt(share) / 100n);
       next.players[entry.wallet].balance += amount;
       next.players[entry.wallet].payout += amount;
       paid += amount;
     }
+    next.pots[difficulty] -= paid;
+    next.refundPools[difficulty] = next.pots[difficulty];
   }
-  next.pot -= paid;
-  next.refundPool = next.pot;
   next.settled = true;
   return next;
 }
 
-export function refund(state: DevState, wallet: string): DevState {
+export function refund(state: DevState, wallet: string, difficulty: DevDifficulty): DevState {
   if (!state.settled) throw new Error("Settle the simulated challenge before refunding.");
+  requireDifficulty(difficulty);
   const buyer = playerFor(state, wallet);
-  if (buyer.purchases === 0) throw new Error("Only simulated purchasers can receive refunds.");
-  if (buyer.refunded) throw new Error("This simulated purchaser has already received a refund.");
+  if (buyer.purchases[difficulty] === 0) throw new Error(`Only simulated ${difficulty} purchasers can receive refunds.`);
+  if (buyer.refunded[difficulty]) throw new Error(`This simulated ${difficulty} purchaser has already received a refund.`);
   const remainingPurchases = Object.values(state.players)
-    .reduce((total, player) => total + (player.refunded ? 0 : player.purchases), 0);
+    .reduce((total, player) => total + (player.refunded[difficulty] ? 0 : player.purchases[difficulty]), 0);
   const totalPurchases = Object.values(state.players)
-    .reduce((total, player) => total + player.purchases, 0);
-  const amount = remainingPurchases === buyer.purchases ? state.pot :
-    Number(BigInt(state.refundPool) * BigInt(buyer.purchases) / BigInt(totalPurchases));
+    .reduce((total, player) => total + player.purchases[difficulty], 0);
+  const amount = remainingPurchases === buyer.purchases[difficulty] ? state.pots[difficulty] :
+    Number(BigInt(state.refundPools[difficulty]) * BigInt(buyer.purchases[difficulty]) / BigInt(totalPurchases));
   const next = copy(state);
-  next.players[wallet].refunded = true;
+  next.players[wallet].refunded[difficulty] = true;
   next.players[wallet].refund += amount;
   next.players[wallet].balance += amount;
-  next.pot -= amount;
+  next.pots[difficulty] -= amount;
   return next;
 }

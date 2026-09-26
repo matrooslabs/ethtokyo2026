@@ -60,7 +60,7 @@ export default function DailyCompetition() {
   const address = account?.address || "0x0";
   const tokenLabel = "USDC";
   const state = useQuery({
-    queryKey: ["sui-forest-challenge-v2", suiDeployment.challengeId, address],
+    queryKey: ["sui-forest-challenge-v2", suiDeployment.challengeId, address, difficulty],
     enabled: configured,
     queryFn: () => readCompetition(client, address, suiDeployment.challengeId, difficulty, chartHashExpected),
     refetchInterval: 12000,
@@ -210,8 +210,8 @@ export default function DailyCompetition() {
         throw new Error(`Controller capacity too low for ${difficulty}. No payment was made.`);
       }
       if (Date.now() >= latestSafeStartMs) throw new Error("Not enough time remains to finish a signed Forest score before the six-hour cutoff.");
-      const transaction = await transact(buyPlays(suiDeployment.challengeId));
-      setMessage(`Payment confirmed on Sui: ${transaction.digest}. Three plays added for either difficulty.`);
+      const transaction = await transact(buyPlays(suiDeployment.challengeId, difficulty));
+      setMessage(`Payment confirmed on Sui: ${transaction.digest}. Three ${difficulty} plays added.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -303,11 +303,16 @@ export default function DailyCompetition() {
   return (
     <>
       <GameOverlay hardware={hardware} />
+      {configured && import.meta.env.VITE_SUI_INSECURE_DEMO === "true" && <p className="arena-availability" role="alert">Insecure testnet demo: the controller key is extractable and score commitments have not been verified. Paid scores and prizes can be forged. Use test USDC only.</p>}
       {screen === "claim" ? (
         <section className="arena-panel arena-claim-screen" aria-label="Prize claims">
           <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
           <h1>Prize claims</h1>
-          <p>World ID: one claim per person. {difficulty}: {difficulty === "Easy" ? 30 : 70}% of the pot; top five split 40/20/20/10/10%.</p>
+          <p>World ID: one claim per person across Easy and Hard. Each chart has its own pot; its top five split 40/20/20/10/10%. Unclaimed shares refund only that chart’s purchasers.</p>
+          <fieldset className="arena-difficulty"><legend>Chart</legend><div className="arena-difficulty-toggle">
+            {(["Easy", "Hard"] as const).map((next) => <button type="button" key={next} aria-pressed={difficulty === next}
+              onClick={() => setDifficulty(next)}><strong>{next}</strong><span>Separate pool</span></button>)}
+          </div></fieldset>
           {configured && <label className="arena-date" htmlFor="claim-round">
             Round
             <select id="claim-round" value={claimId} onChange={(event) => setClaimId(event.target.value)}>
@@ -320,14 +325,14 @@ export default function DailyCompetition() {
           {rounds.isError && <p role="status">Past rounds unavailable. Current round remains accessible.</p>}
           {claimState.isError && <p role="alert">{claimState.error instanceof Error ? claimState.error.message : "Could not read this challenge from Sui."}</p>}
           {selectedRound ? <>
-            <strong>{difficulty} prize slice ({difficulty === "Easy" ? 30 : 70}%): {(
-              Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(difficulty === "Easy" ? 30 : 70) / 100n) / 1_000_000
+            <strong>{difficulty} prize pool: {(
+              Number(selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) / 1_000_000
             ).toFixed(2)} {tokenLabel}</strong>
             {selectedRound.rankedClaims[difficulty].length > 0 ? <ol className="arena-winners">
               {selectedRound.rankedClaims[difficulty].map((claim, index) => <li key={claim.wallet}>
                 <span>{index + 1}. {claim.wallet.slice(0, 8)}…{claim.wallet.slice(-4)}</span>
-                <strong>{payoutShares[index]}% of slice · {(
-                  Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(difficulty === "Easy" ? 30 : 70) * BigInt(payoutShares[index]) / 10_000n) / 1_000_000
+                <strong>{payoutShares[index]}% of {difficulty} pool · {(
+                  Number((selectedRound.settled ? selectedRound.originalPot : selectedRound.pot) * BigInt(payoutShares[index]) / 100n) / 1_000_000
                 ).toFixed(2)} {tokenLabel}</strong>
               </li>)}
             </ol> : <p>No World-verified {difficulty} claims yet.</p>}
@@ -347,21 +352,21 @@ export default function DailyCompetition() {
             {selectedRound.settled && <p role="status">Prize shares paid to verified wallets.</p>}
             {canRefund && <button className="arena-secondary" disabled={busy} onClick={() => {
               setBusy(true);
-              void transact(refund(address, claimId)).then(() => setMessage("Unused shares refunded on Sui."),
+              void transact(refund(address, claimId, difficulty)).then(() => setMessage(`${difficulty} unused shares refunded on Sui.`),
                 (error) => setMessage(String(error))).finally(() => setBusy(false));
-            }}>Refund unused share</button>}
+            }}>Refund {difficulty} unused share</button>}
           </> : !configured ? <p role="status">No challenge yet.</p> : !claimState.isError && <p role="status">Loading claim…</p>}
         </section>
       ) : screen === "setup" ? (
         beatmapSet && beatmap ? <>
-          {setupPaid && <section className="arena-entry" aria-label="Shared paid plays">
-            <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>
+          {setupPaid && <section className="arena-entry" aria-label={`${difficulty} paid plays`}>
+            <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>{difficulty} plays left</span></div>
             {selectedChart.isPending && <p role="status">Checking loaded chart against Sui before payment…</p>}
             {selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart hash check failed."}</p>}
           </section>}
           {setupPaid && !canStart ? <section className="arena-panel" aria-label="Paid entry status">
             <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
-            {remaining === 0n && <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 shared plays for 1 {tokenLabel}</button>}
+            {remaining === 0n && <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 {difficulty} plays for 1 {tokenLabel}</button>}
             {!safeTime && <p role="alert">Not enough time remains for this Forest chart and the configured proof reserve before the six-hour score cutoff.</p>}
             {!deviceCapacityReady && <p role="alert">Controller capacity too low for {difficulty}: {2 * forestNoteCounts[difficulty]} events required.</p>}
           </section> : <QuickSetup beatmap={beatmap} beatmapSet={beatmapSet} paid={setupPaid} busy={busy}
@@ -378,10 +383,9 @@ export default function DailyCompetition() {
               <p className="arena-intro">A hardware-verified rhythm game on-chain.</p>
               <HomeKeysGuide />
             </div>
-            <aside className="arena-pot" aria-label="Shared prize pot"><div className="arena-pot-content">
-              <p className="arena-pot-title">Shared pot</p>
-              <div className="arena-pot-value">{competition ? (Number(competition.pot) / 1_000_000).toFixed(2) : "—"}<span>{tokenLabel}</span></div>
-              <div className="arena-pot-slices"><span>Easy <strong>30%</strong></span><span>Hard <strong>70%</strong></span></div>
+            <aside className="arena-pot" aria-label="Separate prize pools"><div className="arena-pot-content">
+              <p className="arena-pot-title">Prize pools · {tokenLabel}</p>
+              <div className="arena-pot-slices"><span>Easy <strong>{competition ? (Number(competition.pots.Easy) / 1_000_000).toFixed(2) : "—"}</strong></span><span>Hard <strong>{competition ? (Number(competition.pots.Hard) / 1_000_000).toFixed(2) : "—"}</strong></span></div>
               <button className="arena-claim-link" onClick={() => setScreen("claim")}>Claims</button>
             </div></aside>
           </section>
@@ -398,8 +402,8 @@ export default function DailyCompetition() {
                 }}><strong>{next}</strong><span>{forestNoteCounts[next]} notes</span></button>)}
               </div>
             </fieldset>
-            <p className="arena-entry-price">1 {tokenLabel} buys 3 shared plays.</p>
-            {account && competition && <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>plays left</span></div>}
+            <p className="arena-entry-price">1 {tokenLabel} buys 3 {difficulty} plays.</p>
+            {account && competition && <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>{difficulty} plays left</span></div>}
             {(paidAttempt || activeBeatmapId !== null) && <p className="arena-fine-print">Finish or leave this run before changing difficulty.</p>}
             {!configured && <p className="arena-availability" role="status">Challenge not live.</p>}
             {competition && now < competition.startedAtMs && <p role="status">Starts {new Date(competition.startedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC</p>}
@@ -426,7 +430,7 @@ export default function DailyCompetition() {
                     ) : (
                       <button className="arena-primary" disabled={!safeTime || !deviceCapacityReady || !chartMatches || !scorer.data || busy} onClick={() => void prepareSetup(true)}>Set up paid run · 3 plays for 1 {tokenLabel}</button>
                     )}
-                    <p className="arena-fine-print">Starting spends 1 shared play. The configured proof reserve is held back before the six-hour cutoff.</p>
+                    <p className="arena-fine-print">Starting spends 1 {difficulty} play. The configured proof reserve is held back before the six-hour cutoff.</p>
                   </>
                 )}
               </div>
