@@ -14,7 +14,7 @@ from sepolia_e2e import ROOT, config, number, words, write
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('run_directory',type=Path)
-    p.add_argument('--env-file',default=str(ROOT.parent/'sp1-scoring/.env'))
+    p.add_argument('--env-file',default=str(ROOT/'.env'))
     p.add_argument('--out',type=Path,required=True)
     args=p.parse_args()
     run=json.loads((args.run_directory/'run.json').read_text())

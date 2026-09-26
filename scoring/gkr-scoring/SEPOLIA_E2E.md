@@ -9,7 +9,7 @@
 - 결과 `run.json`: 모든 거래 receipt, 단계별 시간, gas/fee, 세션 ID, proof 크기, reference 결과와 on-chain 결과.
 - 각 run directory: 확정 header, 원본 play, device result, signature, proof, 제출 calldata.
 
-SP1 guest/prover/server는 사용하지 않는다. 기존 SP1 폴더의 `.env`와 테스트 장치 metadata는 같은 Sepolia 지갑/RPC 설정을 읽기 위해 기본 경로로 사용한다. 각 경로는 CLI로 바꿀 수 있다. 엔진의 기존 공통 scoring-core path dependency는 그대로다.
+The shared Rust scoring crate is `../core`; SP1 source and runtime dependencies have been removed. Local defaults are `.env`, `artifacts/software-device.json`, and `artifacts/private-signing/deployer.password` under `gkr-scoring`. Override these paths with CLI flags as needed.
 
 ## 준비와 실행
 
@@ -23,13 +23,7 @@ target/release/examples/fpga_e2e prepare \
   --out artifacts/fpga-e2e-prepared
 ```
 
-기본 organizer는 `~/.foundry/keystores/sepolia-deployer`다. 비밀번호는 command argument나 로그에 넣지 않고 mode-0600 password file로 전달한다. 기존 로컬 helper로 준비할 수 있다:
-
-```sh
-cd ../sp1-scoring
-python3 scripts/unlock_demo_signer.py
-cd ../gkr-scoring
-```
+Organizer signing uses `~/.foundry/keystores/sepolia-deployer` and a separately prepared mode-0600 password file. Pass `--account` and `--password-file` for your existing signer configuration; the removed SP1 signer helper is not required. Never put passwords in command arguments or logs.
 
 실제 Sepolia 실행 — 아래 명령은 deploy/register/open/submit transaction을 **전송**한다:
 

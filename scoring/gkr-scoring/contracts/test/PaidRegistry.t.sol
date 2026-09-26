@@ -27,7 +27,7 @@ contract PaidRegistryTest is GkrScoreTest {
         registry.setDevice(device, BITSTREAM, true);
     }
     function _signed(bytes32 id) internal returns (ManiaGkrRegistry.Submission memory sub, uint256[] memory proof, bytes memory sig) {
-        uint256[] memory out = _proveSession(id,"../../sp1-scoring/fixtures/demo.json","a");
+        uint256[] memory out = _proveSession(id,"../../fixtures/demo.json","a");
         (sub,proof) = _submission(out);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(DEVICE_KEY,bytes32(out[11]));
         sig = abi.encodePacked(r,s,v);

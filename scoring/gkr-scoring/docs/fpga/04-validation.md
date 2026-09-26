@@ -50,7 +50,7 @@ Python oracle는 별도로 구현한 affine BN254 덧셈/배가/정수 scalar mu
 
 ## 3. 재생성 및 운영 ROM export
 
-GKR root에서 실행한다. Rust workspace는 현재 sibling `sp1-scoring/core`에 의존한다.
+GKR root에서 실행한다. Rust workspace는 sibling `scoring/core`에 의존한다. 아래 SP1 로그는 제거 전의 역사적 검증 기록이다.
 
 ```sh
 cargo run --release --locked --example fpga_vectors -- --out docs/fpga/vectors

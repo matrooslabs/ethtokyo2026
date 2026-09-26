@@ -2,9 +2,11 @@
 
 FPGA 입력 장치·모드 B commitment 구현은 [FPGA handoff 자료](docs/fpga/README.md)를 참고하세요. 바이트 규격, SRS ROM, 장치/sidecar 경계, 검증 벡터와 인수 기준을 포함합니다.
 
-`../sp1-scoring`과 **동일한 채점 함수**(`OSUMANIA_ONCHAIN_RULESET_V1` = `core::evaluate`)를
+`../core`의 **공통 채점 함수**(`OSUMANIA_ONCHAIN_RULESET_V1` = `core::evaluate`)를
 SP1 zkVM 대신 **채점 전용 sumcheck/GKR 증명 시스템**으로 증명하고, Solidity에서 직접 검증하는
 프로토타입입니다. SP1의 느린 proof 생성을 줄이는 것이 목표였습니다.
+
+The SP1 implementation has been removed. SP1 timing/size comparisons below are historical measurements, not an active build or runtime dependency. Shared semantics and fixtures now live in `../core` and `../fixtures`.
 
 | 노트 / 이벤트 | **GKR prove (EVM 제출 가능)** | SP1 core prove (EVM 불가) | SP1 Groth16 (EVM 제출 가능) |
 |---|---:|---:|---:|
@@ -105,7 +107,7 @@ cargo build --release
 (cd contracts && forge test -vv)                                             # 온체인 검증, 변조, FFI end-to-end, gas
 ./target/release/mania-gkr bench --srs artifacts/dev-srs-22.bin --cases 500,1500,3000,3000ln,10000 --reps 5 \
     --out artifacts/benchmark/summary.json
-./target/release/mania-gkr prove --srs artifacts/dev-srs-22.bin --input ../sp1-scoring/fixtures/demo.json --mode a
+./target/release/mania-gkr prove --srs artifacts/dev-srs-22.bin --input ../fixtures/demo.json --mode a
 ```
 
 `prove-session`은 컨트랙트가 발급한 세션 header(`abi.encode(Header)`)로 proof를 만듭니다.

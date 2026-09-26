@@ -24,4 +24,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
 anyhow = "1"
-mania-scoring-core = { path = "../../sp1-scoring/core" }
+mania-scoring-core = { path = "../../core" }
