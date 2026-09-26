@@ -8,7 +8,7 @@ const exec=promisify(execFile);
 export const headerFields=[['chainId','uint64'],['verifier','address'],['matchId','bytes32'],['sessionId','bytes32'],['challenge','bytes32'],['player','address'],['device','address'],['chartHash','bytes32'],['rulesetId','bytes32'],['bitstreamHash','bytes32'],['inputPolicyHash','bytes32']];
 export const headerABI=h=>encodeAbiParameters(headerFields.map(([,type])=>({type})),headerFields.map(([name])=>h[name]));
 export function rustHeader(h){return Object.fromEntries(headerFields.map(([name,type])=>[name.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),type==='uint64'?Number(h[name]):[...Buffer.from(h[name].slice(2),'hex')]]));}
-export function eventBytes(events){return concat(events.map(e=>encodePacked(['uint32','uint64','uint8','uint8'],[e.sequence,BigInt(e.timestamp_us),e.lane,e.action])));}
+export function eventBytes(events){return events.length ? concat(events.map(e=>encodePacked(['uint32','uint64','uint8','uint8'],[e.sequence,BigInt(e.timestamp_us),e.lane,e.action]))) : '0x';}
 export function traceRoot(id,events){let root=sha256(concat([toHex('OSUMANIA_TRACE_V1'),id]));for(let i=0;i<events.length;i+=32){const chunk=events.slice(i,i+32);root=sha256(concat([root,encodePacked(['uint32','uint16'],[i/32,chunk.length]),eventBytes(chunk)]));}return root;}
 export function sessionDigest(h,n,duration,root){return sha256(concat([toHex('OSUMANIA_HARDWARE_SESSION_V1'),toHex(1,{size:2}),encodePacked(headerFields.map(([,t])=>t),headerFields.map(([n,t])=>t==='uint64'?BigInt(h[n]):h[n])),encodePacked(['uint32','uint64','bytes32'],[n,BigInt(duration),root])]));}
 export async function prove({binary,srs,input,header,sealed=false,signal}){

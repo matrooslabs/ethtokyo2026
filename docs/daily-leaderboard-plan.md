@@ -66,7 +66,7 @@ Depends on PRs 3 and 4.
 | --- | --- | --- | --- |
 | 1 | Complete | Contract and boundary tests pass | [#2](https://github.com/matrooslabs/ethtokyo2026/pull/2) |
 | 2 | Complete | Real GKR proof integration; 36 Foundry test executions pass | [#3](https://github.com/matrooslabs/ethtokyo2026/pull/3) |
-| 3 | Complete; publication pending | Anvil full settlement; Sepolia paid proof/tie pass; live midnight settlement pending | Pending |
+| 3 | Complete | Anvil full settlement; Sepolia paid proof/tie pass; live midnight settlement pending | [#6](https://github.com/matrooslabs/ethtokyo2026/pull/6) |
 | 4 | Complete | 14 tests pass; Sepolia reconciliation: 6 reads, no mismatches | [#4](https://github.com/matrooslabs/ethtokyo2026/pull/4) |
 | 5 | Implemented; browser verification in progress | Unit/type/build checks and browser flow being completed | Pending |
 
