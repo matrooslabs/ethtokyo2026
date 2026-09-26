@@ -14,7 +14,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-BIN = ROOT / "target/release/examples/fpga_e2e"
+BIN = ROOT.parent / "target/release/examples/fpga_e2e"
 HEADER_FIELDS = ["chain_id", "verifier", "match_id", "session_id", "challenge",
                  "player", "device", "chart_hash", "ruleset_id", "bitstream_hash", "input_policy_hash"]
 
@@ -160,8 +160,8 @@ class Runner:
         device_addr=self.run(["cast","wallet","address","--keystore",self.device["keystorePath"],"--password-file",self.device["passwordFile"]])
         assert device_addr.lower()==self.device["device"].lower()
         self.result["versions"]={cmd:self.run([cmd,"--version"]) for cmd in ["forge","cast","rustc"]}
-        self.result["sourceSha256"]={str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in [ROOT/"engine/examples/fpga_e2e.rs",Path(__file__).resolve(),*sorted((ROOT/"contracts/src").glob("*.sol"))]}
+        self.result["sourceSha256"]={str(path.relative_to(ROOT.parent)):hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in [ROOT.parent/"crates/gkr-evm/examples/fpga_e2e.rs",Path(__file__).resolve(),*sorted((ROOT/"contracts/src").glob("*.sol"))]}
         self.result["srsFileSha256"]=hashlib.sha256(Path(self.args.srs).read_bytes()).hexdigest()
         self.save()
         prepared=Path(self.args.prepared).resolve(); vk=load(prepared/"vk.json")

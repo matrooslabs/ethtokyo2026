@@ -34,7 +34,7 @@ for(const start of starts.values()){const job=jobs.get(start.jobId);if(job&&!job
 saveJobs();
 async function reconcileJob(job){if(!job.transactionHash)return;const receipt=await pc.getTransactionReceipt({hash:job.transactionHash}).catch(()=>null);if(!receipt){job.status='submitting';return;}if(await pc.getBlockNumber()<receipt.blockNumber+BigInt((cfg.confirmations||1)-1)){job.status='submitting';return;}if(receipt.status==='reverted'){job.status='failed';job.message='Proof transaction reverted';}else if((await readContract(board,boardABI,'entries',[job.sessionId]))[4]){job.status='confirmed';delete job.message;}else{job.status='failed';job.message='Transaction did not record the paid score';}saveJobs();}
 
-const binary=repoPath(cfg.proverBinary||'scoring/gkr-scoring/target/release/mania-gkr'),srs=repoPath(cfg.srsFile||'scoring/gkr-scoring/artifacts/dev-srs-22.bin');
+const binary=repoPath(cfg.proverBinary||'scoring/target/release/mania-gkr'),srs=repoPath(cfg.srsFile||'scoring/gkr-scoring/artifacts/dev-srs-22.bin');
 const readContract=(address,abi,functionName,args)=>pc.readContract({address,abi,functionName,args});
 const eq=(a,b)=>String(a).toLowerCase()===String(b).toLowerCase();
 async function adapter(route,body){if(!cfg.hardwareUrl)throw Error('Hardware capture adapter not configured');const r=await fetch(new URL(route,cfg.hardwareUrl),{method:body?'POST':'GET',headers:{'content-type':'application/json',...(cfg.hardwareToken?{authorization:`Bearer ${cfg.hardwareToken}`}:{})},body:body?JSON.stringify(body,(_,v)=>typeof v==='bigint'?v.toString():v):undefined,signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error(`Hardware adapter rejected request (${r.status})`);return r.json();}

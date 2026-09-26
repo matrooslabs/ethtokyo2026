@@ -11,10 +11,10 @@
 ## 2. 실제 실행 경로
 
 ```text
-공통 V1 데이터·채점 의미: scoring/core
+공통 V1 데이터·채점 의미: scoring/crates/scoring-core
                          │ path dependency
                          ▼
-gkr-scoring/engine/scoring/witness ──► relation + layout
+scoring/crates/gkr-evm/scoring/witness ──► relation + layout
                 │                           │
                 └──────────► prover ◄───────┘
                                 │
@@ -46,29 +46,29 @@ sp1 host/program/server = SP1 실행 경로, GKR proof 경로가 아님
 
 | 파일 | 핵심 역할과 읽어야 할 연결 |
 |---|---|
-| `Cargo.toml`, `engine/Cargo.toml`, `Cargo.lock` | engine 단일 workspace, 별도 `gkr` 제외, halo2curves/Rayon/hash 의존성과 공통 core path dependency |
-| `engine/src/lib.rs` | 모듈 공개 경계 |
-| `engine/src/field.rs` | BN254 Fr/Fq/G1/G2 타입, canonical BE 변환, identity encoding, MSM, EVM G2 좌표 순서 |
-| `engine/src/transcript.rs` | Keccak256 state, word batch absorb, squeeze→Fr reduction; SHA 장치 protocol과 별개 |
-| `engine/src/mle.rs` | LSB-first dense MLE, fold, eq table/eval, zero padding의 평가 인자, ceil log2 |
-| `engine/src/poly.rs` | 작은 차수 다항식의 evaluation/interpolation; sumcheck에서 g(1)을 생략/복원 |
-| `engine/src/logup_gkr.rs` | 분수 합 트리의 prover/verifier, degree-3 sumcheck, layer 수/round 수/최종 claim 검사 |
-| `engine/src/zeromorph.rs` | SRS 생성/import/raw save/load/VK ID, univariate KZG commitment, multilinear opening 변환, quotient 및 degree 검증 |
-| `engine/src/scoring/mod.rs` | mode/statement/proof/chart record, transcript statement 순서, 정수 점수 계산 |
-| `engine/src/scoring/api.rs` | 편의 prove/verify/statement, software device_trace_commitment; capture 인증 계층은 아님 |
-| `engine/src/scoring/session.rs` | V2 policy/digest, canonical chart bytes, chart commitment 등록 proof 생성/검증 |
-| `engine/src/scoring/witness.rs` | 채보/입력 검사, lane timeline 실행, chart/trace/byte table 작성, logUp multiplicity, reference 차등 비교 |
-| `engine/src/scoring/relation.rs` | 각 table의 컬럼 index, transition·boolean·range·judgement 제약, lookup fingerprint와 slot, 판정 카운트 다항식 |
-| `engine/src/scoring/layout.rs` | table shape로 leaf slot·advice block 배치 결정, claim 컬럼 순서, opening 변수 수 |
-| `engine/src/scoring/prover.rs` | advice commitment→logUp-GKR→row sumcheck→claim reduction→batched Zeromorph; CPU 단계별 timing |
-| `engine/src/scoring/verifier.rs` | public bound/shape/round/claim 검사, A의 trace 직접 평가 또는 B opening 검증, MISS·점수 반환 |
-| `engine/src/scoring/encode.rs` | `uint256[]` proof word 순서와 strict decode; laneBits/counts는 별도 ABI |
-| `engine/src/testutil.rs` | 합성 benchmark input, 경계/hold case, reference header/footer 생성 |
-| `engine/src/forge.rs` | chart/VK/proof fixture export, Foundry ABI header 파싱, 세션 header로 합성 trace를 재바인딩 |
-| `engine/src/bin/mania-gkr.rs` | `srs`, `bench`, `prove`, `export-forge`, `prove-session`; HTTP/실장치 capture server는 없음 |
-| `engine/examples/gkr_scaling.rs` | fractional GKR standalone scaling 측정, 전체 input device 비용과 별개 |
-| `engine/tests/end_to_end.rs` | 양 모드 정직 proof, randomized reference 차등, 변조/악성 witness/직렬화 거부 |
-| **신규** `engine/examples/fpga_vectors.rs` | device encoding/SHA/KZG/digest vectors 및 canonical G1 ROM exporter |
+| `../Cargo.toml`, `../crates/gkr-evm/Cargo.toml`, `../Cargo.lock` | Shared scoring workspace: core, EVM/Sui engines and HTTP servers; upstream `gkr` excluded |
+| `../crates/gkr-evm/src/lib.rs` | 모듈 공개 경계 |
+| `../crates/gkr-evm/src/field.rs` | BN254 Fr/Fq/G1/G2 타입, canonical BE 변환, identity encoding, MSM, EVM G2 좌표 순서 |
+| `../crates/gkr-evm/src/transcript.rs` | Keccak256 state, word batch absorb, squeeze→Fr reduction; SHA 장치 protocol과 별개 |
+| `../crates/gkr-evm/src/mle.rs` | LSB-first dense MLE, fold, eq table/eval, zero padding의 평가 인자, ceil log2 |
+| `../crates/gkr-evm/src/poly.rs` | 작은 차수 다항식의 evaluation/interpolation; sumcheck에서 g(1)을 생략/복원 |
+| `../crates/gkr-evm/src/logup_gkr.rs` | 분수 합 트리의 prover/verifier, degree-3 sumcheck, layer 수/round 수/최종 claim 검사 |
+| `../crates/gkr-evm/src/zeromorph.rs` | SRS 생성/import/raw save/load/VK ID, univariate KZG commitment, multilinear opening 변환, quotient 및 degree 검증 |
+| `../crates/gkr-evm/src/scoring/mod.rs` | mode/statement/proof/chart record, transcript statement 순서, 정수 점수 계산 |
+| `../crates/gkr-evm/src/scoring/api.rs` | 편의 prove/verify/statement, software device_trace_commitment; capture 인증 계층은 아님 |
+| `../crates/gkr-evm/src/scoring/session.rs` | V2 policy/digest, canonical chart bytes, chart commitment 등록 proof 생성/검증 |
+| `../crates/gkr-evm/src/scoring/witness.rs` | 채보/입력 검사, lane timeline 실행, chart/trace/byte table 작성, logUp multiplicity, reference 차등 비교 |
+| `../crates/gkr-evm/src/scoring/relation.rs` | 각 table의 컬럼 index, transition·boolean·range·judgement 제약, lookup fingerprint와 slot, 판정 카운트 다항식 |
+| `../crates/gkr-evm/src/scoring/layout.rs` | table shape로 leaf slot·advice block 배치 결정, claim 컬럼 순서, opening 변수 수 |
+| `../crates/gkr-evm/src/scoring/prover.rs` | advice commitment→logUp-GKR→row sumcheck→claim reduction→batched Zeromorph; CPU 단계별 timing |
+| `../crates/gkr-evm/src/scoring/verifier.rs` | public bound/shape/round/claim 검사, A의 trace 직접 평가 또는 B opening 검증, MISS·점수 반환 |
+| `../crates/gkr-evm/src/scoring/encode.rs` | `uint256[]` proof word 순서와 strict decode; laneBits/counts는 별도 ABI |
+| `../crates/gkr-evm/src/testutil.rs` | 합성 benchmark input, 경계/hold case, reference header/footer 생성 |
+| `../crates/gkr-evm/src/forge.rs` | chart/VK/proof fixture export, Foundry ABI header 파싱, 세션 header로 합성 trace를 재바인딩 |
+| `../crates/gkr-evm/src/bin/mania-gkr.rs` | `srs`, `bench`, `prove`, `export-forge`, `prove-session`; HTTP/실장치 capture server는 없음 |
+| `../crates/gkr-evm/examples/gkr_scaling.rs` | fractional GKR standalone scaling 측정, 전체 input device 비용과 별개 |
+| `../crates/gkr-evm/tests/end_to_end.rs` | 양 모드 정직 proof, randomized reference 차등, 변조/악성 witness/직렬화 거부 |
+| **신규** `../crates/gkr-evm/examples/fpga_vectors.rs` | device encoding/SHA/KZG/digest vectors 및 canonical G1 ROM exporter |
 
 `src/bin/mania-gkr.rs`는 broad `bin/` ignore 패턴 때문에 기본 file listing에서 빠질 수 있다. 검토 inventory는 ignored 파일을 포함해 확인했다.
 
@@ -106,7 +106,7 @@ sp1 host/program/server = SP1 실행 경로, GKR proof 경로가 아님
 | `scripts/sepolia.sh`, `receipt_value.py`, `test_sepolia_tools.py`, `unlock_demo_signer.py` | 개발용 chain orchestration, receipt parsing, helper 테스트, demo signer 운용 |
 | `fixtures/`, `SPEC.md`, `README.md`, `SEPOLIA.md`, `DEMO_READINESS.md`, `server/README.md` | V1 known-answer data, 공개 필드/입력 신뢰 경계, 기존 demo의 준비 상태 |
 
-공통 core는 `scoring/core`로 옮겨졌다. SP1 host/guest/server는 제거되었고 아래 원본 SP1 설명과 source manifest는 이전 handoff의 역사적 기록이다.
+공통 core는 `scoring/crates/scoring-core`로 옮겨졌다. SP1 host/guest/server는 제거되었고 아래 원본 SP1 설명과 source manifest는 이전 handoff의 역사적 기록이다.
 
 ## 5. 별도 upstream fork에서 읽은 내용
 

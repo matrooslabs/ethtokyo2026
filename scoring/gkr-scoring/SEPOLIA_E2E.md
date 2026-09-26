@@ -4,12 +4,12 @@
 
 ## 구성
 
-- [engine/examples/fpga_e2e.rs](engine/examples/fpga_e2e.rs): fixture/chart/VK 준비, 단일 edge stream의 SHA·순차 KZG 누적, 원본 sealed result를 유지하는 mode B prover adapter.
+- [../crates/gkr-evm/examples/fpga_e2e.rs](../crates/gkr-evm/examples/fpga_e2e.rs): fixture/chart/VK 준비, 단일 edge stream의 SHA·순차 KZG 누적, 원본 sealed result를 유지하는 mode B prover adapter.
 - [scripts/sepolia_e2e.py](scripts/sepolia_e2e.py): contract 배포, 장치·채보 등록, mined session 조회, capture/sign/prove, 제출 전 eth_call/estimateGas, 실제 전송, 컨펌·이벤트·저장 상태·변조 거부 검사.
 - 결과 `run.json`: 모든 거래 receipt, 단계별 시간, gas/fee, 세션 ID, proof 크기, reference 결과와 on-chain 결과.
 - 각 run directory: 확정 header, 원본 play, device result, signature, proof, 제출 calldata.
 
-The shared Rust scoring crate is `../core`; SP1 source and runtime dependencies have been removed. Local defaults are `.env`, `artifacts/software-device.json`, and `artifacts/private-signing/deployer.password` under `gkr-scoring`. Override these paths with CLI flags as needed.
+The shared Rust scoring crate is `../crates/scoring-core`; SP1 source and runtime dependencies have been removed. Local defaults are `.env`, `artifacts/software-device.json`, and `artifacts/private-signing/deployer.password` under `gkr-scoring`. Override these paths with CLI flags as needed.
 
 ## 준비와 실행
 
@@ -18,7 +18,7 @@ The shared Rust scoring crate is `../core`; SP1 source and runtime dependencies 
 ```sh
 cargo build --release --locked --example fpga_e2e
 forge build --root contracts
-target/release/examples/fpga_e2e prepare \
+../target/release/examples/fpga_e2e prepare \
   --srs artifacts/dev-srs-22.bin --cases 4,500,1500,3000 \
   --out artifacts/fpga-e2e-prepared
 ```

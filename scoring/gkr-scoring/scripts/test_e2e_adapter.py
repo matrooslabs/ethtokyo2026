@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-BIN=ROOT/'target/release/examples/fpga_e2e'
+BIN=ROOT.parent/'target/release/examples/fpga_e2e'
 SRS=ROOT/'artifacts/dev-srs-22.bin'
 TEMPLATE=ROOT/'artifacts/fpga-e2e-prepared/4/template.json'
 

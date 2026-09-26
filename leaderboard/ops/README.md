@@ -1,6 +1,6 @@
 # Daily leaderboard operations
 
-These commands run from the repository root. Install dependencies with `npm ci --prefix leaderboard/ops` and `npm ci --prefix leaderboard/bridge`. Build contracts with `forge build --root scoring/gkr-scoring/contracts`. Build the prover with `cargo build --release --manifest-path scoring/gkr-scoring/engine/Cargo.toml`.
+These commands run from the repository root. Install dependencies with `npm ci --prefix leaderboard/ops` and `npm ci --prefix leaderboard/bridge`. Build contracts with `forge build --root scoring/gkr-scoring/contracts`. Build the prover with `cargo build --release --manifest-path scoring/crates/gkr-evm/Cargo.toml`.
 
 ## Deployment
 
@@ -32,8 +32,8 @@ Before the first deployment, generate local **known-tau, insecure demo-only** SR
 
 ```sh
 mkdir -p scoring/gkr-scoring/artifacts/forge
-scoring/gkr-scoring/target/release/mania-gkr srs --smax 22 --seed 1 --out scoring/gkr-scoring/artifacts/dev-srs-22.bin
-scoring/gkr-scoring/target/release/mania-gkr export-forge --srs scoring/gkr-scoring/artifacts/dev-srs-22.bin --out scoring/gkr-scoring/artifacts/forge
+scoring/target/release/mania-gkr srs --smax 22 --seed 1 --out scoring/gkr-scoring/artifacts/dev-srs-22.bin
+scoring/target/release/mania-gkr export-forge --srs scoring/gkr-scoring/artifacts/dev-srs-22.bin --out scoring/gkr-scoring/artifacts/forge
 ```
 
 Use this exact SRS and its exported `vk.json` together. Existing deployments bind the SRS identity immutably; do not replace their SRS/VK with unrelated files. These files are generated and ignored, so fresh checkouts need this step. Generating this development SRS does not provide production proof soundness.

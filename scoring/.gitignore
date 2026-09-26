@@ -1,0 +1,5 @@
+/target/
+
+# Rust CLI entry points are source files.
+!/crates/*/src/bin/
+!/crates/*/src/bin/*.rs

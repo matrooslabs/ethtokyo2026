@@ -1,25 +1,24 @@
-# GKR (Sui) prove server
+# GKR prove server
 
-PlayInput을 JSON으로 보내면 BLS12-381 GKR/sumcheck proof(Sui Move verifier용)를 JSON으로 돌려주는
-**단일 binary** HTTP 서버입니다.
+PlayInput을 JSON으로 보내면 GKR/sumcheck proof를 JSON으로 돌려주는 **단일 binary** HTTP 서버입니다.
 
 ## 빌드와 실행
 
-`gkr-scoring-sui/` 기준.
+`scoring/gkr-scoring/` 기준 (Rust workspace: `scoring/Cargo.toml`).
 
 ```sh
-cargo build --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server
-./target/release/mania-gkr-sui srs --smax 24 --out artifacts/dev-srs-24.bin   # INSECURE 개발용 SRS
-./target/release/mania-gkr-sui-prove-server                                    # 127.0.0.1:8092
+cargo build --release --locked -p mania-gkr -p mania-gkr-prove-server
+../target/release/mania-gkr srs --smax 22 --out artifacts/dev-srs-22.bin   # INSECURE 개발용 SRS
+../target/release/mania-gkr-prove-server                                    # 127.0.0.1:8091
 ```
 
 | 옵션 | 기본값 |
 |---|---|
-| `--bind` | `127.0.0.1:8092` |
-| `--srs` | `artifacts/dev-srs-24.bin` |
+| `--bind` | `127.0.0.1:8091` |
+| `--srs` | `artifacts/dev-srs-22.bin` |
 
-개발용 SRS는 τ가 알려져 있어 proof를 위조할 수 있습니다. 운영에는 공개 BLS12-381 powers-of-tau로 만든 SRS가
-필요합니다([README](../README.md)). SRS의 `smax`보다 큰 채보는 `500`으로 실패합니다.
+개발용 SRS는 τ가 알려져 있어 proof를 위조할 수 있습니다. 운영에서는 `mania-gkr srs --ptau ... --smax 22`로 만든
+ceremony SRS를 사용하세요([README](../../gkr-scoring/README.md)). SRS의 `smax`보다 큰 채보는 `500`으로 실패합니다.
 
 ## API
 
@@ -34,7 +33,7 @@ cargo build --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server
 
 ```sh
 python3 -c "import json;print(json.dumps({'mode':'committed','input':json.load(open('../fixtures/perfect.json'))}))" > /tmp/request.json
-curl -s -X POST http://127.0.0.1:8092/v1/prove -H 'Content-Type: application/json' \
+curl -s -X POST http://127.0.0.1:8091/v1/prove -H 'Content-Type: application/json' \
   --data-binary @/tmp/request.json > proof.json
 ```
 
@@ -58,30 +57,30 @@ curl -s -X POST http://127.0.0.1:8092/v1/prove -H 'Content-Type: application/jso
   설정해야 하며, 그러면 `/healthz`를 제외한 요청에 `Authorization: Bearer <token>`이 필요합니다.
   외부 공개 시에는 HTTPS reverse proxy 뒤에서 실행하세요.
 - **범위 밖.** CORS, 작업 큐, 결과 보관은 하지 않습니다.
-- **코드 구성.** HTTP 계층 `src/http.rs`는 `gkr-scoring`, `gkr-scoring-sui`의 prove-server에서 같은 파일이고,
+- **코드 구성.** HTTP 계층 `src/http.rs`는 `prove-server-evm`, `prove-server-sui`에서 같은 파일이고,
   `src/prover.rs`만 proof system별로 다릅니다.
 
-mode: `calldata`(모드 A), `committed`(모드 B).
+mode: `calldata`(모드 A, `submitCalldata`), `committed`(모드 B, `submitCommitted`).
 
 ## 응답
 
-`mania-gkr-sui prove` 출력과 같은 필드에 `srsId`를 더한 JSON입니다.
+`mania-gkr prove` 출력과 같은 필드에 `srsId`를 더한 JSON입니다.
 
 | 필드 | 내용 |
 |---|---|
 | `mode`, `srsId` | `Calldata`/`Committed`, SRS 검증 키 ID |
 | `result` | `score`, `achieved_points`, `maximum_points`, `judgements` |
-| `laneBits`, `counts`, `proof` | proof 공개값과 proof bytes (hex) |
-| `chartCommitment`, `traceCommitment`, `sessionDigest` | 채보·trace commitment(모드 B, 압축 G1), 서명 대상 digest |
+| `laneBits`, `counts`, `proof` | proof 공개값과 proof word 목록 (각 32-byte hex) |
+| `chartCommitment`, `traceCommitment`, `sessionDigest` | 채보·trace commitment(모드 B), 서명 대상 digest |
 | `timings` | 단계별 proving 시간 (ms) |
 
-온체인 세션에 맞춘 제출 데이터(header 재바인딩, event chunk, 장치 서명)는 기존 `mania-gkr-sui prove-session`이 만듭니다.
+모드 B에서는 trace commitment를 입력 이벤트로 계산합니다(소프트웨어 장치).
 
 ## 테스트와 검증 상태
 
 ```sh
-cargo test --release --locked -p mania-gkr-sui-prove-server
+cargo test --release --locked -p mania-gkr-prove-server
 ```
 
 - HTTP 계층 테스트 2개와 실제 proving 테스트 1개가 통과했습니다. proving 테스트는 개발용 SRS로 `demo.json`을 두 mode로 증명하고, 점수·판정이 native 결과와 같은지 확인합니다.
-- 2026-09-26 실제 binary로 `curl` 요청을 보내 확인했습니다: `perfect.json`, `calldata` → HTTP 200, 약 0.12초, 1,000,000점, proof 12,416 bytes.
+- 2026-09-26 실제 binary로 `curl` 요청을 보내 확인했습니다: `demo.json`, `committed` → HTTP 200, 약 0.1초, 987,500점.

@@ -1,0 +1,45 @@
+[workspace]
+members = [
+    "crates/scoring-core",
+    "crates/gkr-evm",
+    "crates/gkr-sui",
+    "crates/prove-server-evm",
+    "crates/prove-server-sui",
+]
+# Independent upstream research fork; not a dependency of the scoring engines.
+exclude = ["gkr-scoring/gkr/rust"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+mania-scoring-core = { path = "crates/scoring-core" }
+mania-gkr = { path = "crates/gkr-evm" }
+mania-gkr-sui = { path = "crates/gkr-sui" }
+anyhow = "1"
+axum = "0.8"
+bls12_381 = "0.8"
+clap = { version = "4", features = ["derive"] }
+halo2curves = { version = "0.10.0", features = ["std"] }
+hex = "0.4"
+http-body-util = "0.1"
+k256 = { version = "0.13", features = ["ecdsa"] }
+rand = "0.8"
+rand_chacha = "0.3"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tiny-keccak = { version = "2", features = ["keccak"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+
+[profile.test]
+opt-level = 3

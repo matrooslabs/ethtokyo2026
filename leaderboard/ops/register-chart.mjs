@@ -3,7 +3,7 @@ import {parseOsu} from '../bridge/chart.mjs';import {clients,root,repoPath,readJ
 const file=process.argv[2];if(!file)throw Error('Usage: node register-chart.mjs path/to/map.osu');
 const parsed=parseOsu(await fs.readFile(repoPath(file)));const dir=await fs.mkdtemp(path.join(os.tmpdir(),'register-chart-'));
 try{const input=readJSON(path.join(root,'scoring/fixtures/demo.json'));input.chart=parsed.chart;const tmp=path.join(dir,'play.json');await fs.writeFile(tmp,JSON.stringify(input));
-const {stdout}=await promisify(execFile)(repoPath(process.env.PROVER_BINARY||'scoring/gkr-scoring/target/release/mania-gkr'),['register-chart','--srs',repoPath(process.env.SRS_FILE||'scoring/gkr-scoring/artifacts/dev-srs-22.bin'),'--input',tmp],{timeout:600000,maxBuffer:32*1024*1024});const chart=JSON.parse(stdout);
+const {stdout}=await promisify(execFile)(repoPath(process.env.PROVER_BINARY||'scoring/target/release/mania-gkr'),['register-chart','--srs',repoPath(process.env.SRS_FILE||'scoring/gkr-scoring/artifacts/dev-srs-22.bin'),'--input',tmp],{timeout:600000,maxBuffer:32*1024*1024});const chart=JSON.parse(stdout);
 const {id,publicClient:pc,wallet,account}=clients();if(await pc.getChainId()!==id)throw Error('RPC chain mismatch');const manifest=readJSON(repoPath(process.env.DEPLOYMENT_FILE||`leaderboard/ops/deployments/${id}.manifest.json`));if(manifest.chainId!==id)throw Error('Manifest chain mismatch');
 const address=manifest.contracts.ManiaGkrRegistry,abi=manifest.abi.ManiaGkrRegistry;
 const current=await pc.readContract({address,abi,functionName:'getChart',args:[chart.chartHash]});

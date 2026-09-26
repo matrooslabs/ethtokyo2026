@@ -1,5 +1,7 @@
 # GKR/sumcheck osu!mania scoring proofs on Sui
 
+Rust crates are members of the shared [scoring workspace](../README.md). Run the commands below from `scoring/gkr-scoring-sui/`; Cargo discovers `scoring/Cargo.toml`, and binaries are written to `scoring/target/`.
+
 [`../gkr-scoring`](../gkr-scoring)의 채점 증명(`OSUMANIA_GKR_V1`)을 **Sui에서 온체인 검증**하는 포트입니다.
 채점 함수(`core::evaluate`), 관계식, 프로토콜 구조는 그대로입니다. Move 검증기가 증명 전체를 한 트랜잭션에서 검증합니다.
 
@@ -22,9 +24,9 @@
 
 ```sh
 cd gkr-scoring-sui
-cargo build --release && cargo test --release                 # Rust: 단위 18 + 통합 9
-./target/release/mania-gkr-sui srs --smax 24 --out artifacts/dev-srs-24.bin   # INSECURE 개발용, 약 25초, 1 GB
-./target/release/mania-gkr-sui export-move --srs artifacts/dev-srs-24.bin --out move   # [--heavy]
+cargo build --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server && cargo test --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server                 # Rust: 단위 18 + 통합 9
+../target/release/mania-gkr-sui srs --smax 24 --out artifacts/dev-srs-24.bin   # INSECURE 개발용, 약 25초, 1 GB
+../target/release/mania-gkr-sui export-move --srs artifacts/dev-srs-24.bin --out move   # [--heavy]
 (cd move && sui move test --statistics)                         # Move: 84개 (--heavy면 +2)
 
 # 로컬넷 end-to-end
@@ -97,7 +99,7 @@ node scripts/sui_e2e.mjs --network testnet --srs artifacts/dev-srs-24.bin --case
   - 변조 proof 35종이 모두 거부됐습니다: 각 구간 ±1, 다른 점, 잘림, 덧붙임, non-canonical scalar.
   - 레지스트리 테스트 14개: 리플레이, 서명 위조, trace·duration 변조, 카운트 부풀리기, 만료, 모드 혼동, 장치 폐기, 채보 중복·위조 commitment, 다른 registry의 cap, 채보 검증 재개, trace seq 위반, 실제 `open_session` header.
   - `--heavy`는 최악 케이스(10,000노트, 50,000 이벤트)를 포함하며, 제출 0.50M unit으로 통과했습니다.
-- **Rust (`cargo test --release`)**
+- **Rust (`cargo test --release --locked -p mania-gkr-sui -p mania-gkr-sui-prove-server`)**
   - 원본 테스트 전체를 BLS12-381로 통과했습니다: 차등 3,000개, 악성 witness, 변조, 인코딩.
   - G1·G2 인코딩이 Sui 상수와 zkcrypto `bls12_381` 레퍼런스와 일치합니다(y 부호 두 경우 모두).
 

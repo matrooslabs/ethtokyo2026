@@ -16,7 +16,7 @@ C_E = C[n]
 
 참조 구현: `witness.rs::trace_rowmajor` → `api.rs::device_trace_commitment` → `Srs::commit` → `Srs::commit_at` → `halo2curves::msm::msm_best`.
 
-software API는 vector 전체를 만드는 batch MSM이지만 위 streaming 합과 같다. 새 [fpga_vectors.rs](../../engine/examples/fpga_vectors.rs)는 streaming 누적 결과와 기존 dense MSM 결과가 같은지 assert한다.
+software API는 vector 전체를 만드는 batch MSM이지만 위 streaming 합과 같다. 새 [fpga_vectors.rs](../../../crates/gkr-evm/examples/fpga_vectors.rs)는 streaming 누적 결과와 기존 dense MSM 결과가 같은지 assert한다.
 
 여기서 commitment 대상 univariate 다항식은 `U_TRACE(X) = Σ_i TRACE[i]·X^i`다. 동일한 array를 이후 multilinear evaluation table로도 사용하지만 장치는 그 배열을 **monomial coefficient**로 SRS에 곱한다. Roots-of-unity evaluation, Lagrange-basis SRS 또는 FFT 변환을 끼워 넣으면 다른 commitment가 된다.
 

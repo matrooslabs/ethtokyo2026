@@ -1,8 +1,8 @@
 # ETH Tokyo 2026
 
 - [osu! application](Web-Osu-Mania/): game projects, assets, tests, and build configuration.
-- [scoring](scoring/): scoring and proof generation
-    - [Shared scoring core](scoring/core/) and [canonical scoring specification](scoring/SCORING_SPEC.md).
+- [scoring](scoring/README.md): scoring and proof generation
+    - [Shared scoring core](scoring/crates/scoring-core/) and [canonical scoring specification](scoring/SCORING_SPEC.md).
     - [GKR scoring](scoring/gkr-scoring/): scoring and proof generation using GKR. To see the specification, see [README](scoring/gkr-scoring/README.md)
     - [GKR scoring on Sui](scoring/gkr-scoring-sui/): the GKR proofs verified on-chain by a Sui Move verifier (BLS12-381). See [README](scoring/gkr-scoring-sui/README.md) and [SPEC-SUI](scoring/gkr-scoring-sui/SPEC-SUI.md)
 
