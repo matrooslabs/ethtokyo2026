@@ -20,7 +20,7 @@ export type BridgeHardware = {
   setHeader(headerHex: string): Promise<void>;
   startRecording(): Promise<void>;
   /** Returns raw signed result and original HID trace; never a browser replay. */
-  stopRecording(): Promise<{ resultHex: string; traceHex: string }>;
+  stopRecording(requiredDurationUs: bigint): Promise<{ resultHex: string; traceHex: string }>;
   abortRecording(): Promise<void>;
 };
 
@@ -105,17 +105,17 @@ export function useBridgeHardware(): BridgeHardware {
     await client.startRecording();
   }, []);
 
-  const stopRecording = useCallback(async () => {
+  const stopRecording = useCallback(async (requiredDurationUs: bigint) => {
     const client = clientRef.current;
     if (!client || controllerRef.current.signal.aborted) throw new Error('BridgeOS disconnected');
-    return client.stopRecording();
+    return client.stopRecording(requiredDurationUs);
   }, []);
 
   const abortRecording = useCallback(async () => {
     const client = clientRef.current;
     if (!client || controllerRef.current.signal.aborted) throw new Error('BridgeOS disconnected');
     await client.abortRecording();
-    void refresh();
+    await refresh();
   }, [refresh]);
 
   const select = useCallback(async (device: VendorDevice): Promise<boolean> => {

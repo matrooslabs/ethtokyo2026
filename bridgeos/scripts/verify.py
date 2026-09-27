@@ -243,7 +243,8 @@ if debug_profile:
         for forbidden in ('etc/init.d/S99bridge', 'etc/bridge-rt.conf',
                           'usr/bin/bridge-daemon', 'usr/bin/osumania-optee-test',
                           'lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta',
-                          'usr/share/osumania/srs-g1-be.bin'):
+                          'usr/share/osumania/srs-g1-be.bin',
+                          'usr/share/osumania/srs-g1-bls12381.bin'):
             require(forbidden not in members, 'no signing surface in read-only lab: ' + forbidden)
         require((root / 'etc/optee-runtime-mode').read_text().strip() == profile,
                 'explicit laboratory-only marker')
@@ -295,7 +296,7 @@ else:
             record_path = os.environ.get('OSUMANIA_PROVISIONING_RECORD')
             require(record_path and Path(record_path).is_file(), 'external reviewed provisioning record')
             record = json.loads(Path(record_path).read_text())
-            bank = root / 'usr/share/osumania/srs-g1-be.bin'
+            bank = root / 'usr/share/osumania/srs-g1-bls12381.bin'
             require(bank.is_file() and hashlib.sha256(bank.read_bytes()).hexdigest() == record['srs_sha256'].lower(),
                     'approved SRS bank in hardware rootfs')
             conf = (project / 'sources/optee-os/out/arm-plat-rockchip/conf.mk').read_text()
@@ -316,7 +317,7 @@ if profile == 'mvp-keyed':
     identity_data = json.loads(public_identity.read_text())
     require(len(identity_data['device_address']) == 42 and
             len(identity_data['build_marker']) == 66 and
-            identity_data['srs_sha256'] == locked['device_srs_ceremony']['device_bank_sha256'] and
+            identity_data['srs_sha256'] == os.environ.get('OSUMANIA_MVP_SRS_SHA256') and
             identity_data['hardware_root'] is False and
             identity_data['bitstream_attestation'] is False and
             identity_data['key_security'] == 'EXTRACTABLE_FROM_SD_IMAGE',
@@ -327,14 +328,15 @@ if profile == 'mvp-keyed':
             'dedicated keyed image excludes public 260-point dev SRS/backend')
     require('etc/osumania-provision.conf' not in members and
             not (root / 'etc/osumania-provision.conf').exists() and
-            'usr/bin/osumania-optee-test' not in members,
-            'MVP initramfs excludes development key provision and competing TA test client')
+            'usr/bin/osumania-optee-test' not in members and
+            'usr/share/osumania/srs-g1-be.bin' not in members,
+            'MVP initramfs excludes development key provision, old BN254 bank and competing TA test client')
     startup = dict(line.split('=', 1) for line in
                    (root / 'etc/bridge-rt.conf').read_text().splitlines() if '=' in line)
     require(startup.get('OSUMANIA_SIGNER_BACKEND') == 'optee' and
-            startup.get('OSUMANIA_SRS') == '/usr/share/osumania/srs-g1-be.bin' and
+            startup.get('OSUMANIA_SRS') == '/usr/share/osumania/srs-g1-bls12381.bin' and
             'BRIDGE_DIAG_LOG' not in startup,
-            'MVP uses OP-TEE signer and PSE bank without diagnostic logging')
+            'MVP uses OP-TEE signer and BLS bank without diagnostic logging')
     daemon = root / 'usr/bin/bridge-daemon'
     require(daemon.is_file() and
             b'DEV_INSECURE_KEY_BACKEND active' not in daemon.read_bytes() and
@@ -357,25 +359,23 @@ if profile == 'mvp-keyed':
     require('CFG_RK3568_DEV_INSECURE_HUK=n' in core_conf and
             'CFG_RK3568_HUK_OFFSET=0xffffffff' in core_conf,
             'keyed OP-TEE core does not enable public development HUK')
-    pin = locked['device_srs_ceremony']
-    bank_path = 'usr/share/osumania/srs-g1-be.bin'
+    bank_path = 'usr/share/osumania/srs-g1-bls12381.bin'
     record_path = 'usr/share/osumania/srs-manifest.json'
     bank = root / bank_path
     record = root / record_path
-    require(pin['device_point_count'] == 200000 and pin['device_point_count'] // 4 == 50000 and
-            bank_path in members and record_path in members and bank.is_file() and record.is_file() and
-            bank.stat().st_size == pin['device_point_count'] * 64 and
+    require(bank_path in members and record_path in members and bank.is_file() and record.is_file() and
+            bank.stat().st_size == 200000 * 48 and
             S_IMODE(bank.stat().st_mode) == 0o444 and S_IMODE(record.stat().st_mode) == 0o444,
-            'read-only external 200000-point bank gives GET_INFO maxEvents=50000')
+            'read-only local 200000-point BLS bank gives GET_INFO maxEvents=50000')
     with bank.open('rb') as stream:
         bank_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
-    require(bank_sha == pin['device_bank_sha256'] and
-            bank_sha != locked['development_srs']['sha256'],
-            'packaged bank matches only pinned PSE device ceremony')
+    require(bank_sha == identity_data['srs_sha256'] == os.environ.get('OSUMANIA_MVP_SRS_SHA256'),
+            'packaged BLS bank matches provisioning identity')
     public = json.loads(record.read_text())
-    require(public['pointCount'] == 200000 and public['bytesPerPoint'] == 64 and
+    require(public['pointCount'] == 200000 and public['bytesPerPoint'] == 48 and
+            public['curve'] == 'BLS12-381' and
             public['sha256'] == '0x' + bank_sha and
-            public['srsId'] == '0x' + pin['srs_id'] and public['maxEvents'] == 50000 and
+            public['srsId'] == identity_data['srs_id'] == os.environ.get('OSUMANIA_MVP_SRS_ID') and public['maxEvents'] == 50000 and
             public['keyExtractable'] is True and public['hardwareRoot'] is False and
             public['otpProvenance'] is False and public['romFuseEnforcementVerified'] is False and
             public['bitstreamAttestation'] is False,

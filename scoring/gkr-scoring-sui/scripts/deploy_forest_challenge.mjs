@@ -12,7 +12,7 @@
 // Development SRS/software signers NEVER imply mainnet eligibility or real hardware.
 import { execFileSync } from 'node:child_process';
 import { createHash, ECDH } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,16 @@ const CHAIN_ID = 0x5ec7n; // registry's SP1 V1 header domain; not Sui's chain id
 const PTB_ARG_BYTES = 15_000;
 const CHART_NOTES_PER_TX = 3_000;
 const GAS_BUDGET = 3_000_000_000n;
-const KNOWN_INSECURE_SRS_ID = '0xcd199354a4ea127f32c21fc6f56863a42af6df3133bef40702f8d9d0a1326a84';
+function requireModeBSrs(path) {
+  const fd = openSync(path, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    if (readSync(fd, header, 0, header.length, 0) !== header.length ||
+        header.toString('ascii', 0, 8) !== 'MGKRSRS1' || header.readUInt32LE(8) !== 22) {
+      throw new Error('Sui paid Mode B requires BLS12-381 SRS with smax=22');
+    }
+  } finally { closeSync(fd); }
+}
 const byteItems = bcs.vector(bcs.vector(bcs.u8()));
 const chartRegistered = bcs.struct('ChartRegistered', {
   chart_hash: bcs.vector(bcs.u8()), notes: bcs.u64(), components: bcs.u64(),
@@ -141,15 +150,16 @@ const client = new SuiGrpcClient({ network: 'testnet', baseUrl: rpc });
 let preparations;
 if (preparing) {
   const srs = resolve(required('--srs'));
+  requireModeBSrs(srs);
   const prepared = prepareForest(charts, srs, outDir);
   preparations = Object.fromEntries(['easy', 'hard'].map((key) => [key,
     JSON.parse(readFileSync(prepared.artifacts[key].registration, 'utf8'))]));
-  const srsSecurity = /(^|\/)dev-srs-24\.bin$/.test(srs) || prepared.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID
-    ? 'INSECURE DEVELOPMENT SRS: NOT MAINNET ELIGIBLE'
+  const srsSecurity = process.argv.includes('--local-srs') || /(^|\/)dev-srs-22\.bin$/.test(srs)
+    ? 'INSECURE LOCALLY GENERATED SRS: KNOWN TOXIC SECRET; DEMO ONLY'
     : 'OPERATOR-SUPPLIED SRS: setup provenance must be independently verified';
   manifest = {
     network: 'testnet', rpc, organizer: owner, challengeDurationMs: 21_600_000,
-    asset: USDC, srsId: prepared.srsId, srsSecurity,
+    asset: USDC, srsId: prepared.srsId, srsSmax: 22, scoringMode: 2, entryControl: true, srsSecurity,
     charts: publicManifest(charts), chartArtifacts: prepared.artifacts,
     transactions: [], phase: 'preparing',
   };
@@ -157,6 +167,7 @@ if (preparing) {
   if (!(resumingDevice || manifest.phase === (resuming ? 'preparing' : 'prepared')) || manifest.challengeId ||
       manifest.network !== 'testnet' || manifest.organizer !== owner || manifest.rpc !== rpc ||
       manifest.asset !== USDC || manifest.challengeDurationMs !== 21_600_000 ||
+      manifest.scoringMode !== 2 || manifest.entryControl !== true || manifest.srsSmax !== 22 ||
       !manifest.packageId || !manifest.registryId || !manifest.organizerCapId ||
       !manifest.srsId || !manifest.chartArtifacts || !manifest.packagePublishTx || !manifest.registryCreationTx) {
     throw new Error('Preparation manifest is incomplete, already activated, or belongs to another organizer/network');
@@ -179,6 +190,7 @@ if (preparing) {
 }
 if (resuming) {
   const srs = resolve(required('--srs'));
+  requireModeBSrs(srs);
   const temp = mkdtempSync(join(tmpdir(), 'forest-resume-'));
   try {
     const fresh = prepareForest(charts, srs, temp);
@@ -404,9 +416,9 @@ manifest.phase = 'prepared';
 checkpoint();
 console.log(JSON.stringify(manifest, null, 2));
 } else {
-const insecureSrs = manifest.srsId.toLowerCase() === KNOWN_INSECURE_SRS_ID || !manifest.srsSecurity || manifest.srsSecurity.startsWith('INSECURE DEVELOPMENT SRS');
+const insecureSrs = !manifest.srsSecurity || manifest.srsSecurity.startsWith('INSECURE');
 if (insecureSrs && !insecureDemo) {
-  throw new Error('Secure paid activation requires a reviewed ceremony Sui GKR SRS. This Registry uses dev-srs-24.bin with a known toxic secret; prepare a new Registry and both charts from an approved SRS. Use --insecure-demo only for an explicitly unsafe testnet demonstration.');
+  throw new Error('Locally generated Mode B SRS has a known toxic secret. Use --insecure-demo only for an explicitly unsafe testnet demonstration.');
 }
 const roundDate = new Date(startAtMs).toISOString().slice(0, 10);
 const devicePubkey = bytes(required('--device-pubkey'), 33, 'device pubkey');
@@ -435,9 +447,11 @@ if (!coinMetadata || coinMetadata.decimals !== 6 || coinMetadata.symbol !== 'USD
 }
 const { function: createAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'create' });
 const { function: buyAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'buy_plays' });
+const { function: entryAbi } = await client.getMoveFunction({ packageId: manifest.packageId, moduleName: 'competition', name: 'set_entry_open' });
 if (createAbi.parameters.length !== 11 || createAbi.parameters[8].body.$kind !== 'u64' ||
-    buyAbi.parameters.length !== 5 || buyAbi.parameters[2].body.$kind !== 'u8') {
-  throw new Error('Published competition package has the old shared-pot ABI; prepare and activate a new difficulty-isolated package. No device or Challenge was created by this invocation.');
+    buyAbi.parameters.length !== 5 || buyAbi.parameters[2].body.$kind !== 'u8' ||
+    entryAbi.parameters.length !== 5 || entryAbi.parameters[3].body.$kind !== 'bool') {
+  throw new Error('Published competition package lacks the pause-enabled difficulty-isolated ABI. Prepare a new package before activation.');
 }
 
 const published = await confirmed(manifest.packagePublishTx);
@@ -540,6 +554,7 @@ manifest.browserConfiguration = {
   VITE_SUI_EASY_CHART_HASH: charts.easy.chartHash,
   VITE_SUI_HARD_CHART_HASH: charts.hard.chartHash,
   VITE_SUI_USDC_TYPE: USDC,
+  VITE_SUI_ENTRY_CONTROL: 'true',
   VITE_BEATMAP_URL: '/beatmaps/forest.osz',
 };
 manifest.phase = 'active';

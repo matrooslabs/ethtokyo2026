@@ -21,8 +21,8 @@
 
 #ifdef OSUMANIA_ALLOW_DEV_CRYPTO
 static const uint8_t input_policy_hash[32] = {
-    0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,
-    0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60,
+    0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,
+    0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35,
 };
 
 struct dev_signer {
@@ -198,8 +198,11 @@ static int dev_sign(struct dev_signer *dev, const uint8_t digest[32], uint8_t si
     return result;
 }
 
-static int dev_open(struct osum_signer *signer)
+static int dev_open(struct osum_signer *signer, const uint8_t srs_hash[32], uint32_t max_events)
 {
+    if (!srs_hash || !max_events) return -1;
+    memcpy(signer->info.srs_hash, srs_hash, 32);
+    signer->info.max_events = max_events;
     char key_hex[128], bitstream_hex[128];
     if (config_value("DEV_INSECURE_PRIVATE_KEY", key_hex, sizeof(key_hex)) != 0 ||
         config_value("OSUMANIA_BITSTREAM_HASH", bitstream_hex, sizeof(bitstream_hex)) != 0)
@@ -307,14 +310,15 @@ static int optee_open(struct osum_signer *signer)
 }
 #endif
 
-struct osum_signer *osum_signer_open(const char *backend)
+struct osum_signer *osum_signer_open(const char *backend, const uint8_t srs_hash[32],
+                                     uint32_t max_events)
 {
     struct osum_signer *signer = calloc(1, sizeof(*signer));
     if (!signer)
         return NULL;
 #ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (backend && !strcmp(backend, "dev-insecure")) {
-        if (dev_open(signer) != 0)
+        if (dev_open(signer, srs_hash, max_events) != 0)
             signer->ready = false;
     } else
 #endif
@@ -380,7 +384,11 @@ int osum_signer_get_info(struct osum_signer *signer, struct osum_signer_info *in
     uint8_t data[OSUMANIA_TA_DEVICE_INFO_SIZE];
     op.params[0].tmpref.buffer = data; op.params[0].tmpref.size = sizeof(data);
     if (invoke(signer, OSUMANIA_TA_GET_DEVICE, &op) != 0 || op.params[0].tmpref.size != sizeof(data)) return -1;
-    memcpy(info->device, data, 20); memcpy(info->bitstream_hash, data + 20, 32); return 0;
+    memcpy(info->device, data, 20);
+    memcpy(info->bitstream_hash, data + 20, 32);
+    memcpy(info->srs_hash, data + 52, 32);
+    info->max_events = osum_be32_load(data + 84);
+    return info->max_events && info->max_events <= OSUM_MAX_EVENTS ? 0 : -1;
 #else
     return -1;
 #endif
@@ -431,24 +439,27 @@ int osum_signer_start(struct osum_signer *signer)
 }
 
 int osum_signer_finalize(struct osum_signer *signer, uint32_t count, uint64_t duration_us,
-                         const uint8_t root[32], const uint8_t commitment[64])
+                         const uint8_t root[32], const uint8_t commitment[48])
 {
     if (!osum_signer_ready(signer) || signer->state != OSUM_STATE_RECORDING) return -1;
     uint8_t fields[OSUMANIA_TA_FINAL_FIELDS_SIZE];
     osum_be32_store(fields, count); osum_be64_store(fields + 4, duration_us);
-    memcpy(fields + 12, root, 32); memcpy(fields + 44, commitment, 64);
+    memcpy(fields + 12, root, 32); memcpy(fields + 44, commitment, 48);
 #ifdef OSUMANIA_ALLOW_DEV_CRYPTO
     if (signer->backend == SIGNER_DEV) {
-        static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2";
-        uint8_t preimage[430], digest[32], signature[65];
-        memcpy(preimage, domain, sizeof(domain) - 1); preimage[28] = 0; preimage[29] = 2;
-        memcpy(preimage + 30, signer->dev.header, OSUM_HEADER_SIZE);
-        memcpy(preimage + 322, fields, sizeof(fields));
+        static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2_BLS12381";
+        uint8_t preimage[sizeof(domain) - 1 + 2 + OSUM_HEADER_SIZE + OSUMANIA_TA_FINAL_FIELDS_SIZE];
+        uint8_t digest[32], signature[65];
+        memcpy(preimage, domain, sizeof(domain) - 1);
+        preimage[sizeof(domain) - 1] = 0;
+        preimage[sizeof(domain)] = 2;
+        memcpy(preimage + sizeof(domain) + 1, signer->dev.header, OSUM_HEADER_SIZE);
+        memcpy(preimage + sizeof(domain) + 1 + OSUM_HEADER_SIZE, fields, sizeof(fields));
         SHA256(preimage, sizeof(preimage), digest);
         if (dev_sign(&signer->dev, digest, signature) != 0) { signer->state = OSUM_STATE_ERROR; return -1; }
         memcpy(signer->dev.result, signer->dev.header, OSUM_HEADER_SIZE);
         memcpy(signer->dev.result + OSUM_HEADER_SIZE, fields, sizeof(fields));
-        memcpy(signer->dev.result + 400, signature, 65);
+        memcpy(signer->dev.result + OSUM_HEADER_SIZE + sizeof(fields), signature, 65);
         OPENSSL_cleanse(preimage, sizeof(preimage)); OPENSSL_cleanse(digest, sizeof(digest));
         signer->state = OSUM_STATE_FINALIZED; return 0;
     }

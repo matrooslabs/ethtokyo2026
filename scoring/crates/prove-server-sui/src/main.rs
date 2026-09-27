@@ -31,6 +31,7 @@ fn main() -> Result<()> {
     ensure!(args.bind.ip().is_loopback() || token.is_some(), "non-loopback bind requires PROVER_API_TOKEN");
     ensure!(token.as_ref().is_none_or(|t| t.len() >= 32), "PROVER_API_TOKEN must be at least 32 bytes");
     let srs = Srs::load(&args.srs).context("loading Sui GKR SRS")?;
+    ensure!(srs.smax == 22, "Sui paid Mode B requires a local smax=22 BLS12-381 SRS");
     let bridge = Arc::new(bridge::Bridge::new(srs, args.rpc, args.registry, args.package, args.jobs)?);
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {

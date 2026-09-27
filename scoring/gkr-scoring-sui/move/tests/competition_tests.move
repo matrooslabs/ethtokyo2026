@@ -60,6 +60,16 @@ fun buy(sc: &mut Scenario, wallet: address, difficulty: u8, clk: &Clock) {
     sc.next_tx(ORGANIZER);
 }
 
+fun set_entry_open(sc: &mut Scenario, org: &OrganizerCap, open: bool, clk: &Clock) {
+    sc.next_tx(ORGANIZER);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    competition::set_entry_open(&mut c, &reg, org, open, clk);
+    ts::return_shared(reg);
+    ts::return_shared(c);
+    sc.next_tx(ORGANIZER);
+}
+
 /// This helper injects native accepted scores ONLY in unit tests, to test vault
 /// economics independently from the expensive existing GKR proof fixtures.
 fun verified_score(sc: &mut Scenario, wallet: address, difficulty: u8, score: u64, clk: &Clock): ID {
@@ -80,6 +90,84 @@ fun verified_score(sc: &mut Scenario, wallet: address, difficulty: u8, score: u6
     sid
 }
 
+#[test, expected_failure(abort_code = registry::EWrongRegistry)]
+fun another_registry_organizer_cannot_change_entry() {
+    let (mut sc, _org, _cap, clk) = setup();
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    let wrong_org = registry::create_for_testing(
+        fixtures::vk_g2_tau(), fixtures::vk_g2_shift(),
+        fixtures::case_demo_a().chain_id(), fixtures::case_demo_a().verifier(), sc.ctx(),
+    );
+    competition::set_entry_open(&mut c, &reg, &wrong_org, false, &clk);
+    abort 0
+}
+
+#[test, expected_failure(abort_code = competition::EClosed)]
+fun paused_entry_rejects_purchase() {
+    let (mut sc, org, _cap, clk) = setup();
+    set_entry_open(&mut sc, &org, false, &clk);
+    sc.next_tx(ONE);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    competition::buy_plays(&mut c, coin::mint_for_testing<SUI>(1_000_000, sc.ctx()), 0, &clk, sc.ctx());
+    abort 0
+}
+
+#[test, expected_failure(abort_code = competition::EClosed)]
+fun paused_entry_rejects_start_with_existing_plays() {
+    let (mut sc, org, _cap, clk) = setup();
+    buy(&mut sc, ONE, 0, &clk);
+    set_entry_open(&mut sc, &org, false, &clk);
+    sc.next_tx(ONE);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    competition::start_paid(&mut c, &reg, 0, &clk, sc.ctx());
+    abort 0
+}
+
+#[test]
+fun resumed_entry_allows_purchase_and_start_and_paused_session_can_score_and_claim() {
+    let (mut sc, org, cap, mut clk) = setup();
+    set_entry_open(&mut sc, &org, false, &clk);
+    set_entry_open(&mut sc, &org, true, &clk);
+    buy(&mut sc, ONE, 0, &clk);
+    sc.next_tx(ONE);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    let sid = competition::start_paid(&mut c, &reg, 0, &clk, sc.ctx());
+    assert!(competition::remaining_plays(&c, ONE, 0) == 2);
+    ts::return_shared(reg);
+    ts::return_shared(c);
+    set_entry_open(&mut sc, &org, false, &clk);
+    sc.next_tx(ORGANIZER);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let mut session = sc.take_shared_by_id<Session>(sid);
+    registry::accept_score_for_testing(&mut session, 90);
+    competition::record_score(&mut c, &session, &clk);
+    assert!(competition::attempt_recorded(&c, sid));
+    ts::return_shared(session);
+    clk.set_for_testing(GAME_END);
+    competition::register_claim(&mut c, &cap, ONE, 0, sha2_256(b"paused-score-owner"), &clk);
+    assert!(competition::claim_registered(&c, ONE));
+    clk.set_for_testing(CLAIM_END);
+    competition::settle(&mut c, &clk, sc.ctx());
+    competition::refund(&mut c, ONE, 0, &clk, sc.ctx());
+    assert!(competition::pot_value(&c, 0) == 0);
+    ts::return_shared(c);
+    finish_challenge(sc, org, cap, clk);
+}
+
+#[test, expected_failure(abort_code = competition::EClosed)]
+fun paused_entry_cannot_reopen_after_fixed_score_deadline() {
+    let (mut sc, org, _cap, mut clk) = setup();
+    set_entry_open(&mut sc, &org, false, &clk);
+    clk.set_for_testing(GAME_END);
+    let mut c = sc.take_shared<Challenge<SUI>>();
+    let reg = sc.take_shared<Registry>();
+    competition::set_entry_open(&mut c, &reg, &org, true, &clk);
+    abort 0
+}
+
 #[test]
 fun one_wallet_buys_independent_plays_and_both_charts_are_bound() {
     let (mut sc, org, cap, mut clk) = setup();
@@ -92,10 +180,10 @@ fun one_wallet_buys_independent_plays_and_both_charts_are_bound() {
     let hard = sc.take_shared_by_id<Session>(hard_sid);
     assert!(registry::session_matches(&easy, object::id(&reg), ONE,
         sha2_256(b"versu:2026-09-27"), fixtures::case_demo_a().chart_hash(),
-        fixtures::device_address(), 3));
+        fixtures::device_address(), 2));
     assert!(registry::session_matches(&hard, object::id(&reg), ONE,
         sha2_256(b"versu:2026-09-27"), fixtures::case_random0_a().chart_hash(),
-        fixtures::device_address(), 3));
+        fixtures::device_address(), 2));
     ts::return_shared(easy);
     ts::return_shared(hard);
     ts::return_shared(reg);

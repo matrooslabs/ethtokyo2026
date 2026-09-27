@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GET_INFO, GET_STATUS, GET_RESULT, GET_TRACE, SET_HEADER, START, REPORT_SIZE,
   ResponseAssembler, decodeHex, encodeHex, parseInfo, parseStatus, requestReport } from '../src/lib/hardware/protocol.ts';
+import { BridgeClient } from '../src/lib/hardware/client.ts';
 
 function response(type, id, payload, offset = 0, flags = 1) {
   const frame = new Uint8Array(REPORT_SIZE);
@@ -106,13 +107,15 @@ test('header fragments and no-payload START acknowledgment use the canonical fra
 });
 
 test('GET_RESULT and GET_TRACE preserve original large multi-fragment bytes', () => {
-  const result = Uint8Array.from({ length: 465 }, (_, index) => index & 255);
+  const result = Uint8Array.from({ length: 449 }, (_, index) => index & 255);
   const signed = new ResponseAssembler(GET_RESULT, 11);
   let signedBytes;
   for (let offset = 0; offset < result.length; offset += 48) {
     signedBytes = signed.push(response(GET_RESULT, 11, result, offset));
   }
   assert.deepEqual(signedBytes, result);
+  const legacyResult = response(GET_RESULT, 14, new Uint8Array(465));
+  assert.throws(() => new ResponseAssembler(GET_RESULT, 14).push(legacyResult));
   const trace = Uint8Array.from({ length: 14 * 65 }, (_, index) => (index * 7) & 255);
   const streamed = new ResponseAssembler(GET_TRACE, 12);
   let bytes;
@@ -123,4 +126,43 @@ test('GET_RESULT and GET_TRACE preserve original large multi-fragment bytes', ()
   const tooLarge = response(GET_TRACE, 13, new Uint8Array(48));
   new DataView(tooLarge.buffer).setUint32(12, 700001);
   assert.throws(() => new ResponseAssembler(GET_TRACE, 13).push(tooLarge));
+});
+
+test('paid capture waits for the chart final hit window before signing STOP', async () => {
+  const commands = [];
+  const listeners = new Set();
+  const result = Uint8Array.from({ length: 449 }, (_, index) => index & 255);
+  let polls = 0;
+  let stopped = false;
+  const device = {
+    opened: true,
+    addEventListener(_type, listener) { listeners.add(listener); },
+    removeEventListener(_type, listener) { listeners.delete(listener); },
+    async sendReport(_reportId, request) {
+      const type = request[2];
+      const id = new DataView(request.buffer).getUint32(4);
+      commands.push(type);
+      let payload = new Uint8Array();
+      if (type === GET_STATUS) {
+        payload = new Uint8Array(16);
+        payload[0] = stopped ? 3 : 2;
+        new DataView(payload.buffer).setBigUint64(8, stopped ? 137_994_600n : ++polls === 1 ? 137_994_499n : 137_994_500n);
+      } else if (type === 0x12) stopped = true;
+      else if (type === GET_RESULT) payload = result;
+      if (payload.length) {
+        for (let offset = 0; offset < payload.length; offset += 48) {
+          const frame = response(type, id, payload, offset);
+          for (const listener of listeners) listener({ reportId: 0, data: new DataView(frame.buffer) });
+        }
+      } else {
+        const frame = response(type, id, payload);
+        for (const listener of listeners) listener({ reportId: 0, data: new DataView(frame.buffer) });
+      }
+    },
+  };
+  const client = new BridgeClient(device, new AbortController().signal);
+  const sealed = await client.stopRecording(137_994_500n);
+  assert.deepEqual(commands, [GET_STATUS, GET_STATUS, 0x12, GET_RESULT, GET_TRACE, GET_STATUS]);
+  assert.equal(sealed.resultHex, '0x' + encodeHex(result));
+  assert.equal(sealed.traceHex, '0x');
 });

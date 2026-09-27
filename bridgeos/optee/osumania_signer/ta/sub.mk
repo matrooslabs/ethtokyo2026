@@ -23,7 +23,6 @@ cppflags-osumania_signer_ta.c-y += -include $(OSUMANIA_MVP_POLICY_HEADER)
 else
 ifeq ($(CFG_OSUMANIA_DEV_INSECURE_KEY),y)
 srcs-y += device_root_dev.c
-cppflags-y += -DOSUMANIA_PROVISIONED_SRS=1
 else
 srcs-y += device_root_rk3566.c
 # Hardware builds must supply an externally reviewed public policy header.

@@ -20,6 +20,8 @@ Rust crates are members of the shared [scoring workspace](../README.md). Run the
 | 모드 A trace | calldata | `TraceUpload` 객체에 올리고, 온체인에서 SHA-256 chain을 재계산합니다. |
 | 장치 프로토콜 | V1 digest + secp256k1 | **모드 A는 동일합니다** (같은 digest, 같은 65B 서명). 모드 B는 BLS12-381 commitment가 필요합니다. |
 
+현재 Forest 유료 경로는 **Mode B만** 사용합니다. `../target/release/mania-gkr-sui local-mode-b-srs --out artifacts/dev-srs-22.bin --bank artifacts/dev-mode-b-bank.bin`이 외부 ptau 없이 고정 `smax=22` BLS12-381 SRS와 앞의 200,000개 압축 G1 보드 bank를 생성합니다. 출력된 bank SHA-256과 SRS ID를 보드·서버·새 Registry에서 일치시켜야 합니다. 고정 seed의 τ가 알려져 있어 점수 위조가 가능합니다. **데모용 테스트넷 이외에는 사용하지 마세요.** 아래 `dev-srs-24.bin` 명령과 측정값은 범용 Move 테스트/이전 실험 기록이며 현재 유료 배포 설정이 아닙니다. 기존 Mode-3 패키지는 불변이므로 새 패키지·Registry·Challenge가 필요합니다.
+
 ## 실행
 
 ```sh

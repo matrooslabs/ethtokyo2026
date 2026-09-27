@@ -82,7 +82,8 @@ static void test_framing(void)
 
 static void test_vectors(void)
 {
-    struct osum_crypto *crypto = osum_crypto_create("tests/vendor-hid/vectors/srs-g1-be.bin");
+    assert(!osum_crypto_create("tests/vendor-hid/vectors/srs-g1-be.bin")); /* BN254 must fail closed. */
+    struct osum_crypto *crypto = osum_crypto_create("tests/vendor-hid/vectors/srs-g1-bls12381.bin");
     assert(crypto && osum_crypto_max_events(crypto) == 65);
     for (size_t c = 0; c < vector_case_count; ++c) {
         const struct vector_case *vector = &vector_cases[c];
@@ -94,12 +95,36 @@ static void test_vectors(void)
             assert(!memcmp(event.wire, wire, OSUM_EVENT_SIZE));
             assert(osum_crypto_add(crypto, &event) == 0);
         }
-        uint8_t root[32], commitment[64];
+        uint8_t root[32], commitment[48];
         assert(osum_crypto_finalize(crypto, root, commitment) == 0);
         assert(!memcmp(root, vector->root, 32));
-        assert(!memcmp(commitment, vector->commitment, 64));
+        bool zero_values = true;
+        for (unsigned i = 0; i < vector->count; ++i) {
+            const uint8_t *wire = vector->events + i * OSUM_EVENT_SIZE;
+            for (unsigned k = 4; k < OSUM_EVENT_SIZE; ++k)
+                zero_values = zero_values && wire[k] == 0;
+        }
+        if (zero_values) {
+            const uint8_t infinity[48] = {0xc0};
+            assert(!memcmp(commitment, infinity, 48));
+        } else {
+            assert((commitment[0] & 0xc0u) == 0x80u);
+        }
         assert(osum_crypto_trace_length(crypto) == vector->event_length);
     }
+    uint8_t sid[32] = {0}, root[32], commitment[48];
+    struct osum_event one;
+    static const uint8_t generator[48] = {
+        0x97,0xf1,0xd3,0xa7,0x31,0x97,0xd7,0x94,0x26,0x95,0x63,0x8c,
+        0x4f,0xa9,0xac,0x0f,0xc3,0x68,0x8c,0x4f,0x97,0x74,0xb9,0x05,
+        0xa1,0x4e,0x3a,0x3f,0x17,0x1b,0xac,0x58,0x6c,0x55,0xe8,0x3f,
+        0xf9,0x7a,0x1a,0xef,0xfb,0x3a,0xf0,0x0a,0xdb,0x22,0xc6,0xbb,
+    };
+    assert(osum_crypto_reset(crypto, sid) == 0);
+    assert(osum_event_encode(&one, 0, 1, 0, 0) == 0);
+    assert(osum_crypto_add(crypto, &one) == 0);
+    assert(osum_crypto_finalize(crypto, root, commitment) == 0);
+    assert(!memcmp(commitment, generator, 48));
     osum_crypto_destroy(crypto);
 }
 
@@ -107,39 +132,48 @@ static void test_dev_signer(void)
 {
     setenv("DEV_INSECURE_PRIVATE_KEY", "0000000000000000000000000000000000000000000000000000000000000001", 1);
     setenv("OSUMANIA_BITSTREAM_HASH", "0404040404040404040404040404040404040404040404040404040404040404", 1);
-    struct osum_signer *signer = osum_signer_open("dev-insecure");
+    struct osum_crypto *crypto = osum_crypto_create("tests/vendor-hid/vectors/srs-g1-bls12381.bin");
+    assert(crypto);
+    struct osum_signer *signer = osum_signer_open("dev-insecure", osum_crypto_srs_hash(crypto),
+                                                  osum_crypto_max_events(crypto));
     assert(signer && osum_signer_ready(signer) && osum_signer_is_insecure(signer));
     struct osum_signer_info info; assert(osum_signer_get_info(signer, &info) == 0);
     const uint8_t expected_address[20] = {0x7e,0x5f,0x45,0x52,0x09,0x1a,0x69,0x12,0x5d,0x5d,0xfc,0xb7,0xb8,0xc2,0x65,0x90,0x29,0x39,0x5b,0xdf};
     assert(!memcmp(info.device, expected_address, 20));
+    assert(info.max_events == 65 && !memcmp(info.srs_hash, osum_crypto_srs_hash(crypto), 32));
     uint8_t header[292] = {0}; memcpy(header + 144, info.device, 20); memcpy(header + 228, info.bitstream_hash, 32);
-    const uint8_t policy[32] = {0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60};
+    const uint8_t policy[32] = {0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35};
     memcpy(header + 260, policy, 32); uint8_t detail;
     assert(osum_signer_set_header(signer, header, &detail) == 0 && osum_signer_start(signer) == 0);
-    uint8_t root[32] = {1}, point[64] = {0};
+    uint8_t root[32], point[48] = {0xc0}, seed[sizeof("OSUMANIA_TRACE_V1")-1+32]={0};
+    memcpy(seed,"OSUMANIA_TRACE_V1",sizeof(seed)-32); SHA256(seed,sizeof(seed),root);
     assert(osum_signer_finalize(signer, 0, 42, root, point) == 0);
-    uint8_t result1[465], result2[465]; assert(osum_signer_get_result(signer, result1) == 0);
-    assert(osum_signer_get_result(signer, result2) == 0 && !memcmp(result1, result2, 465));
+    uint8_t result1[OSUM_RESULT_SIZE], result2[OSUM_RESULT_SIZE]; assert(osum_signer_get_result(signer, result1) == 0);
+    assert(osum_signer_get_result(signer, result2) == 0 && !memcmp(result1, result2, OSUM_RESULT_SIZE));
     assert(!memcmp(result1, header, 292) && osum_be32_load(result1 + 292) == 0 && osum_be64_load(result1 + 296) == 42);
-    assert(result1[464] == 27 || result1[464] == 28);
-    BIGNUM *s = BN_bin2bn(result1 + 432, 32, NULL), *order = NULL, *half = BN_new();
+    assert(result1[448] == 27 || result1[448] == 28);
+    BIGNUM *s = BN_bin2bn(result1 + 416, 32, NULL), *order = NULL, *half = BN_new();
     EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_secp256k1); BN_CTX *ctx = BN_CTX_new();
     BN_hex2bn(&order, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"); BN_rshift1(half, order);
     assert(BN_cmp(s, half) <= 0);
-    uint8_t preimage[430], digest[32]; memcpy(preimage, "OSUMANIA_HARDWARE_SESSION_V2", 28); preimage[28]=0; preimage[29]=2;
-    memcpy(preimage+30,header,292); memcpy(preimage+322,result1+292,108); SHA256(preimage,430,digest);
+    static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2_BLS12381";
+    uint8_t preimage[sizeof(domain)-1+2+292+92], digest[32];
+    memcpy(preimage,domain,sizeof(domain)-1); preimage[sizeof(domain)-1]=0; preimage[sizeof(domain)]=2;
+    memcpy(preimage+sizeof(domain)+1,header,292); memcpy(preimage+sizeof(domain)+1+292,result1+292,92);
+    SHA256(preimage,sizeof(preimage),digest);
     EC_KEY *key=EC_KEY_new_by_curve_name(NID_secp256k1); BIGNUM *one=BN_new(); BN_one(one); EC_POINT *pub=EC_POINT_new(group);
     EC_POINT_mul(group,pub,one,NULL,NULL,ctx); EC_KEY_set_public_key(key,pub);
-    ECDSA_SIG *sig=ECDSA_SIG_new(); ECDSA_SIG_set0(sig,BN_bin2bn(result1+400,32,NULL),BN_bin2bn(result1+432,32,NULL));
+    ECDSA_SIG *sig=ECDSA_SIG_new(); ECDSA_SIG_set0(sig,BN_bin2bn(result1+384,32,NULL),BN_bin2bn(result1+416,32,NULL));
     assert(ECDSA_do_verify(digest,32,sig,key)==1);
     ECDSA_SIG_free(sig); EC_POINT_free(pub); EC_KEY_free(key); BN_free(one); BN_free(s); BN_free(order); BN_free(half); BN_CTX_free(ctx); EC_GROUP_free(group);
     assert(osum_signer_abort(signer)==0 && osum_signer_state(signer)==OSUM_STATE_IDLE);
     osum_signer_close(signer);
+    osum_crypto_destroy(crypto);
 }
 
 static void make_header(uint8_t header[292], const struct osum_signer_info *info)
 {
-    static const uint8_t policy[32] = {0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60};
+    static const uint8_t policy[32] = {0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35};
     memset(header, 0, 292);
     memcpy(header + 60, "0123456789abcdef0123456789abcdef", 32);
     memcpy(header + 144, info->device, 20);
@@ -149,11 +183,15 @@ static void make_header(uint8_t header[292], const struct osum_signer_info *info
 
 static void test_session_states(void)
 {
-    struct osum_signer *signer = osum_signer_open("dev-insecure");
+    struct osum_crypto *bank = osum_crypto_create("tests/vendor-hid/vectors/srs-g1-bls12381.bin");
+    assert(bank);
+    struct osum_signer *signer = osum_signer_open("dev-insecure", osum_crypto_srs_hash(bank),
+                                                  osum_crypto_max_events(bank));
     struct osum_signer_info signer_info;
     assert(signer && osum_signer_get_info(signer, &signer_info) == 0);
     osum_signer_close(signer);
-    struct osum_session *session = osum_session_create("tests/vendor-hid/vectors/srs-g1-be.bin", "dev-insecure");
+    osum_crypto_destroy(bank);
+    struct osum_session *session = osum_session_create("tests/vendor-hid/vectors/srs-g1-bls12381.bin", "dev-insecure");
     assert(session);
     struct osum_session_info info;
     uint8_t info_detail;
@@ -198,7 +236,7 @@ static void test_session_states(void)
     osum_session_capture_edge(session, 0, 0);
     osum_session_capture_edge(session, 0, 1);
     assert(osum_session_stop(session) == 0);
-    uint8_t result1[465], result2[465], trace1[28], trace2[28];
+    uint8_t result1[OSUM_RESULT_SIZE], result2[OSUM_RESULT_SIZE], trace1[28], trace2[28];
     assert(osum_session_result(session, result1) == 0);
     assert(osum_session_result(session, result2) == 0 && !memcmp(result1, result2, sizeof(result1)));
     assert(osum_session_trace_length(session) == sizeof(trace1));
@@ -212,6 +250,6 @@ static void test_session_states(void)
 int main(void)
 {
     test_framing(); test_vectors(); test_dev_signer(); test_session_states();
-    puts("PASS framing, session states, SHA/BN254 vectors, immutable low-s result");
+    puts("PASS framing, BLS bank identity, trace SHA vectors, Mode B commitment/signature, immutable result");
     return 0;
 }

@@ -328,6 +328,17 @@ static void *start_vendor_service(void *opaque)
     }
     atomic_store_explicit(&mania_session, session, memory_order_release);
     atomic_store_explicit(&vendor_service, service, memory_order_release);
+    FILE *ready = fopen("/run/bridge-daemon.ready", "w");
+    if (!ready) {
+        perror("Vendor HID ready marker open");
+        return NULL;
+    }
+    int written = fprintf(ready, "%ld\n", (long)getpid());
+    int closed = fclose(ready);
+    if (written < 0 || closed != 0) {
+        perror("Vendor HID ready marker");
+        unlink("/run/bridge-daemon.ready");
+    }
     return NULL;
 }
 
@@ -401,10 +412,7 @@ int main(int argc, char **argv)
     if (sched_setscheduler(0, SCHED_FIFO, &policy) < 0) {
         perror("RT sched_setscheduler"); return 1;
     }
-    FILE *ready = fopen("/run/bridge-daemon.ready", "w");
-    if (!ready) { perror("ready marker"); return 1; }
-    fprintf(ready, "%ld\n", (long)getpid());
-    if (fclose(ready)) { perror("ready marker"); return 1; }
+    /* S99bridge sees readiness only after Vendor HID accepts requests. */
     fprintf(stderr, "RT FIFO priority %d; memory locked; keyboard forwarding active\n", priority);
     time_t next_discovery = 0;
     while (running) {

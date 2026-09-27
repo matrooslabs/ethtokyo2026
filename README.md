@@ -1,6 +1,6 @@
 # ETH Tokyo 2026 — osu! hardware leaderboard
 
-The current `Web-Osu-Mania/` player uses a **Sui** Challenge, Sui wallet, Bridge-signed inputs and GKR proofs. See the [Forest challenge guide](Web-Osu-Mania/DAILY_LEADERBOARD.md) for its USDC credits, leaderboard, claims, configuration and live-deployment prerequisites. Run the web app from `Web-Osu-Mania/` with `npm ci && npm run dev`.
+The current `Web-Osu-Mania/` player targets a **Sui Mode B** Challenge: BLS12-381 device-committed trace, wallet-submitted GKR proof, no on-chain trace upload. The fixed `smax=22` SRS and 200,000-point board bank are generated locally; the SRS has a known toxic secret and the demo image's signer key is extractable. The previously deployed Sui mode-3 Challenge cannot be reused: a new package/Registry/Challenge and physical board flash are required before paid Mode B play. See the [Forest challenge guide](Web-Osu-Mania/DAILY_LEADERBOARD.md). Run the web app from `Web-Osu-Mania/` with `npm ci && npm run dev`.
 
 ## Legacy EVM Mode B workflow
 

@@ -29,7 +29,7 @@ class HardwarePreflight(unittest.TestCase):
             directory = Path(temp)
             bank = directory / 'bank.bin'
             # Synthetic repeating bytes exercise size/hash handling, NOT SRS approval.
-            bank.write_bytes(bytes(range(64)) * 200000)
+            bank.write_bytes(bytes(range(48)) * 200000)
             key = directory / 'ta.pem'
             pub = directory / 'ta.pub'
             subprocess.run(['openssl', 'genpkey', '-algorithm', 'RSA', '-pkeyopt',
@@ -53,6 +53,8 @@ class HardwarePreflight(unittest.TestCase):
 
             try:
                 check({}, True)
+                self.assertIn('#define OSUMANIA_PROVISIONED_SRS_POINTS 200000', header.read_text())
+                self.assertIn('#define OSUMANIA_PROVISIONED_SRS_HASH ', header.read_text())
                 run = subprocess.run(['bash', str(PROJECT / 'scripts/build.sh'), 'hardware-root'],
                                      env={**os.environ, 'OSUMANIA_PROVISIONING_RECORD': str(record_file)},
                                      text=True, capture_output=True)

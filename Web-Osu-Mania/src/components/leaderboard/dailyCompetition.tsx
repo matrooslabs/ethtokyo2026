@@ -10,7 +10,7 @@ import ClaimVerification from "@/components/identity/claimVerification";
 import QuickSetup from "./quickSetup";
 import { GameOverlay } from "@/components/game/gameOverlay";
 import { useBridgeHardware } from "@/lib/hardware/useBridgeHardware";
-import { decodeHex, parseInfo } from "@/lib/hardware/protocol";
+import { decodeHex, MODE_B_INPUT_POLICY_HASH, parseInfo } from "@/lib/hardware/protocol";
 import { getBundledBeatmapFile, getBundledBeatmapSet, getPracticeBeatmapSet, PRACTICE_BEATMAP_SET_ID } from "@/lib/bundledBeatmap";
 import { parseOsz } from "@/lib/beatmapParser";
 import { chartFromBeatmap, chartHash } from "@/lib/sui/chart";
@@ -78,7 +78,7 @@ export default function DailyCompetition() {
     enabled: configured && setupPaid && !!beatmap,
     queryFn: async () => {
       if (!beatmap) throw new Error("Select a Forest difficulty before verifying its Sui chart.");
-      const parsed = await parseOsz(await getBundledBeatmapFile(), beatmap, encodeMods(defaultSettings.mods), undefined, true);
+      const parsed = await parseOsz(await getBundledBeatmapFile(), beatmap, encodeMods(defaultSettings.mods), undefined, { isLocalSource: true, paidCapture: true });
       if (!beatmap.sourceHash || parsed.sourceHash !== beatmap.sourceHash || parsed.sourceHash !== forestSourceHashes[difficulty]) {
         throw new Error("The loaded Forest chart does not match this difficulty.");
       }
@@ -96,10 +96,12 @@ export default function DailyCompetition() {
     queryFn: async () => {
       const response = await fetch("/api/scoring/info");
       if (!response.ok) throw new Error("Scoring server unavailable.");
-      const info = await response.json() as { system?: string; registryId?: string; packageId?: string; mode?: number };
-      if (info.system !== "gkr-sui-hardware" || info.mode !== 3 ||
+      const info = await response.json() as { system?: string; registryId?: string; packageId?: string;
+        mode?: number; capture?: string; srsSmax?: number };
+      if (info.system !== "gkr-sui-hardware" || info.mode !== 2 ||
+          info.capture !== "bridgeos-v1-bls-committed" || info.srsSmax !== 22 ||
           info.registryId !== suiDeployment.registryId || info.packageId !== suiDeployment.packageId) {
-        throw new Error("Scoring server does not match this competition.");
+        throw new Error("Mode-B scoring server does not match this competition; a new Sui deployment is required.");
       }
       return info;
     },
@@ -125,13 +127,16 @@ export default function DailyCompetition() {
   const competition = state.data;
   const remaining = competition?.remaining ?? 0n;
   const correctDevice = !!competition && hardware.info?.deviceAddress.toLowerCase() === competition.device.toLowerCase();
+  const committedDevice = hardware.info?.inputPolicyHash === MODE_B_INPUT_POLICY_HASH;
   const chartMatches = !!competition && competition.chartHashes[difficulty].toLowerCase() === chartHashExpected.toLowerCase();
   const active = !!competition && now >= competition.startedAtMs && now < competition.scoreDeadlineMs;
   const latestSafeStartMs = (competition?.scoreDeadlineMs ?? 0) - (forestDurationSeconds + proofBufferSeconds) * 1000;
   const safeTime = proofBufferConfigured && active && now < latestSafeStartMs;
   const deviceCapacityReady = (hardware.info?.maxEvents ?? 0) >= 2 * forestNoteCounts[difficulty];
-  const canBuy = !!account && !!competition && chartMatches && active && !paidAttempt && activeBeatmapId === null;
-  const canStart = !!account && hardware.ready && correctDevice && chartMatches && deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime && remaining > 0n;
+  const canBuy = !!account && !!competition?.entryOpen && hardware.ready && correctDevice && committedDevice &&
+    deviceCapacityReady && !!scorer.data && chartMatches && active && !paidAttempt && activeBeatmapId === null;
+  const canStart = !!account && !!competition?.entryOpen && hardware.ready && correctDevice && committedDevice && chartMatches &&
+    deviceCapacityReady && !!selectedChart.data && !!scorer.data && safeTime && remaining > 0n;
   const canSettle = !!selectedRound && !selectedRound.settled && now >= selectedRound.claimDeadlineMs;
   const canRefund = !!account && !!selectedRound?.refundEligible;
   useEffect(() => {
@@ -168,7 +173,7 @@ export default function DailyCompetition() {
 
   async function prepareSetup(paid: boolean) {
     if (actionLock.current || paidAttempt || activeBeatmapId !== null ||
-        (paid && (!account || !hardware.ready || !correctDevice || !chartMatches || !scorer.data || !safeTime || !deviceCapacityReady))) return;
+        (paid && (!competition?.entryOpen || !account || !hardware.ready || !correctDevice || !committedDevice || !chartMatches || !scorer.data || !safeTime || !deviceCapacityReady))) return;
     actionLock.current = true;
     setBusy(true);
     setSetupPaid(paid);
@@ -202,6 +207,12 @@ export default function DailyCompetition() {
     setBusy(true);
     setMessage("");
     try {
+      const preflight = await hardware.getPreflight();
+      const info = parseInfo(decodeHex(preflight.infoHex, 128));
+      if (preflight.deviceAddress.toLowerCase() !== competition.device.toLowerCase() ||
+          info.inputPolicyHash !== MODE_B_INPUT_POLICY_HASH || info.maxEvents < 2 * forestNoteCounts[difficulty]) {
+        throw new Error(`Connect the registered Mode-B controller for ${difficulty} before buying. No payment was made.`);
+      }
       const currentTime = Date.now();
       if (currentTime < competition.startedAtMs || currentTime >= competition.scoreDeadlineMs) {
         throw new Error("This chart is not open for purchases now. No payment was made.");
@@ -227,7 +238,7 @@ export default function DailyCompetition() {
     let spent = false;
     try {
       const file = await getBundledBeatmapFile();
-      const parsed = await parseOsz(file, beatmap, encodeMods(defaultSettings.mods), undefined, true);
+      const parsed = await parseOsz(file, beatmap, encodeMods(defaultSettings.mods), undefined, { isLocalSource: true, paidCapture: true });
       if (!beatmap.sourceHash || parsed.sourceHash !== beatmap.sourceHash) {
         throw new Error("The loaded chart is not the registered competition chart.");
       }
@@ -241,7 +252,11 @@ export default function DailyCompetition() {
       if (preflight.deviceAddress.toLowerCase() !== competition.device.toLowerCase()) {
         throw new Error("Connect the controller registered for this round.");
       }
-      if (parseInfo(decodeHex(preflight.infoHex, 128)).maxEvents < 2 * forestNoteCounts[difficulty]) {
+      const deviceInfo = parseInfo(decodeHex(preflight.infoHex, 128));
+      if (deviceInfo.inputPolicyHash !== MODE_B_INPUT_POLICY_HASH) {
+        throw new Error("Controller does not sign Mode-B BLS12-381 commitments. No play was spent.");
+      }
+      if (deviceInfo.maxEvents < 2 * forestNoteCounts[difficulty]) {
         throw new Error(`Controller capacity too low for ${difficulty}. No play was spent.`);
       }
       if (Date.now() >= latestSafeStartMs) throw new Error("Not enough time remains to submit a signed score before the six-hour cutoff.");
@@ -362,6 +377,7 @@ export default function DailyCompetition() {
           {setupPaid && !canStart ? <section className="arena-panel" aria-label="Paid entry status">
             <button className="arena-text-button" onClick={() => setScreen("home")}>Back</button>
             {remaining === 0n && <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 {difficulty} plays for 1 {tokenLabel}</button>}
+            {competition && !competition.entryOpen && <p role="status">Entry paused.</p>}
             {!safeTime && <p role="status">{now < (competition?.startedAtMs ?? 0) ? "Paid starts open when scoring begins." : "Too late to finish a paid run before the score cutoff."}</p>}
             {!deviceCapacityReady && <p role="status">A controller supporting {2 * forestNoteCounts[difficulty]} events is required to start {difficulty}.</p>}
           </section> : <QuickSetup beatmap={beatmap} beatmapSet={beatmapSet} paid={setupPaid} busy={busy}
@@ -401,8 +417,10 @@ export default function DailyCompetition() {
             {account && competition && <div className="arena-play-balance" role="status"><strong>{remaining.toString()}</strong><span>{difficulty} plays left</span></div>}
             {(paidAttempt || activeBeatmapId !== null) && <p className="arena-fine-print">Finish or leave this run before changing difficulty.</p>}
             {!configured && <p className="arena-availability" role="status">Challenge not live.</p>}
+            {competition && !competition.entryOpen && <p className="arena-availability" role="status">Entry paused.</p>}
             {competition && now < competition.startedAtMs && <p role="status">Starts {new Date(competition.startedAtMs).toISOString().slice(0, 16).replace("T", " ")} UTC</p>}
             {!proofBufferConfigured && <p role="alert">Paid starts paused: score submission time is not configured.</p>}
+            {hardware.ready && !committedDevice && <p role="alert">This controller uses the legacy input policy. Mode-B BLS12-381 hardware is required before starting a paid run.</p>}
             {hardware.ready && !deviceCapacityReady && <p role="status">Controller supports {hardware.info?.maxEvents ?? 0} events; {difficulty} needs {2 * forestNoteCounts[difficulty]} before starting.</p>}
             {configured && selectedChart.isError && <p role="alert">{selectedChart.error instanceof Error ? selectedChart.error.message : "Forest chart does not match this Sui challenge."}</p>}
             {configured && scorer.isError && <p role="alert">{scorer.error instanceof Error ? scorer.error.message : "Scoring server unavailable."}</p>}
@@ -412,7 +430,7 @@ export default function DailyCompetition() {
                   <p role={state.isError ? "alert" : "status"}>{state.isError ? (state.error instanceof Error ? state.error.message : "Could not load this Sui challenge.") : "Loading Sui challenge…"}</p>
                 ) : <>
                   {remaining === 0n ? <button className="arena-primary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 {difficulty} plays · 1 {tokenLabel}</button> : <>
-                    <button className="arena-primary" disabled={!hardware.ready || !correctDevice || !deviceCapacityReady || !scorer.data || !safeTime || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
+                    <button className="arena-primary" disabled={!competition.entryOpen || !hardware.ready || !correctDevice || !committedDevice || !deviceCapacityReady || !scorer.data || !safeTime || busy} onClick={() => void prepareSetup(true)}>Set up paid run</button>
                     <button className="arena-secondary" disabled={!canBuy || busy} onClick={() => void purchase()}>Buy 3 more {difficulty} plays</button>
                   </>}
                   {!hardware.ready && <HardwareGate hardware={hardware} />}

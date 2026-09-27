@@ -36,9 +36,24 @@ _Static_assert(sizeof(provisioned_private_key) == 32, "MVP private scalar must b
 #define OSUMANIA_PROVISIONED_SRS 0
 #endif
 #endif
+#if OSUMANIA_PROVISIONED_SRS
+#ifndef OSUMANIA_PROVISIONED_SRS_HASH
+#error "Provisioned BLS bank requires OSUMANIA_PROVISIONED_SRS_HASH"
+#endif
+#if !defined(OSUMANIA_PROVISIONED_SRS_POINTS) || OSUMANIA_PROVISIONED_SRS_POINTS < 4 || OSUMANIA_PROVISIONED_SRS_POINTS > 200000 || OSUMANIA_PROVISIONED_SRS_POINTS % 4 != 0
+#error "Provisioned BLS bank requires valid OSUMANIA_PROVISIONED_SRS_POINTS"
+#endif
+#if defined(CFG_OSUMANIA_MVP_KEYED) && OSUMANIA_PROVISIONED_SRS_POINTS != 200000
+#error "MVP signer requires exactly 200000 BLS G1 powers (50000 events)"
+#endif
+static const uint8_t expected_bank_hash[32] = OSUMANIA_PROVISIONED_SRS_HASH;
+#else
+static const uint8_t expected_bank_hash[32] = {0};
+#define OSUMANIA_PROVISIONED_SRS_POINTS 0
+#endif
 static const uint8_t expected_policy[32] = {
-    0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,
-    0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60,
+    0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,
+    0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35,
 };
 
 #if defined(CFG_OSUMANIA_DEV_INSECURE_KEY)
@@ -260,6 +275,8 @@ static TEE_Result get_device(uint32_t types, TEE_Param params[4])
     }
     TEE_MemMove(params[0].memref.buffer, device_address, 20);
     TEE_MemMove((uint8_t *)params[0].memref.buffer + 20, expected_bitstream, 32);
+    TEE_MemMove((uint8_t *)params[0].memref.buffer + 52, expected_bank_hash, 32);
+    be32_store((uint8_t *)params[0].memref.buffer + 84, OSUMANIA_PROVISIONED_SRS_POINTS / 4);
     params[0].memref.size = OSUMANIA_TA_DEVICE_INFO_SIZE;
     return TEE_SUCCESS;
 }
@@ -284,29 +301,32 @@ static TEE_Result set_header(uint32_t types, TEE_Param params[4])
 
 static TEE_Result finalize(uint32_t types, TEE_Param params[4])
 {
-    static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2";
+    static const uint8_t domain[] = "OSUMANIA_HARDWARE_SESSION_V2_BLS12381";
     if (types != TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT, TEE_PARAM_TYPE_NONE,
                                  TEE_PARAM_TYPE_NONE, TEE_PARAM_TYPE_NONE) ||
         params[0].memref.size != OSUMANIA_TA_FINAL_FIELDS_SIZE)
         return TEE_ERROR_BAD_PARAMETERS;
     if (state != STATE_RECORDING) return TEE_ERROR_BAD_STATE;
     const uint8_t *fields = params[0].memref.buffer;
-    if (be32_load(fields) > 50000 || be64_load(fields + 4) > 1800000000ULL) {
+    if (be32_load(fields) > OSUMANIA_PROVISIONED_SRS_POINTS / 4 ||
+        be64_load(fields + 4) > 1800000000ULL) {
         state = STATE_ERROR; return TEE_ERROR_BAD_PARAMETERS;
     }
-    uint8_t preimage[430], digest[32], signature[65];
+    uint8_t preimage[sizeof(domain) - 1 + 2 + OSUMANIA_TA_HEADER_SIZE + OSUMANIA_TA_FINAL_FIELDS_SIZE];
+    uint8_t digest[32], signature[65];
     TEE_MemMove(preimage, domain, sizeof(domain) - 1);
-    preimage[28] = 0; preimage[29] = 2;
-    TEE_MemMove(preimage + 30, header, sizeof(header));
-    TEE_MemMove(preimage + 322, fields, OSUMANIA_TA_FINAL_FIELDS_SIZE);
+    preimage[sizeof(domain) - 1] = 0;
+    preimage[sizeof(domain)] = 2;
+    TEE_MemMove(preimage + sizeof(domain) + 1, header, sizeof(header));
+    TEE_MemMove(preimage + sizeof(domain) + 1 + sizeof(header), fields, OSUMANIA_TA_FINAL_FIELDS_SIZE);
     TEE_Result status = sha256(preimage, sizeof(preimage), digest);
     if (status == TEE_SUCCESS) status = sign_digest(digest, signature);
     if (status != TEE_SUCCESS) {
         state = STATE_ERROR;
     } else {
         TEE_MemMove(result, header, sizeof(header));
-        TEE_MemMove(result + 292, fields, OSUMANIA_TA_FINAL_FIELDS_SIZE);
-        TEE_MemMove(result + 400, signature, 65);
+        TEE_MemMove(result + sizeof(header), fields, OSUMANIA_TA_FINAL_FIELDS_SIZE);
+        TEE_MemMove(result + sizeof(header) + OSUMANIA_TA_FINAL_FIELDS_SIZE, signature, sizeof(signature));
         state = STATE_FINALIZED;
     }
     TEE_MemFill(preimage, 0, sizeof(preimage));

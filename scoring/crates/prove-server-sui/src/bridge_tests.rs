@@ -2,18 +2,18 @@ use super::*;
 use mania_gkr_sui::sui::{device_address, device_pubkey, events_bytes, sign_digest};
 use k256::ecdsa::SigningKey;
 
-fn sealed_capture() -> (SessionHeader, Capture, String) {
+fn sealed_capture(srs: &Srs) -> (SessionHeader, Capture, String) {
     let mut input: PlayInput = serde_json::from_str(include_str!("../../../fixtures/demo.json")).unwrap();
     let key = SigningKey::from_bytes(&[0x42u8; 32].into()).unwrap();
     input.header.device = device_address(&key);
-    input.header.input_policy_hash = sha256(POLICY);
+    input.header.input_policy_hash = sha256(INPUT_POLICY_V2);
     let pubkey = hex0x(&device_pubkey(&key));
     let mut result = Vec::from(header_bytes(&input.header));
     result.extend_from_slice(&input.footer.event_count.to_be_bytes());
     result.extend_from_slice(&input.footer.duration_us.to_be_bytes());
     result.extend_from_slice(&input.footer.trace_root);
-    result.extend_from_slice(&[0x11; 64]); // Preserved BN254 bytes; never synthesized in production.
-    let mut preimage = Vec::from(DOMAIN);
+    result.extend_from_slice(&g1_to_bytes(&api::device_trace_commitment(srs, &input.events)));
+    let mut preimage = Vec::from(SESSION_DOMAIN_V2);
     preimage.extend_from_slice(&2u16.to_be_bytes());
     preimage.extend_from_slice(&result);
     result.extend_from_slice(&sign_digest(&key, &sha256(&preimage)));
@@ -28,22 +28,34 @@ fn sealed_capture() -> (SessionHeader, Capture, String) {
 
 #[test]
 fn preserves_device_signed_digest_and_rejects_altered_trace_and_signature() {
-    let (header, capture, key) = sealed_capture();
-    let (play, digest, _, _) = parse_capture(header.clone(), &capture, &key).unwrap();
+    let srs = Srs::insecure_dev(16, 1);
+    let (header, capture, key) = sealed_capture(&srs);
+    let (play, digest, _, _) = parse_capture(header.clone(), &capture, &key, &srs).unwrap();
     assert_ne!(digest, mania_scoring_core::session_digest(&header, &play.footer));
+    let original_result = capture.result_hex.clone();
     let mut modified = capture;
     let mut bytes = parse_hex(&modified.trace_hex, play.events.len() * 14).unwrap();
     bytes[5] ^= 1;
     modified.trace_hex = hex0x(&bytes);
-    assert!(parse_capture(header.clone(), &modified, &key).unwrap_err().to_string().contains("trace root"));
+    assert!(parse_capture(header.clone(), &modified, &key, &srs).unwrap_err().to_string().contains("trace root"));
     modified.trace_hex = hex0x(&events_bytes(&play.events));
     let mut result = parse_hex(&modified.result_hex, RESULT_SIZE).unwrap();
-    result[390] ^= 1;
+    result[340] ^= 1;
     modified.result_hex = hex0x(&result);
-    assert!(parse_capture(header.clone(), &modified, &key).is_err());
-    result[292..296].copy_from_slice(&7_001u32.to_be_bytes());
+    assert!(parse_capture(header.clone(), &modified, &key, &srs).is_err());
+    result = parse_hex(&original_result, RESULT_SIZE).unwrap();
+    let mut different = play.events.clone();
+    different[0].timestamp_us += 1;
+    result[336..384].copy_from_slice(&g1_to_bytes(&api::device_trace_commitment(&srs, &different)));
     modified.result_hex = hex0x(&result);
-    assert!(parse_capture(header, &modified, &key).unwrap_err().to_string().contains("upload limit"));
+    assert!(parse_capture(header.clone(), &modified, &key, &srs).unwrap_err().to_string().contains("commitment"));
+    result = parse_hex(&original_result, RESULT_SIZE).unwrap();
+    result[389] ^= 1;
+    modified.result_hex = hex0x(&result);
+    assert!(parse_capture(header.clone(), &modified, &key, &srs).is_err());
+    result[292..296].copy_from_slice(&70_001u32.to_be_bytes());
+    modified.result_hex = hex0x(&result);
+    assert!(parse_capture(header, &modified, &key, &srs).unwrap_err().to_string().contains("capacity"));
 }
 
 #[tokio::test]
@@ -52,22 +64,21 @@ async fn registered_session_produces_verified_hardware_relay_plan() {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    let (mut h, mut capture, pubkey) = sealed_capture();
+    let srs = Srs::insecure_dev(16, 1);
+    let (mut h, mut capture, pubkey) = sealed_capture(&srs);
     let registry = [0x31; 32];
     h.verifier.copy_from_slice(&keccak(&[&registry])[12..]);
     let mut raw = parse_hex(&capture.result_hex, RESULT_SIZE).unwrap();
     raw[..HEADER_SIZE].copy_from_slice(&header_bytes(&h));
-    let mut preimage = Vec::from(DOMAIN);
+    let mut preimage = Vec::from(SESSION_DOMAIN_V2);
     preimage.extend_from_slice(&2u16.to_be_bytes());
-    preimage.extend_from_slice(&raw[..400]);
+    preimage.extend_from_slice(&raw[..384]);
     let key = SigningKey::from_bytes(&[0x42u8; 32].into()).unwrap();
-    raw[400..].copy_from_slice(&sign_digest(&key, &sha256(&preimage)));
+    raw[384..].copy_from_slice(&sign_digest(&key, &sha256(&preimage)));
     capture.result_hex = hex0x(&raw);
-    let srs = Srs::insecure_dev(16, 1);
     let reg = register_chart(&srs, &capture.chart).unwrap();
     let srs_id = srs.vk().id();
     let device = h.device;
-    let chart_hash = h.chart_hash;
     let chart = reg.record;
     let registry_hex = hex0x(&registry);
     let sid = capture.session_id.clone();
@@ -81,7 +92,7 @@ async fn registered_session_produces_verified_hardware_relay_plan() {
             let body = match call["method"].as_str().unwrap() {
                 "sui_getObject" if call["params"][0] == sid => json!({
                     "data":{"content":{"dataType":"moveObject","type":format!("{}::registry::Session",hex0x(&[0x22;32])),"fields":{
-                        "registry":registry_hex,"consumed":false,"mode":"3","expires_at_ms":"4102444800000",
+                        "registry":registry_hex,"consumed":false,"mode":"2","expires_at_ms":"4102444800000",
                         "header":{"fields":h}
                     }}}
                 }),
@@ -118,8 +129,8 @@ async fn registered_session_produces_verified_hardware_relay_plan() {
     info[8..28].copy_from_slice(&device);
     info[28..60].copy_from_slice(&h.bitstream_hash);
     info[60..92].copy_from_slice(&h.input_policy_hash);
-    info[92..124].copy_from_slice(&[0x99; 32]);
-    info[124..128].copy_from_slice(&50000u32.to_be_bytes());
+    info[92..124].copy_from_slice(&bridge.bank_hash);
+    info[124..128].copy_from_slice(&bridge.bank_events.to_be_bytes());
     let app = super::super::http::router(bridge.clone(), None);
     let start_body = json!({"sessionId":capture.session_id,"infoHex":hex0x(&info),"statusHex":hex0x(&[0;16])});
     let req = axum::http::Request::builder().method("POST").uri("/v1/sessions/start")
@@ -158,11 +169,11 @@ async fn registered_session_produces_verified_hardware_relay_plan() {
         }
     }).await.unwrap();
     assert_eq!(payload["sessionDigest"], hex0x(&expected_digest));
-    assert_eq!(payload["steps"][2]["target"], format!("{}::registry::submit_hardware", bridge.package));
-    assert_eq!(payload["steps"][2]["arguments"][8]["value"], hex0x(&raw[400..]));
-    let n = u32::from_be_bytes(raw[292..296].try_into().unwrap()) as usize;
-    let trace = parse_hex(&capture.trace_hex, n * 14).unwrap();
-    assert_eq!(payload["traceBatches"][0][0], hex0x(&trace[..trace.len().min(14 * 32)]));
+    assert_eq!(payload["mode"], "committed");
+    assert_eq!(payload["n"], u32::from_be_bytes(raw[292..296].try_into().unwrap()).to_string());
+    assert_eq!(payload["traceCommitment"], hex0x(&raw[336..384]));
+    assert_eq!(payload["signature"], hex0x(&raw[384..]));
+    assert!(payload.get("traceBatches").is_none());
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while bridge.busy.available_permits() == 0 {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;

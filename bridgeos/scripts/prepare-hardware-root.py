@@ -58,7 +58,9 @@ def main():
     serial = record.get('device_serial')
     if not record.get('otp_slot_reference') or not isinstance(serial, str) or not serial:
         fail('record must identify reviewed OTP slot reference and device serial')
-    bank = outside_project(record['srs_bank'], 'approved SRS bank')
+    bank = Path(record['srs_bank']).expanduser().resolve(strict=True)
+    if not bank.is_file():
+        fail('approved BLS12-381 SRS bank is not a regular file')
     expected_bank_hash = hex32(record.get('srs_sha256'), 'srs_sha256')
     digest = hashlib.sha256()
     count = 0
@@ -66,8 +68,8 @@ def main():
         while chunk := f.read(65536):
             digest.update(chunk)
             count += len(chunk)
-    if digest.digest() != expected_bank_hash or count != 200000 * 64:
-        fail('SRS bank/hash mismatch or bank is not exactly 200000 G1 points')
+    if digest.digest() != expected_bank_hash or count != 200000 * 48:
+        fail('BLS12-381 SRS bank/hash mismatch or bank is not exactly 200000 compressed G1 points')
     key = outside_project(record['ta_sign_key'], 'TA signing key')
     public = outside_project(record['ta_public_key'], 'TA public key')
     if key == public or b'PRIVATE KEY' in public.read_bytes():
@@ -91,10 +93,12 @@ def main():
     if not (PROJECT / 'sources/optee-os-artifacts/hardware-policy') in output.parents:
         fail('generated header must remain in hardware-policy directory')
     output.parent.mkdir(parents=True, exist_ok=True)
-    initializer = ','.join('0x%02x' % b for b in bitstream)
+    initializer = lambda data: '{' + ','.join('0x%02x' % b for b in data) + '}'
     output.write_text('/* Public build marker, NOT an FPGA bitstream attestation. */\n'
-                      '#define OSUMANIA_PROVISIONED_BITSTREAM_HASH {' + initializer + '}\n'
-                      '#define OSUMANIA_PROVISIONED_SRS 1\n')
+                      '#define OSUMANIA_PROVISIONED_BITSTREAM_HASH ' + initializer(bitstream) + '\n'
+                      '#define OSUMANIA_PROVISIONED_SRS 1\n'
+                      '#define OSUMANIA_PROVISIONED_SRS_HASH ' + initializer(digest.digest()) + '\n'
+                      '#define OSUMANIA_PROVISIONED_SRS_POINTS 200000\n')
     print(json.dumps({'offset': offset, 'srs_bank': str(bank),
                       'srs_sha256': digest.hexdigest(), 'ta_sign_key': str(key),
                       'ta_public_key': str(public), 'build_marker': bitstream.hex(),

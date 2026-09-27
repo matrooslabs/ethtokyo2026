@@ -56,23 +56,44 @@ int main(void)
     status=TEEC_OpenSession(&context,&session,&uuid,TEEC_LOGIN_PUBLIC,NULL,NULL,&origin);
     if(status!=TEEC_SUCCESS){fprintf(stderr,"TEEC_OpenSession failed result=0x%08x origin=%u\n",status,origin);TEEC_FinalizeContext(&context);return 1;}
     fprintf(stderr,"TEEC_OpenSession ok\n");
-    uint8_t device_info[52]; TEEC_Operation get={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)};
+    uint8_t device_info[OSUMANIA_TA_DEVICE_INFO_SIZE];
+    TEEC_Operation get={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)};
     get.params[0].tmpref.buffer=device_info; get.params[0].tmpref.size=sizeof(device_info);
-    if (invoke(&session,OSUMANIA_TA_GET_DEVICE,&get)) return 2;
-    uint8_t header[292]={0}; memcpy(header+60,"0123456789abcdef0123456789abcdef",32); memcpy(header+144,device_info,20); memcpy(header+228,device_info+20,32);
-    const uint8_t policy[32]={0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60}; memcpy(header+260,policy,32);
-    TEEC_Operation set={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,TEEC_VALUE_OUTPUT,TEEC_NONE,TEEC_NONE)}; set.params[0].tmpref.buffer=header; set.params[0].tmpref.size=292;
+    if (invoke(&session,OSUMANIA_TA_GET_DEVICE,&get) || get.params[0].tmpref.size!=sizeof(device_info)) return 2;
+    uint32_t capacity=((uint32_t)device_info[84]<<24)|((uint32_t)device_info[85]<<16)|((uint32_t)device_info[86]<<8)|device_info[87];
+    if (!capacity || capacity>50000) { fprintf(stderr,"TA has no provisioned BLS bank capacity\n"); return 2; }
+    uint8_t header[OSUMANIA_TA_HEADER_SIZE]={0};
+    memcpy(header+60,"0123456789abcdef0123456789abcdef",32);
+    memcpy(header+144,device_info,20); memcpy(header+228,device_info+20,32);
+    const uint8_t policy[32]={0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35};
+    memcpy(header+260,policy,32);
+    TEEC_Operation set={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,TEEC_VALUE_OUTPUT,TEEC_NONE,TEEC_NONE)};
+    set.params[0].tmpref.buffer=header; set.params[0].tmpref.size=sizeof(header);
     if (invoke(&session,OSUMANIA_TA_SET_HEADER,&set)) return 3;
     TEEC_Operation empty={0}; if (invoke(&session,OSUMANIA_TA_START_SESSION,&empty)) return 4;
-    uint8_t fields[108]={0}; be32(fields,0); be64(fields+4,42); fields[12]=1;
-    TEEC_Operation finish={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)}; finish.params[0].tmpref.buffer=fields; finish.params[0].tmpref.size=sizeof(fields);
+    /* Empty trace has a real SHA chain root and canonical G1 infinity commitment. */
+    uint8_t fields[OSUMANIA_TA_FINAL_FIELDS_SIZE]={0}, seed[sizeof("OSUMANIA_TRACE_V1")-1+32];
+    be64(fields+4,42); memcpy(seed,"OSUMANIA_TRACE_V1",sizeof(seed)-32);
+    memcpy(seed+sizeof(seed)-32,header+60,32); SHA256(seed,sizeof(seed),fields+12);
+    fields[44]=0xc0;
+    TEEC_Operation finish={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)};
+    finish.params[0].tmpref.buffer=fields; finish.params[0].tmpref.size=sizeof(fields);
     if (invoke(&session,OSUMANIA_TA_FINALIZE_SESSION,&finish)) return 5;
-    uint8_t result1[465],result2[465]; TEEC_Operation result={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)};
-    result.params[0].tmpref.buffer=result1;result.params[0].tmpref.size=465;if(invoke(&session,OSUMANIA_TA_GET_RESULT,&result))return 6;
-    result.params[0].tmpref.buffer=result2;result.params[0].tmpref.size=465;if(invoke(&session,OSUMANIA_TA_GET_RESULT,&result)||memcmp(result1,result2,465))return 7;
-    uint8_t preimage[430],digest[32],recovered[20]; memcpy(preimage,"OSUMANIA_HARDWARE_SESSION_V2",28);preimage[28]=0;preimage[29]=2;memcpy(preimage+30,header,292);memcpy(preimage+322,fields,108);SHA256(preimage,430,digest);
-    if (memcmp(result1,header,292)||recover_address(digest,result1+400,recovered)||memcmp(recovered,device_info,20))return 8;
+    uint8_t result1[OSUMANIA_TA_RESULT_SIZE],result2[OSUMANIA_TA_RESULT_SIZE];
+    TEEC_Operation result={.paramTypes=TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_OUTPUT,TEEC_NONE,TEEC_NONE,TEEC_NONE)};
+    result.params[0].tmpref.buffer=result1;result.params[0].tmpref.size=sizeof(result1);
+    if(invoke(&session,OSUMANIA_TA_GET_RESULT,&result))return 6;
+    result.params[0].tmpref.buffer=result2;result.params[0].tmpref.size=sizeof(result2);
+    if(invoke(&session,OSUMANIA_TA_GET_RESULT,&result)||memcmp(result1,result2,sizeof(result1)))return 7;
+    static const uint8_t domain[]="OSUMANIA_HARDWARE_SESSION_V2_BLS12381";
+    uint8_t preimage[sizeof(domain)-1+2+sizeof(header)+sizeof(fields)],digest[32],recovered[20];
+    memcpy(preimage,domain,sizeof(domain)-1);preimage[sizeof(domain)-1]=0;preimage[sizeof(domain)]=2;
+    memcpy(preimage+sizeof(domain)+1,header,sizeof(header));
+    memcpy(preimage+sizeof(domain)+1+sizeof(header),fields,sizeof(fields));
+    SHA256(preimage,sizeof(preimage),digest);
+    if (memcmp(result1,header,sizeof(header))||memcmp(result1+sizeof(header),fields,sizeof(fields))||
+        recover_address(digest,result1+sizeof(header)+sizeof(fields),recovered)||memcmp(recovered,device_info,20))return 8;
     if(invoke(&session,OSUMANIA_TA_ABORT_SESSION,&empty))return 9;
-    puts("PASS OP-TEE stateful 430-byte preimage, low-s recoverable signature, immutable 465-byte result");
+    puts("PASS OP-TEE BLS12-381 zero-trace commitment, Mode B digest, low-s recoverable signature, immutable 449-byte result");
     TEEC_CloseSession(&session);TEEC_FinalizeContext(&context);return 0;
 }

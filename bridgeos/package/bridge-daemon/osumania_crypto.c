@@ -13,8 +13,13 @@
 
 struct osum_crypto {
     EC_GROUP *group;
-    EC_POINT *accumulator;
     BN_CTX *bn_ctx;
+    EC_POINT *accumulator;
+    EC_POINT *point;
+    EC_POINT *scaled;
+    BIGNUM *scalar;
+    BIGNUM *field;
+    BIGNUM *field_half;
     uint8_t *srs;
     size_t srs_size;
     uint32_t point_count;
@@ -57,18 +62,11 @@ static int read_file(const char *path, uint8_t **output, size_t *length)
     return 0;
 }
 
-static EC_GROUP *bn254_group(void)
+static EC_GROUP *bls12381_group(void)
 {
-    BIGNUM *p = NULL, *a = NULL, *b = NULL;
-    BN_hex2bn(&p, "30644E72E131A029B85045B68181585D97816A916871CA8D3C208C16D87CFD47");
-    a = BN_new();
-    b = BN_new();
-    if (!p || !a || !b) {
-        BN_free(p); BN_free(a); BN_free(b);
-        return NULL;
-    }
-    BN_zero(a);
-    if (!BN_set_word(b, 3)) {
+    BIGNUM *p = NULL, *a = BN_new(), *b = BN_new();
+    BN_hex2bn(&p, "1A0111EA397FE69A4B1BA7B6434BACD764774B84F38512BF6730D2A0F6B0F6241EABFFFEB153FFFFB9FEFFFFFFFFAAAB");
+    if (!p || !a || !b || !BN_set_word(a, 0) || !BN_set_word(b, 4)) {
         BN_free(p); BN_free(a); BN_free(b);
         return NULL;
     }
@@ -77,21 +75,28 @@ static EC_GROUP *bn254_group(void)
     return group;
 }
 
+/* IETF BLS12-381 G1 compressed encoding: x in big endian, C/I/S flag bits. */
 static int point_from_bank(const struct osum_crypto *crypto, uint32_t index, EC_POINT *point)
 {
     if (index >= crypto->point_count)
         return -1;
-    const uint8_t *encoded = crypto->srs + (size_t)index * 64u;
-    BIGNUM *x = BN_bin2bn(encoded, 32, NULL);
-    BIGNUM *y = BN_bin2bn(encoded + 32, 32, NULL);
-    if (!x || !y) {
-        BN_free(x); BN_free(y);
-        return -1;
-    }
-    int ok = EC_POINT_set_affine_coordinates(crypto->group, point, x, y,
-                                              crypto->bn_ctx) == 1 &&
-             EC_POINT_is_on_curve(crypto->group, point, crypto->bn_ctx) == 1;
-    BN_free(x); BN_free(y);
+    const uint8_t *encoded = crypto->srs + (size_t)index * 48u;
+    if ((encoded[0] & 0xc0u) != 0x80u)
+        return -1; /* No infinity in an SRS and compression is mandatory. */
+    uint8_t x_bytes[48];
+    memcpy(x_bytes, encoded, sizeof(x_bytes));
+    x_bytes[0] &= 0x1fu;
+    BN_CTX_start(crypto->bn_ctx);
+    BIGNUM *x = BN_CTX_get(crypto->bn_ctx);
+    BIGNUM *y = BN_CTX_get(crypto->bn_ctx);
+    int ok = x && y &&
+             BN_bin2bn(x_bytes, sizeof(x_bytes), x) &&
+             BN_cmp(x, crypto->field) < 0 &&
+             EC_POINT_set_compressed_coordinates(crypto->group, point, x, 0, crypto->bn_ctx) == 1 &&
+             EC_POINT_get_affine_coordinates(crypto->group, point, NULL, y, crypto->bn_ctx) == 1;
+    if (ok && ((BN_cmp(y, crypto->field_half) > 0) != !!(encoded[0] & 0x20u)))
+        ok = EC_POINT_invert(crypto->group, point, crypto->bn_ctx) == 1;
+    BN_CTX_end(crypto->bn_ctx);
     return ok ? 0 : -1;
 }
 
@@ -100,16 +105,25 @@ struct osum_crypto *osum_crypto_create(const char *srs_path)
     struct osum_crypto *crypto = calloc(1, sizeof(*crypto));
     if (!crypto)
         return NULL;
-    crypto->group = bn254_group();
+    crypto->group = bls12381_group();
     crypto->bn_ctx = BN_CTX_new();
     crypto->accumulator = crypto->group ? EC_POINT_new(crypto->group) : NULL;
-    if (!crypto->group || !crypto->bn_ctx || !crypto->accumulator || !srs_path ||
+    crypto->point = crypto->group ? EC_POINT_new(crypto->group) : NULL;
+    crypto->scaled = crypto->group ? EC_POINT_new(crypto->group) : NULL;
+    crypto->scalar = BN_new();
+    crypto->field = BN_new();
+    crypto->field_half = BN_new();
+    if (!crypto->group || !crypto->bn_ctx || !crypto->accumulator || !crypto->point ||
+        !crypto->scaled || !crypto->scalar || !crypto->field || !crypto->field_half ||
+        EC_GROUP_get_curve(crypto->group, crypto->field, NULL, NULL, crypto->bn_ctx) != 1 ||
+        !BN_rshift1(crypto->field_half, crypto->field) || !srs_path ||
         read_file(srs_path, &crypto->srs, &crypto->srs_size) != 0 ||
-        crypto->srs_size % 64u != 0) {
+        crypto->srs_size % (4u * 48u) != 0 ||
+        crypto->srs_size > OSUM_MAX_EVENTS * 4u * 48u) {
         osum_crypto_destroy(crypto);
         return NULL;
     }
-    crypto->point_count = (uint32_t)(crypto->srs_size / 64u);
+    crypto->point_count = (uint32_t)(crypto->srs_size / 48u);
     crypto->max_events = crypto->point_count / 4u;
     if (crypto->max_events == 0 || crypto->max_events > OSUM_MAX_EVENTS) {
         osum_crypto_destroy(crypto);
@@ -121,19 +135,19 @@ struct osum_crypto *osum_crypto_create(const char *srs_path)
         osum_crypto_destroy(crypto);
         return NULL;
     }
-    EC_POINT *probe = EC_POINT_new(crypto->group);
-    if (!probe) {
+    static const uint8_t generator[48] = {
+        0x97,0xf1,0xd3,0xa7,0x31,0x97,0xd7,0x94,0x26,0x95,0x63,0x8c,
+        0x4f,0xa9,0xac,0x0f,0xc3,0x68,0x8c,0x4f,0x97,0x74,0xb9,0x05,
+        0xa1,0x4e,0x3a,0x3f,0x17,0x1b,0xac,0x58,0x6c,0x55,0xe8,0x3f,
+        0xf9,0x7a,0x1a,0xef,0xfb,0x3a,0xf0,0x0a,0xdb,0x22,0xc6,0xbb,
+    };
+    if (memcmp(crypto->srs, generator, sizeof(generator)) != 0) {
         osum_crypto_destroy(crypto);
         return NULL;
     }
-    for (uint32_t i = 0; i < crypto->point_count; ++i) {
-        if (point_from_bank(crypto, i, probe) != 0) {
-            EC_POINT_free(probe);
-            osum_crypto_destroy(crypto);
-            return NULL;
-        }
-    }
-    EC_POINT_free(probe);
+    /* SHA-256 binds the entire bank to the TA and prover. Decode points only
+     * as events arrive; an invalid used point aborts before signing. Validating
+     * 200,000 points up front delays Vendor HID readiness past host timeouts. */
     crypto->ready = true;
     return crypto;
 }
@@ -148,6 +162,11 @@ void osum_crypto_destroy(struct osum_crypto *crypto)
     }
     free(crypto->srs);
     EC_POINT_free(crypto->accumulator);
+    EC_POINT_free(crypto->point);
+    EC_POINT_free(crypto->scaled);
+    BN_clear_free(crypto->scalar);
+    BN_free(crypto->field);
+    BN_free(crypto->field_half);
     EC_GROUP_free(crypto->group);
     BN_CTX_free(crypto->bn_ctx);
     OPENSSL_cleanse(crypto, sizeof(*crypto));
@@ -208,27 +227,15 @@ int osum_event_encode(struct osum_event *event, uint32_t sequence, uint64_t time
 static int add_scaled_point(struct osum_crypto *crypto, uint32_t point_index,
                             const uint8_t *scalar_bytes, size_t scalar_length)
 {
-    BIGNUM *scalar = BN_bin2bn(scalar_bytes, (int)scalar_length, NULL);
-    EC_POINT *point = EC_POINT_new(crypto->group);
-    EC_POINT *scaled = EC_POINT_new(crypto->group);
-    int result = -1;
-    if (!scalar || !point || !scaled)
-        goto out;
-    if (BN_is_zero(scalar)) {
-        result = 0;
-        goto out;
-    }
-    if (point_from_bank(crypto, point_index, point) != 0 ||
-        EC_POINT_mul(crypto->group, scaled, NULL, point, scalar, crypto->bn_ctx) != 1 ||
-        EC_POINT_add(crypto->group, crypto->accumulator, crypto->accumulator,
-                     scaled, crypto->bn_ctx) != 1)
-        goto out;
-    result = 0;
-out:
-    BN_clear_free(scalar);
-    EC_POINT_free(point);
-    EC_POINT_free(scaled);
-    return result;
+    if (!BN_bin2bn(scalar_bytes, (int)scalar_length, crypto->scalar))
+        return -1;
+    if (BN_is_zero(crypto->scalar))
+        return 0;
+    return point_from_bank(crypto, point_index, crypto->point) == 0 &&
+           EC_POINT_mul(crypto->group, crypto->scaled, NULL, crypto->point,
+                        crypto->scalar, crypto->bn_ctx) == 1 &&
+           EC_POINT_add(crypto->group, crypto->accumulator, crypto->accumulator,
+                        crypto->scaled, crypto->bn_ctx) == 1 ? 0 : -1;
 }
 
 static int flush_chunk(struct osum_crypto *crypto)
@@ -274,20 +281,25 @@ int osum_crypto_add(struct osum_crypto *crypto, const struct osum_event *event)
 }
 
 int osum_crypto_finalize(struct osum_crypto *crypto, uint8_t trace_root[32],
-                         uint8_t commitment[64])
+                         uint8_t commitment[48])
 {
     if (!osum_crypto_ready(crypto) || crypto->finalized || flush_chunk(crypto) != 0)
         return -1;
     memcpy(trace_root, crypto->chain, 32u);
-    memset(commitment, 0, 64u);
-    if (!EC_POINT_is_at_infinity(crypto->group, crypto->accumulator)) {
-        BIGNUM *x = BN_new();
-        BIGNUM *y = BN_new();
-        int ok = x && y && EC_POINT_get_affine_coordinates(crypto->group,
-                    crypto->accumulator, x, y, crypto->bn_ctx) == 1 &&
-                 BN_bn2binpad(x, commitment, 32) == 32 &&
-                 BN_bn2binpad(y, commitment + 32, 32) == 32;
-        BN_clear_free(x); BN_clear_free(y);
+    memset(commitment, 0, 48u);
+    if (EC_POINT_is_at_infinity(crypto->group, crypto->accumulator)) {
+        commitment[0] = 0xc0u;
+    } else {
+        BN_CTX_start(crypto->bn_ctx);
+        BIGNUM *x = BN_CTX_get(crypto->bn_ctx);
+        BIGNUM *y = BN_CTX_get(crypto->bn_ctx);
+        int ok = x && y &&
+                 EC_POINT_get_affine_coordinates(crypto->group, crypto->accumulator,
+                                                 x, y, crypto->bn_ctx) == 1 &&
+                 BN_bn2binpad(x, commitment, 48) == 48;
+        if (ok)
+            commitment[0] |= (uint8_t)(0x80u | (BN_cmp(y, crypto->field_half) > 0 ? 0x20u : 0));
+        BN_CTX_end(crypto->bn_ctx);
         if (!ok)
             return -1;
     }

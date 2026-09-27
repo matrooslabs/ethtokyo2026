@@ -35,7 +35,10 @@ if [ "$profile" = signed-lab ] || [ "$profile" = mvp-keyed ]; then
 fi
 if [ "$profile" = mvp-keyed ]; then
     : "${OSUMANIA_MVP_DEVICE_KEY_FILE:?mvp-keyed needs external secp256k1 PEM}"
-    : "${OSUMANIA_MVP_SRS_BANK:?mvp-keyed needs external verified PSE SRS}"
+    : "${OSUMANIA_MVP_SRS_BANK:?mvp-keyed needs local BLS12-381 SRS bank matching scoring SRS}"
+    : "${OSUMANIA_MVP_SRS_ID:?mvp-keyed needs corresponding smax=22 scoring SRS ID}"
+    OSUMANIA_MVP_SRS_SHA256="$(sha256sum "$OSUMANIA_MVP_SRS_BANK" | cut -d' ' -f1)"
+    export OSUMANIA_MVP_SRS_SHA256 OSUMANIA_MVP_SRS_ID
     : "${TA_SIGN_KEY:?mvp-keyed needs external TA signing private key}"
     : "${TA_PUBLIC_KEY:?mvp-keyed needs matching TA public key}"
     ta_private_pub="$(openssl pkey -in "$TA_SIGN_KEY" -pubout -outform DER | sha256sum | cut -d' ' -f1)"

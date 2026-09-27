@@ -21,6 +21,8 @@ export const STOP = 0x12;
 export const ABORT = 0x13;
 export const GET_RESULT = 0x20;
 export const GET_TRACE = 0x21;
+// SHA256("OSUMANIA_INPUT_POLICY_V2_KZG_BLS12381"); reject legacy BN254 controllers before spending a play.
+export const MODE_B_INPUT_POLICY_HASH = 'd04622aed68ebb52cd5edc4a945b79f16cc4b6d90554d1c71e7ca0f2aa0af535';
 export type Command = typeof GET_INFO | typeof GET_STATUS | typeof SET_HEADER | typeof START |
   typeof STOP | typeof ABORT | typeof GET_RESULT | typeof GET_TRACE;
 
@@ -99,7 +101,7 @@ export class ResponseAssembler {
     const offset = header.getUint32(8);
     const total = header.getUint32(12);
     const maximum = flags & ERROR ? FRAGMENT_SIZE : this.type === GET_INFO ? 128 :
-      this.type === GET_STATUS ? 16 : this.type === GET_RESULT ? 465 :
+      this.type === GET_STATUS ? 16 : this.type === GET_RESULT ? 449 :
       this.type === GET_TRACE ? 700000 : 0;
     if ((flags !== RESPONSE && flags !== (RESPONSE | ERROR)) ||
         total > maximum || (total === 0 && (flags !== RESPONSE || offset !== 0)) ||

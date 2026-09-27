@@ -64,6 +64,7 @@ public struct Challenge<phantom T> has key {
     easy_refund_pool: u64,
     hard_refund_pool: u64,
     settled: bool,
+    entry_open: bool,
 }
 
 /// Owned by the trusted off-chain World ID + wallet signature verification service.
@@ -118,6 +119,11 @@ public struct ChallengeCreated has copy, drop {
     score_deadline_ms: u64,
     claim_window_ms: u64,
     claim_deadline_ms: u64,
+}
+
+public struct ChallengeEntryChanged has copy, drop {
+    challenge: ID,
+    open: bool,
 }
 
 public struct PlaysPurchased has copy, drop {
@@ -251,9 +257,21 @@ public fun create<T>(
         easy_total_purchases: 0, hard_total_purchases: 0,
         easy_refund_purchases_remaining: 0, hard_refund_purchases_remaining: 0,
         easy_original_pot: 0, hard_original_pot: 0,
-        easy_refund_pool: 0, hard_refund_pool: 0, settled: false,
+        easy_refund_pool: 0, hard_refund_pool: 0, settled: false, entry_open: true,
     });
     IdentityCap { id: object::new(ctx), challenge }
+}
+
+/// The organizer can pause new purchases and starts before the fixed score deadline.
+/// Existing sessions can still record scores, and the deadline never moves.
+public fun set_entry_open<T>(
+    c: &mut Challenge<T>, reg: &Registry, cap: &OrganizerCap, open: bool, clock: &Clock,
+) {
+    assert!(c.registry == object::id(reg), ERegistry);
+    registry::assert_organizer(reg, cap);
+    assert!(clock.timestamp_ms() < c.score_deadline_ms, EClosed);
+    c.entry_open = open;
+    event::emit(ChallengeEntryChanged { challenge: object::id(c), open });
 }
 
 /// Exactly one canonical six-decimal USDC buys three plays on the selected chart.
@@ -263,7 +281,7 @@ public fun buy_plays<T>(
 ) {
     assert!(difficulty == EASY || difficulty == HARD, EDifficulty);
     let now = clock.timestamp_ms();
-    assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
+    assert!(c.entry_open && now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     assert!(coin::value(&payment) == PRICE, EPrice);
     let wallet = ctx.sender();
     if (!c.buyers.contains(wallet)) {
@@ -291,7 +309,7 @@ public fun buy_plays<T>(
 }
 
 /// The selected chart and one consumed wallet credit are bound to a fresh hardware
-/// mode-3 native registry Session in the SAME atomic transaction.
+/// mode-2 committed registry Session in the SAME atomic transaction.
 public fun start_paid<T>(
     c: &mut Challenge<T>,
     reg: &Registry,
@@ -300,7 +318,7 @@ public fun start_paid<T>(
     ctx: &mut TxContext,
 ): ID {
     let now = clock.timestamp_ms();
-    assert!(now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
+    assert!(c.entry_open && now >= c.started_at_ms && now < c.score_deadline_ms, EClosed);
     assert!(c.registry == object::id(reg), ERegistry);
     let chart_hash = chart_for(c, difficulty);
     let wallet = ctx.sender();
@@ -315,7 +333,7 @@ public fun start_paid<T>(
         buyer.hard_plays = buyer.hard_plays - 1;
         buyer.hard_plays
     };
-    // Registry's inclusive expiry aligns with this vault's exclusive six-hour cutoff.
+    // Registry's inclusive expiry aligns with this vault's exclusive score cutoff.
     let session = registry::open_competition_session(
         reg, c.round_id, chart_hash, wallet, c.device, c.score_deadline_ms - 1, clock, ctx,
     );
@@ -326,7 +344,7 @@ public fun start_paid<T>(
     session
 }
 
-/// Only a consumed native GKR score on this original paid Session/chart/difficulty
+/// Only a consumed committed GKR score on this original paid Session/chart/difficulty
 /// counts. Anyone can relay; accepted recordings are immutable and replay-protected.
 public fun record_score<T>(c: &mut Challenge<T>, session: &Session, clock: &Clock) {
     let now = clock.timestamp_ms();
@@ -339,7 +357,7 @@ public fun record_score<T>(c: &mut Challenge<T>, session: &Session, clock: &Cloc
     let difficulty = attempt.difficulty;
     let chart_hash = chart_for(c, difficulty);
     assert!(registry::session_matches(
-        session, c.registry, wallet, c.round_id, chart_hash, c.device, 3,
+        session, c.registry, wallet, c.round_id, chart_hash, c.device, 2,
     ), EAttempt);
     c.attempts.borrow_mut(sid).recorded = true;
     let score = registry::session_score(session);
@@ -390,8 +408,8 @@ fun insert_rank(top: &mut vector<RankedClaim>, candidate: RankedClaim): u64 {
     rank
 }
 
-/// The service verifies World PoH and wallet signature OFF-chain after the six-hour
-/// game ends. The nullifier must be round-scoped, 32 bytes, and never raw World ID.
+/// The service verifies World PoH and wallet signature OFF-chain after gameplay.
+/// The nullifier must be round-scoped, 32 bytes, and never raw World ID.
 /// No caller supplies a score: the highest native recorded score of the selected
 /// difficulty is used. Claim arrival order never changes tie precedence.
 public fun register_claim<T>(

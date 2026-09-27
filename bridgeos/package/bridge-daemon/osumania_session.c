@@ -17,8 +17,8 @@
 #define CAPTURE_QUEUE_MASK (CAPTURE_QUEUE_SIZE - 1u)
 
 static const uint8_t policy_hash[32] = {
-    0x1d,0xd3,0xe7,0x15,0x32,0x31,0x9b,0xcc,0xa3,0x1f,0x8f,0x24,0x8b,0xae,0x6a,0x8c,
-    0x8e,0x05,0x7c,0xdd,0xbd,0x69,0x2b,0xfa,0xdf,0x3e,0xb0,0x6e,0x0a,0xe7,0x54,0x60,
+    0xd0,0x46,0x22,0xae,0xd6,0x8e,0xbb,0x52,0xcd,0x5e,0xdc,0x4a,0x94,0x5b,0x79,0xf1,
+    0x6c,0xc4,0xb6,0xd9,0x05,0x54,0xd1,0xc7,0x1e,0x7c,0xa0,0xf2,0xaa,0x0a,0xf5,0x35,
 };
 
 struct osum_session {
@@ -42,7 +42,7 @@ struct osum_session {
     struct timespec origin;
     uint64_t duration_us;
     uint8_t trace_root[32];
-    uint8_t commitment[64];
+    uint8_t commitment[48];
     pthread_mutex_t command_lock;
     pthread_mutex_t drain_lock;
     pthread_cond_t drain_condition;
@@ -100,7 +100,8 @@ struct osum_session *osum_session_create(const char *srs_path, const char *signe
         return NULL;
     session->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     session->crypto = srs_path ? osum_crypto_create(srs_path) : NULL;
-    session->signer = osum_signer_open(signer_backend);
+    session->signer = osum_signer_open(signer_backend, osum_crypto_srs_hash(session->crypto),
+                                       osum_crypto_max_events(session->crypto));
     pthread_mutex_init(&session->command_lock, NULL);
     pthread_mutex_init(&session->drain_lock, NULL);
     pthread_cond_init(&session->drain_condition, NULL);
@@ -161,6 +162,11 @@ int osum_session_info(struct osum_session *session, struct osum_session_info *in
         osum_signer_failure(session->signer, tee_result, tee_origin);
         return -1;
     }
+    if (signer_info.max_events != osum_crypto_max_events(session->crypto) ||
+        memcmp(signer_info.srs_hash, osum_crypto_srs_hash(session->crypto), 32) != 0) {
+        *detail = OSUM_HEADER_SRS;
+        return -1;
+    }
     memcpy(info->device, signer_info.device, 20);
     memcpy(info->bitstream_hash, signer_info.bitstream_hash, 32);
     memcpy(info->input_policy_hash, policy_hash, 32);
@@ -194,6 +200,14 @@ int osum_session_set_header(struct osum_session *session,
         return -1;
     }
     pthread_mutex_lock(&session->command_lock);
+    struct osum_signer_info signer_info;
+    if (osum_signer_get_info(session->signer, &signer_info) != 0 ||
+        signer_info.max_events != osum_crypto_max_events(session->crypto) ||
+        memcmp(signer_info.srs_hash, osum_crypto_srs_hash(session->crypto), 32) != 0) {
+        *detail = OSUM_HEADER_SRS;
+        pthread_mutex_unlock(&session->command_lock);
+        return -1;
+    }
     int result = osum_signer_set_header(session->signer, header, detail);
     if (!result) {
         memcpy(session->header, header, OSUM_HEADER_SIZE);

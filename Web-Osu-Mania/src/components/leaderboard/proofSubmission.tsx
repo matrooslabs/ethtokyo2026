@@ -10,19 +10,47 @@ import { useGameStore } from "@/stores/gameStore";
 import type { PlayResults } from "@/types";
 
 type RelayPlan = {
+  kind: "sui-programmable-transaction";
+  mode: "committed";
   sessionId: string;
   registryId: string;
   packageId: string;
-  traceBatches: string[][];
   proofGroups: string[][];
-  steps: Array<{ arguments?: Array<{ value?: string | number | number[] }> }>;
-  result?: { score: number };
+  n: string;
+  root: string;
+  traceCommitment: string;
+  duration: string;
+  laneBits: number[];
+  counts: number[];
+  signature: string;
+  result: { score: number };
 };
 type Job = { state: "proving" | "ready" | "failed" | "interrupted"; payload?: RelayPlan; error?: string };
 
 function fromHex(value: string): Uint8Array {
   if (!/^0x(?:[\da-f]{2})*$/i.test(value)) throw new Error("Invalid hexadecimal proof data.");
   return Uint8Array.from(value.slice(2).match(/../g) || [], (byte) => Number.parseInt(byte, 16));
+}
+function committedPlan(value: unknown): RelayPlan {
+  const plan = value as RelayPlan & { steps?: unknown; traceBatches?: unknown };
+  const hexBytes = (data: unknown, length: number) =>
+    typeof data === "string" && new RegExp(`^0x[0-9a-fA-F]{${length * 2}}$`).test(data);
+  const u64 = (data: unknown) => typeof data === "string" && /^(0|[1-9]\d*)$/.test(data) && BigInt(data) <= 18446744073709551615n;
+  const words = (data: unknown, length: number) => Array.isArray(data) && data.length === length &&
+    data.every((word) => Number.isSafeInteger(word) && word >= 0);
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.kind !== "sui-programmable-transaction" ||
+      plan.mode !== "committed" || "steps" in plan || "traceBatches" in plan ||
+      !hexBytes(plan.root, 32) || !hexBytes(plan.traceCommitment, 48) || !hexBytes(plan.signature, 65) ||
+      !u64(plan.n) || BigInt(plan.n) > 50000n || !u64(plan.duration) ||
+      !words(plan.laneBits, 4) || !words(plan.counts, 5) ||
+      !Array.isArray(plan.proofGroups) || plan.proofGroups.length === 0 ||
+      !plan.proofGroups.every((group) => Array.isArray(group) && group.every((item) =>
+        typeof item === "string" && /^0x(?:[0-9a-fA-F]{2})*$/.test(item))) ||
+      !plan.result || !Number.isSafeInteger(plan.result.score) || plan.result.score < 0 ||
+      typeof plan.sessionId !== "string" || typeof plan.registryId !== "string" || typeof plan.packageId !== "string") {
+    throw new Error("Scoring server returned an invalid Mode-B committed proof; legacy trace plans cannot be submitted.");
+  }
+  return plan;
 }
 
 async function scoring(path: string, data?: object): Promise<Job> {
@@ -31,6 +59,7 @@ async function scoring(path: string, data?: object): Promise<Job> {
   } : undefined);
   const value = await response.json() as Job;
   if (!response.ok) throw new Error(value.error || "Signed score proof is unavailable.");
+  if (value.state === "ready") value.payload = committedPlan(value.payload);
   return value;
 }
 
@@ -60,11 +89,16 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
     }
     void (async () => {
       try {
-        const sealed = await hardware.stopRecording();
+        const chart = chartFromBeatmap(beatmap);
+        // scoring-core requires the signed device duration to include the final
+        // note plus its full 136.5 ms miss window; browser finish time may differ.
+        const lastNoteEndUs = chart.notes.reduce((latest, note) => Math.max(latest, note.end_us), 0);
+        setMessage("Waiting for the Bridge's final hit window…");
+        const sealed = await hardware.stopRecording(BigInt(lastNoteEndUs + 136_500));
         setMessage("Checking device signature and generating a Sui GKR proof…");
         const response = await scoring("submit", {
           sessionId: attempt.sessionId, resultHex: sealed.resultHex, traceHex: sealed.traceHex,
-          chart: chartFromBeatmap(beatmap),
+          chart,
         });
         if (response.state === "ready") setJob({ state: "ready", payload: response.payload });
         else setJob({ state: "proving" });
@@ -82,7 +116,10 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
         if (value.state === "failed") setMessage(value.error || "Signed proof failed. This run cannot resume.");
         if (value.state === "interrupted") setMessage("Proof generation was interrupted. Recheck the saved capture with the operator.");
         if (value.state === "ready") setMessage("Hardware proof is ready. Submit it to Sui to register your score.");
-      }, (error: unknown) => setMessage(error instanceof Error ? error.message : String(error)));
+      }, (error: unknown) => {
+        setJob({ state: "failed" });
+        setMessage(error instanceof Error ? error.message : String(error));
+      });
     }, 2500);
     return () => clearInterval(timer);
   }, [attempt?.sessionId, job?.state]);
@@ -121,15 +158,6 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
     if (BigInt(chainTime) >= BigInt(chainDeadline)) throw new Error("The six-hour Sui score window closed before proof submission.");
   }
 
-  async function sendStage(tx: Transaction) {
-    const result = await wallet.signAndExecuteTransaction({ transaction: tx });
-    if (!result.Transaction) throw new Error("Sui trace upload was rejected. The play remains spent.");
-    const confirmed = await client.waitForTransaction({ digest: result.Transaction.digest,
-      include: { effects: true, objectTypes: true } });
-    if (!confirmed.Transaction?.status.success) throw new Error("Sui trace upload failed. Recheck the signed proof.");
-    return confirmed.Transaction;
-  }
-
   async function submit() {
     const plan = job?.payload;
     if (!plan || !attempt || submitting || accepted || submitLock.current) return;
@@ -151,78 +179,20 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
       if (plan.sessionId !== attempt.sessionId || plan.registryId !== suiDeployment.registryId || plan.packageId !== suiDeployment.packageId) {
         throw new Error("Proof does not match this paid Sui session.");
       }
-      const submitArgs = plan.steps.at(-1)?.arguments;
-      if (!submitArgs || submitArgs.length !== 10) throw new Error("Scoring server returned an invalid on-chain submission plan.");
       if (account?.address !== attempt.player) throw new Error("Reconnect the wallet that played this run to submit its score.");
       const tx = new Transaction();
-      const traceSize = plan.traceBatches.reduce((total, batch) =>
-        total + batch.reduce((bytes, chunk) => bytes + (chunk.length - 2) / 2, 0), 0);
-      const uploadKey = `sui-trace-upload:${attempt.sessionId}`;
-      let trace;
-      if (traceSize > 50_000) {
-        let saved: { id: string; nextBatch: number } | undefined;
-        try {
-          const value = localStorage.getItem(uploadKey);
-          if (value) saved = JSON.parse(value);
-        } catch { /* The prover retains the completed signed capture. */ }
-        if (saved && (!/^0x[0-9a-fA-F]{64}$/.test(saved.id) || !Number.isInteger(saved.nextBatch) ||
-            saved.nextBatch < 0 || saved.nextBatch > plan.traceBatches.length)) saved = undefined;
-        if (saved) {
-          try {
-            const object = await client.getObject({ objectId: saved.id });
-            if (!object.object?.type.endsWith("::registry::TraceUpload")) saved = undefined;
-          } catch { saved = undefined; }
-        }
-        if (!saved) {
-          const init = new Transaction();
-          const upload = init.moveCall({ target: `${suiDeployment.packageId}::registry::new_trace_upload`,
-            arguments: [init.object(attempt.sessionId)] });
-          const first = Math.min(4, plan.traceBatches.length);
-          for (const chunks of plan.traceBatches.slice(0, first)) {
-            init.moveCall({ target: `${suiDeployment.packageId}::registry::append_trace`,
-              arguments: [upload, init.pure(bcs.vector(bcs.vector(bcs.u8())).serialize(chunks.map(fromHex)))] });
-          }
-          init.transferObjects([upload], attempt.player);
-          setMessage("Uploading signed inputs to Sui…");
-          const uploaded = await sendStage(init);
-          const id = uploaded.effects?.changedObjects.find((row) => row.idOperation === "Created" &&
-            uploaded.objectTypes?.[row.objectId]?.endsWith("::registry::TraceUpload"))?.objectId;
-          if (!id) throw new Error("Sui did not return the staged trace object.");
-          saved = { id, nextBatch: first };
-          try { localStorage.setItem(uploadKey, JSON.stringify(saved)); } catch { /* Optional checkpoint. */ }
-        }
-        for (let index = saved.nextBatch; index < plan.traceBatches.length; index += 4) {
-          const part = new Transaction();
-          for (const chunks of plan.traceBatches.slice(index, index + 4)) {
-            part.moveCall({ target: `${suiDeployment.packageId}::registry::append_trace`,
-              arguments: [part.object(saved.id), part.pure(bcs.vector(bcs.vector(bcs.u8())).serialize(chunks.map(fromHex)))] });
-          }
-          setMessage(`Uploading signed inputs ${Math.min(index + 4, plan.traceBatches.length)}/${plan.traceBatches.length}…`);
-          await sendStage(part);
-          saved.nextBatch = Math.min(index + 4, plan.traceBatches.length);
-          try { localStorage.setItem(uploadKey, JSON.stringify(saved)); } catch { /* Optional checkpoint. */ }
-        }
-        trace = tx.object(saved.id);
-      } else {
-        trace = tx.moveCall({ target: `${suiDeployment.packageId}::registry::new_trace_upload`,
-          arguments: [tx.object(attempt.sessionId)] });
-        for (const chunks of plan.traceBatches) {
-          tx.moveCall({ target: `${suiDeployment.packageId}::registry::append_trace`,
-            arguments: [trace, tx.pure(bcs.vector(bcs.vector(bcs.u8())).serialize(chunks.map(fromHex)))] });
-        }
-      }
       const items = bcs.vector(bcs.vector(bcs.u8()));
       const proof = tx.makeMoveVec({
         type: "vector<vector<u8>>",
         elements: plan.proofGroups.map((group) => tx.pure(items.serialize(group.map(fromHex)))),
       });
       tx.moveCall({
-        target: `${suiDeployment.packageId}::registry::submit_hardware`,
-        arguments: [tx.object(suiDeployment.registryId), tx.object(attempt.sessionId), trace,
-          tx.pure.u64(String(submitArgs[3].value)), tx.pure.vector("u8", fromHex(String(submitArgs[4].value))),
-          tx.pure.vector("u64", submitArgs[5].value as number[]),
-          tx.pure.vector("u64", submitArgs[6].value as number[]), proof,
-          tx.pure.vector("u8", fromHex(String(submitArgs[8].value))), tx.object.clock()],
+        target: `${suiDeployment.packageId}::registry::submit_committed`,
+        arguments: [tx.object(suiDeployment.registryId), tx.object(attempt.sessionId),
+          tx.pure.u64(plan.n), tx.pure.vector("u8", fromHex(plan.root)),
+          tx.pure.vector("u8", fromHex(plan.traceCommitment)), tx.pure.u64(plan.duration),
+          tx.pure.vector("u64", plan.laneBits), tx.pure.vector("u64", plan.counts), proof,
+          tx.pure.vector("u8", fromHex(plan.signature)), tx.object.clock()],
       });
       tx.moveCall({
         target: `${suiDeployment.packageId}::competition::record_score`,
@@ -242,8 +212,7 @@ export default function ProofSubmission({ results, beatmap, hardware }: {
           Number(value.difficulty) === difficultyCode(attempt.difficulty);
       })) throw new Error("No accepted Sui score was recorded for this selected challenge and difficulty. Recheck before resubmitting.");
       setAccepted(true);
-      setMessage(`Bridge score ${plan.result?.score?.toLocaleString() ?? ""} accepted on Sui.`);
-      try { localStorage.removeItem(`sui-trace-upload:${attempt.sessionId}`); } catch { /* Optional checkpoint. */ }
+      setMessage(`Bridge score ${plan.result.score.toLocaleString()} accepted on Sui.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {

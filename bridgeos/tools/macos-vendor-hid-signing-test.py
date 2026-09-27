@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import importlib.util
+import os
 import pathlib
 import secrets
 import struct
@@ -39,18 +40,18 @@ SECP256K1_G = (
 )
 GET_TRACE = 0x21
 HEADER_SIZE = 292
-RESULT_SIZE = 465
+RESULT_SIZE = 449
 STATUS_SIZE = 16
 EVENT_SIZE = 14
-DOMAIN_SESSION = b"OSUMANIA_HARDWARE_SESSION_V2"
+DOMAIN_SESSION = b"OSUMANIA_HARDWARE_SESSION_V2_BLS12381"
 DOMAIN_TRACE = b"OSUMANIA_TRACE_V1"
 SECP256K1_ORDER = int("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
-BN254_FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583
-BN254_ORDER = 21888242871839275222246405745257275088548364400416034343698204186575808495617
-DEV_SRS_SHA256 = '9429d8e688b4879bcab8f84a7f8574d682277bcb6021841cca060ff969e9c2d7'
-DEFAULT_SRS = SCRIPT_DIR / 'srs-g1-be.bin'
+BLS12381_FIELD = int("1A0111EA397FE69A4B1BA7B6434BACD764774B84F38512BF6730D2A0F6B0F6241EABFFFEB153FFFFB9FEFFFFFFFFAAAB", 16)
+BLS12381_ORDER = int("73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001", 16)
+BLS12381_GENERATOR = bytes.fromhex("97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb")
+DEFAULT_SRS = SCRIPT_DIR / 'srs-g1-bls12381.bin'
 if not DEFAULT_SRS.is_file():
-    DEFAULT_SRS = SCRIPT_DIR.parent / 'tests/vendor-hid/vectors/srs-g1-be.bin'
+    DEFAULT_SRS = SCRIPT_DIR.parent / 'tests/vendor-hid/vectors/srs-g1-bls12381.bin'
 
 
 
@@ -125,6 +126,9 @@ def transact(device: Any, message_type: int, request: bytes = b"",
 
 
 def build_header(info: Any) -> tuple[bytes, bytes]:
+    expected_policy = hashlib.sha256(b"OSUMANIA_INPUT_POLICY_V2_KZG_BLS12381").hexdigest()
+    if info.input_policy_hash.lower().removeprefix('0x') != expected_policy:
+        raise RuntimeError("device does not advertise Mode B BLS12-381 input policy")
     session_id = secrets.token_bytes(32)
     fields = (
         struct.pack(">Q", 1) +                         # chain_id
@@ -215,11 +219,9 @@ def point_add(left: tuple[int, int] | None,
 
 
 def scalar_mul(value: int, point: tuple[int, int] | None,
-               field: int = SECP256K1_FIELD,
-               order: int = SECP256K1_ORDER) -> tuple[int, int] | None:
+               field: int = SECP256K1_FIELD) -> tuple[int, int] | None:
     result = None
     addend = point
-    value %= order
     while value:
         if value & 1:
             result = point_add(result, addend, field)
@@ -230,44 +232,55 @@ def scalar_mul(value: int, point: tuple[int, int] | None,
 
 def load_srs(path: pathlib.Path, info: Any, trusted_hash: str | None = None) -> bytes:
     if not path.is_file():
-        raise RuntimeError(f"local SRS bank missing: {path}; copy srs-g1-be.bin beside this script or use --srs")
+        raise RuntimeError(f"local BLS12-381 SRS bank missing: {path}; use --srs")
     bank = path.read_bytes()
-    if len(bank) != 4 * info.max_events * 64 or info.max_events > 50000:
+    if not 0 < info.max_events <= 50000 or len(bank) != 4 * info.max_events * 48:
         raise RuntimeError(
-            f"local SRS has {len(bank) // 64} points; GET_INFO requires "
-            f"{4 * info.max_events} points. Supply the matching full bank with "
-            "--srs and --srs-sha256, or use --signature-only to skip commitment verification"
+            f"local SRS has {len(bank) // 48} points; GET_INFO requires "
+            f"{4 * info.max_events} points. Supply the matching full BLS bank"
         )
     if trusted_hash is None:
-        if info.max_events == 65 and info.bitstream_hash.lower() == '04' * 32:
-            trusted_hash = DEV_SRS_SHA256
-        else:
-            raise RuntimeError("non-development SRS requires --srs-sha256 from an approved manifest")
+        raise RuntimeError("BLS SRS requires --srs-sha256 from the provisioned image or --identity")
     trusted_hash = trusted_hash.lower().removeprefix('0x')
     if len(trusted_hash) != 64 or any(c not in '0123456789abcdef' for c in trusted_hash):
         raise RuntimeError("--srs-sha256 must be a 32-byte hexadecimal SHA-256 digest")
     digest = hashlib.sha256(bank).hexdigest()
     if digest != trusted_hash or digest != info.srs_hash.lower().removeprefix('0x'):
         raise RuntimeError("local SRS bank hash differs from trusted manifest or GET_INFO")
+    if bank[:48] != BLS12381_GENERATOR or scalar_mul(BLS12381_ORDER, bls_point(bank, 0), BLS12381_FIELD) is not None:
+        raise RuntimeError("BLS bank does not start with the canonical G1 generator")
     return bank
 
 
-def bn254_point(bank: bytes, index: int) -> tuple[int, int] | None:
-    offset = 64 * index
-    encoded = bank[offset:offset + 64]
-    if len(encoded) != 64:
-        raise RuntimeError("SRS bank truncated during commitment verification")
-    x = int.from_bytes(encoded[:32], 'big')
-    y = int.from_bytes(encoded[32:], 'big')
-    if x == y == 0:
-        return None
-    if x >= BN254_FIELD or y >= BN254_FIELD or (y * y - x * x * x - 3) % BN254_FIELD:
-        raise RuntimeError(f"invalid BN254 G1 point at bank index {index}")
+def bls_point(bank: bytes, index: int) -> tuple[int, int]:
+    encoded = bank[48 * index:48 * (index + 1)]
+    if len(encoded) != 48:
+        raise RuntimeError("BLS SRS bank truncated during commitment verification")
+    if encoded[0] & 0xc0 != 0x80:
+        raise RuntimeError(f"invalid BLS12-381 G1 point at bank index {index}")
+    x = int.from_bytes(bytes([encoded[0] & 0x1f]) + encoded[1:], 'big')
+    if x >= BLS12381_FIELD:
+        raise RuntimeError(f"invalid BLS12-381 G1 point at bank index {index}")
+    y2 = (x*x*x + 4) % BLS12381_FIELD
+    y = pow(y2, (BLS12381_FIELD + 1) // 4, BLS12381_FIELD)
+    if y*y % BLS12381_FIELD != y2:
+        raise RuntimeError(f"invalid BLS12-381 G1 point at bank index {index}")
+    if (y > BLS12381_FIELD - y) != bool(encoded[0] & 0x20):
+        y = BLS12381_FIELD - y
     return x, y
 
 
+def bls_bytes(point: tuple[int, int] | None) -> bytes:
+    if point is None:
+        return b'\xc0' + bytes(47)
+    x, y = point
+    encoded = bytearray(x.to_bytes(48, 'big'))
+    encoded[0] |= 0x80 | (0x20 if y > BLS12381_FIELD - y else 0)
+    return bytes(encoded)
+
+
 def verify_commitment(trace: bytes, expected: bytes, bank: bytes) -> None:
-    if len(expected) != 64 or len(trace) % EVENT_SIZE:
+    if len(expected) != 48 or len(trace) % EVENT_SIZE:
         raise RuntimeError("invalid commitment or trace length")
     accumulator = None
     for j in range(len(trace) // EVENT_SIZE):
@@ -276,14 +289,13 @@ def verify_commitment(trace: bytes, expected: bytes, bank: bytes) -> None:
                    trace[offset + 12], trace[offset + 13])
         for c, scalar in enumerate(scalars):
             if scalar:
-                base_point = bn254_point(bank, 4 * j + c)
+                base_point = bls_point(bank, 4 * j + c)
                 accumulator = point_add(accumulator,
-                                        scalar_mul(scalar, base_point, BN254_FIELD, BN254_ORDER),
-                                        BN254_FIELD)
-    actual = bytes(64) if accumulator is None else (
-        accumulator[0].to_bytes(32, 'big') + accumulator[1].to_bytes(32, 'big'))
+                                        scalar_mul(scalar, base_point, BLS12381_FIELD),
+                                        BLS12381_FIELD)
+    actual = bls_bytes(accumulator)
     if actual != expected:
-        raise RuntimeError(f"BN254 commitment mismatch: expected {expected.hex()}, computed {actual.hex()}")
+        raise RuntimeError(f"BLS commitment mismatch: expected {expected.hex()}, computed {actual.hex()}")
 
 
 def recover_public_key(digest: bytes, r: int, s: int,
@@ -338,15 +350,16 @@ def verify_result(info: Any, header: bytes, session_id: bytes,
     count = struct.unpack_from(">I", result, 292)[0]
     duration_us = struct.unpack_from(">Q", result, 296)[0]
     root = result[304:336]
-    commitment = result[336:400]
-    signature = result[400:465]
+    commitment = result[336:384]
+    signature = result[384:449]
     if count != len(trace) // EVENT_SIZE:
         raise RuntimeError(f"signed count {count} != trace count {len(trace) // EVENT_SIZE}")
     if count < min_events:
         raise RuntimeError(f"captured {count} events, fewer than required {min_events}")
     events = parse_trace(trace, duration_us)
-    if root != trace_root(session_id, trace):
-        raise RuntimeError("signed trace root does not match GET_TRACE")
+    computed_root = trace_root(session_id, trace)
+    if root != computed_root:
+        raise RuntimeError(f"signed trace root {root.hex()} does not match GET_TRACE root {computed_root.hex()}")
     r = int.from_bytes(signature[:32], "big")
     s = int.from_bytes(signature[32:64], "big")
     recovery_id = signature[64] - 27
@@ -354,9 +367,9 @@ def verify_result(info: Any, header: bytes, session_id: bytes,
         raise RuntimeError("signature is not canonical low-s secp256k1")
     if recovery_id not in (0, 1):
         raise RuntimeError(f"invalid recovery ID {signature[64]}")
-    final_fields = result[292:400]
+    final_fields = result[292:384]
     preimage = DOMAIN_SESSION + b"\x00\x02" + header + final_fields
-    if len(preimage) != 430:
+    if len(preimage) != 423:
         raise AssertionError(f"signing preimage length {len(preimage)}")
     digest = hashlib.sha256(preimage).digest()
     public_point = recover_public_key(digest, r, s, recovery_id)
@@ -372,7 +385,7 @@ def verify_result(info: Any, header: bytes, session_id: bytes,
     return {
         "event_count": len(events),
         "duration_us": duration_us,
-        "commitment_is_infinity": int(not any(commitment)),
+        "commitment_is_infinity": int(commitment == b'\xc0' + bytes(47)),
         "public_key": "04" + public_key.hex(),
         "compressed_public_key": "0x" + ("03" if public_point[1] & 1 else "02") + public_point[0].to_bytes(32, "big").hex(),
         "recovered_address": recovered_address,
@@ -401,6 +414,15 @@ def verify_expected_identity(info: Any, expected: dict[str, Any]) -> str:
     return bank_hash
 
 
+def save_capture(path: pathlib.Path, header: bytes, result: bytes, trace: bytes) -> None:
+    """Preserve original HID bytes for offline diagnosis, never a reconstructed play."""
+    data = {"headerHex": header.hex(), "resultHex": result.hex(), "traceHex": trace.hex()}
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as capture:
+        json.dump(data, capture)
+        capture.write("\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run SET_HEADER/START/STOP/GET_RESULT and verify the TA signature"
@@ -412,12 +434,14 @@ def main() -> int:
     parser.add_argument("--min-events", type=int, default=0)
     parser.add_argument("--timeout-ms", type=int, default=10000)
     parser.add_argument('--srs', default=str(DEFAULT_SRS),
-                        help='local contiguous BN254 G1 bank; defaults to srs-g1-be.bin beside this script')
+                        help='local contiguous compressed BLS12-381 G1 bank (48 bytes/point)')
     parser.add_argument('--srs-sha256',
-                        help='trusted SRS digest from approved manifest; required outside development profile')
+                        help='provisioned SRS digest, required unless --identity is supplied')
     parser.add_argument('--signature-only', action='store_true',
                         help='verify the signature and trace root without a local SRS; commitment is NOT verified')
     parser.add_argument('--identity', help='public mvp-identity.json from the exact flashed image build')
+    parser.add_argument('--diagnostic-out', type=pathlib.Path,
+                        help='save original HID header/result/trace as owner-only JSON, even if verification fails')
     args = parser.parse_args()
     if args.capture_seconds < 0 or args.min_events < 0 or args.timeout_ms <= 0:
         parser.error("capture seconds, min events and timeout must be nonnegative/positive")
@@ -462,18 +486,21 @@ def main() -> int:
             raise RuntimeError(f"session did not finalize cleanly: {finalized}")
         result = transact(device, GET_RESULT, timeout_ms=args.timeout_ms)
         trace = transact(device, GET_TRACE, timeout_ms=args.timeout_ms)
+        if args.diagnostic_out:
+            save_capture(args.diagnostic_out.expanduser(), header, result, trace)
+            print(f"Original HID capture saved to {args.diagnostic_out}")
         verified = verify_result(info, header, session_id, result, trace, args.min_events)
         if bank is not None:
-            verify_commitment(trace, result[336:400], bank)
+            verify_commitment(trace, result[336:384], bank)
         print("TA stateful signing: PASS" if bank is not None else
               "TA stateful signing: PASS (commitment unchecked)")
         print(f"event_count:          {verified['event_count']}")
         print(f"duration_us:          {verified['duration_us']}")
         print(f"trace_root:           {result[304:336].hex()}")
-        print(f"commitment:           {result[336:400].hex()}")
-        print(f"signature_r:          {result[400:432].hex()}")
-        print(f"signature_s:          {result[432:464].hex()}")
-        print(f"recovery_v:           {result[464]}")
+        print(f"commitment:           {result[336:384].hex()}")
+        print(f"signature_r:          {result[384:416].hex()}")
+        print(f"signature_s:          {result[416:448].hex()}")
+        print(f"recovery_v:           {result[448]}")
         print(f"recovered_address:    {info.device_address}")
         print(f"public_key_uncompressed: {verified['public_key']}")
         print(f"public_key_compressed: {verified['compressed_public_key']}")

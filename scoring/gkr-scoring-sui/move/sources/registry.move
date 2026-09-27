@@ -20,15 +20,11 @@ use sui::table::{Self, Table};
 const RULESET_NAME: vector<u8> = b"OSUMANIA_ONCHAIN_RULESET_V1";
 const INPUT_POLICY_A: vector<u8> = b"OSUMANIA_INPUT_POLICY_V1";
 const INPUT_POLICY_B: vector<u8> = b"OSUMANIA_INPUT_POLICY_V2_KZG_BLS12381";
-/// Provisioned by BridgeOS signer; it rejects any other 32-byte policy value.
-const INPUT_POLICY_HARDWARE: vector<u8> = x"1dd3e71532319bcca31f8f248bae6a8c8e057cddbd692bfadf3eb06e0ae75460";
 const SESSION_DOMAIN_V1: vector<u8> = b"OSUMANIA_HARDWARE_SESSION_V1";
 const SESSION_DOMAIN_V2: vector<u8> = b"OSUMANIA_HARDWARE_SESSION_V2_BLS12381";
-const SESSION_DOMAIN_HARDWARE: vector<u8> = b"OSUMANIA_HARDWARE_SESSION_V2";
 const TRACE_DOMAIN: vector<u8> = b"OSUMANIA_TRACE_V1";
 const MODE_CALLDATA: u8 = 1;
 const MODE_COMMITTED: u8 = 2;
-const MODE_HARDWARE: u8 = 3;
 const MAX_EVENTS: u64 = 50_000;
 const EVENT_BYTES: u64 = 14;
 const CHUNK_EVENTS: u64 = 32;
@@ -302,7 +298,7 @@ public(package) fun open_competition_session(
     clock: &Clock,
     ctx: &mut TxContext,
 ): ID {
-    open_session_impl(reg, match_id, chart_hash, player, device, expires_at_ms, MODE_HARDWARE, clock, ctx)
+    open_session_impl(reg, match_id, chart_hash, player, device, expires_at_ms, MODE_COMMITTED, clock, ctx)
 }
 
 fun open_session_impl(
@@ -319,7 +315,7 @@ fun open_session_impl(
     assert!(match_id.length() == 32, EInvalidSession);
     assert!(reg.devices.contains(device) && reg.devices[device].active, EInvalidDevice);
     assert!(reg.charts.contains(chart_hash) && expires_at_ms > clock.timestamp_ms(), EInvalidSession);
-    assert!(mode == MODE_CALLDATA || mode == MODE_COMMITTED || mode == MODE_HARDWARE, EWrongMode);
+    assert!(mode == MODE_CALLDATA || mode == MODE_COMMITTED, EWrongMode);
     let id = object::new(ctx);
     let session_id = id.to_bytes();
     let mut seed = session_id;
@@ -336,8 +332,7 @@ fun open_session_impl(
         chart_hash,
         ruleset_id: sha2_256(RULESET_NAME),
         bitstream_hash: reg.devices[device].bitstream_hash,
-        input_policy_hash: if (mode == MODE_HARDWARE) INPUT_POLICY_HARDWARE else
-            sha2_256(if (mode == MODE_CALLDATA) INPUT_POLICY_A else INPUT_POLICY_B),
+        input_policy_hash: sha2_256(if (mode == MODE_CALLDATA) INPUT_POLICY_A else INPUT_POLICY_B),
     };
     let sid = id.to_inner();
     event::emit(SessionOpened { session: sid, player, device, mode });
@@ -410,23 +405,6 @@ public fun digest_preimage_v2(
     b
 }
 
-/// BridgeOS v2 signs a BN254 commitment alongside the on-chain calldata trace.
-public fun digest_preimage_hardware(
-    h: &Header,
-    n: u64,
-    duration: u64,
-    root: vector<u8>,
-    trace_commitment: vector<u8>,
-): vector<u8> {
-    let mut b = SESSION_DOMAIN_HARDWARE;
-    push_be(&mut b, 2, 2);
-    b.append(header_prefix(h));
-    push_be(&mut b, n, 4);
-    push_be(&mut b, duration, 8);
-    b.append(root);
-    b.append(trace_commitment);
-    b
-}
 
 /// Starts the SP1 trace chain: root = sha256("OSUMANIA_TRACE_V1" ‖ sessionId).
 public fun new_trace_upload(session: &Session, ctx: &mut TxContext): TraceUpload {
@@ -523,7 +501,7 @@ fun statement(
     counts: vector<u64>,
 ): verifier::Statement {
     verifier::new_statement(
-        if (s.mode == MODE_HARDWARE) MODE_CALLDATA else s.mode,
+        s.mode,
         digest,
         n,
         duration,
@@ -563,33 +541,6 @@ public fun submit_calldata(
     id.delete();
     assert!(sid == object::id(session), EWrongSession);
     let preimage = digest_preimage_v1(&session.header, n, duration, root);
-    check_signature(&d, &preimage, &sig);
-    let st = statement(reg, session, sha2_256(preimage), n, duration, vector[], lane_bits, counts);
-    let v = verifier::verify(&reg.vk, &st, proof, &t, &la);
-    record(session, &v);
-    verifier::score(&v)
-}
-
-/// BridgeOS v2 (mode 3): the device signs V2 + BN254 G1 (64 bytes), while the full
-/// trace is verified as native Sui GKR calldata. The signed bytes are never rewritten.
-public fun submit_hardware(
-    reg: &Registry,
-    session: &mut Session,
-    trace: TraceUpload,
-    duration: u64,
-    trace_commitment: vector<u8>,
-    lane_bits: vector<u64>,
-    counts: vector<u64>,
-    proof: vector<vector<vector<u8>>>,
-    sig: vector<u8>,
-    clock: &Clock,
-): u64 {
-    let d = check_open(reg, session, MODE_HARDWARE, clock);
-    assert!(trace_commitment.length() == 64, EInvalidSession);
-    let TraceUpload { id, session: sid, root, n, chunks: _, closed: _, t, la } = trace;
-    id.delete();
-    assert!(sid == object::id(session), EWrongSession);
-    let preimage = digest_preimage_hardware(&session.header, n, duration, root, trace_commitment);
     check_signature(&d, &preimage, &sig);
     let st = statement(reg, session, sha2_256(preimage), n, duration, vector[], lane_bits, counts);
     let v = verifier::verify(&reg.vk, &st, proof, &t, &la);

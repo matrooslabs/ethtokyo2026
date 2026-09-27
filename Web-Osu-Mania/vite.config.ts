@@ -10,6 +10,8 @@ export default defineConfig({
   base: env.VITE_PRERENDER ? "/Web-Osu-Mania/" : "/",
   server: {
     port: 3000,
+    // The public dev tunnel otherwise caches unversioned CSS and images for hours.
+    headers: { "Cache-Control": "no-store, max-age=0" },
     allowedHosts: [
       'localhost',
       'versu.astar.moe',

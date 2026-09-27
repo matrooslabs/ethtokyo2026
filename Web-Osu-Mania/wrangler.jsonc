@@ -13,9 +13,9 @@
         "WORLD_ID_ENVIRONMENT": "production",
         "SUI_NETWORK": "testnet",
         "SUI_RPC_URL": "https://fullnode.testnet.sui.io:443",
-        "SUI_IDENTITY_PACKAGE_ID": "0x4228773d3e5e12591cd66ec0496b5046902c5ff36b5c62bad6456ee2e165e0b6",
+        "SUI_IDENTITY_PACKAGE_ID": "0xdd0ff5514b822001e2d6f45274d5ffafd11034583f396eb819eaab89e7aaa6b0",
         "SUI_IDENTITY_COIN_TYPE": "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
-        "SUI_IDENTITY_CHALLENGES": "{\"0x7f69985284a3e8f06460dc8a3ce4f2bd268726c74d4141dde546194207fbd360\":{\"identityCapId\":\"0x1766e0eab10db92ccc9d4c3364cfa5912795ca5eb512b0b8d0f52867f0be8202\"},\"0x6010d33b5d94d078602e4b57e4f9daadd59931cee6ca044a6f7edd518241240c\":{\"identityCapId\":\"0x66bef92fc084d13f3e1b6f234dff2dea1d4e017a005702bbfea3163fb54f0425\"}}"
+        "SUI_IDENTITY_CHALLENGES": "{\"0x9dd98b8380bf4514c265478b28b90b0afb10b447d607b3d16ceaf08fac432fb5\":{\"identityCapId\":\"0x7ead617ddea6276463e6c66de767a1719f52272ae7aa5398afaf0a98c712df1c\"}}"
     },
     "kv_namespaces": [
         {

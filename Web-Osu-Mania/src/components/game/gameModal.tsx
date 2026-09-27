@@ -85,7 +85,7 @@ const GameModal = ({ arena, hardware }: { arena?: ArenaSnapshot; hardware: Bridg
           beatmap,
           paidAttempt ? encodeMods(defaultSettings.mods) : replay?.mods,
           replay?.columnMap,
-          true,
+          { isLocalSource: true, paidCapture: !!paidAttempt },
         );
 
         if (paidAttempt) {

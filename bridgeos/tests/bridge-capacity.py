@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Host-only 50k Vendor HID session smoke; bank has known tau=1, NOT secure.
+"""Host-only 50k Vendor HID Mode B session smoke; repeated generator is insecure.
 
 Run from any directory with python3 bridgeos/tests/bridge-capacity.py. Builds a
-throwaway host daemon, puts exactly 200,000 valid BN254 points in a temporary
-bank, and drives its real Vendor HID thread through the macOS client protocol.
-The repeated known generator (1, 2) is insecure and MUST NEVER be deployed.
+throwaway host daemon, generates exactly 200,000 compressed BLS12-381 G1 points
+from one known generator, and drives its real Vendor HID thread. This test bank
+MUST NEVER be deployed on the board or used to fund a prize.
 """
 from __future__ import annotations
 import argparse
@@ -27,9 +27,11 @@ spec = importlib.util.spec_from_file_location("bridge_capacity_mac", MAC_SOURCE)
 mac = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mac
 spec.loader.exec_module(mac)
+sys.path.insert(0, str(BRIDGE / "tests/vendor-hid"))
+import check_vectors as bls
 
 EVENTS = 50_000
-POINT = (1).to_bytes(32, "big") + (2).to_bytes(32, "big")
+POINT = bls.GENERATOR
 
 
 class SocketHid:
@@ -150,8 +152,8 @@ def run_session(binary: pathlib.Path, bank_path: pathlib.Path, bank_hash: str,
                 raise AssertionError("GET_INFO did not advertise the installed 200,000-point bank")
             # Explicit hash is ONLY for the temporary, insecure, known-generator test bank.
             bank = mac.load_srs(bank_path, info, bank_hash)
-            if len(bank) != EVENTS * 4 * 64:
-                raise AssertionError("temporary test bank is not exactly 200,000 points")
+            if len(bank) != EVENTS * 4 * 48:
+                raise AssertionError("temporary BLS bank is not exactly 200,000 points")
             header, session_id = mac.build_header(info)
             mac.transact(hid, mac.SET_HEADER, header)
             mac.transact(hid, mac.START)
@@ -168,15 +170,13 @@ def run_session(binary: pathlib.Path, bank_path: pathlib.Path, bank_hash: str,
             if len(trace) != 700_000 or struct.unpack_from(">I", result, 292)[0] != EVENTS:
                 raise AssertionError("GET_TRACE size or signed n is not exactly 50,000 events")
             verified = mac.verify_result(info, header, session_id, result, trace, EVENTS)
-            # The test bank intentionally repeats G=(1,2), so one scalar multiplication
-            # independently checks the full 50k commitment without 150k slow Python EC muls.
+            # One scalar multiplication checks all 50k row-major trace rows
+            # against the independent BLS12-381 oracle for this repeated basis.
             total = sum(struct.unpack_from(">Q", trace, pos + 4)[0] + trace[pos + 12]
                         + trace[pos + 13] for pos in range(0, len(trace), mac.EVENT_SIZE))
-            point = mac.scalar_mul(total, (1, 2), mac.BN254_FIELD, mac.BN254_ORDER)
-            expected = bytes(64) if point is None else (point[0].to_bytes(32, "big") +
-                                                        point[1].to_bytes(32, "big"))
-            if result[336:400] != expected:
-                raise AssertionError("50k signed BN254 commitment differs from captured trace")
+            expected = bls.encode(bls.multiply(total % bls.R, bls.decode(POINT)))
+            if result[336:384] != expected:
+                raise AssertionError("50k signed BLS commitment differs from captured trace")
             if verified["event_count"] != EVENTS:
                 raise AssertionError("Mac verifier rejected 50,000 events")
             print(f"PASS GET_INFO=50000, 700000-byte GET_TRACE, signed n=50000, "

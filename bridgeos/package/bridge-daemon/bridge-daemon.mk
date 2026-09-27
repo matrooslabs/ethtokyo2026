@@ -25,15 +25,5 @@ define BRIDGE_DAEMON_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bridge-daemon $(TARGET_DIR)/usr/bin/bridge-daemon
 endef
 
-ifeq ($(BR2_PACKAGE_BRIDGE_DAEMON_DEV_CRYPTO),y)
-BRIDGE_DAEMON_DEV_CFLAGS = -DOSUMANIA_ALLOW_DEV_CRYPTO
-define BRIDGE_DAEMON_INSTALL_DEV_SRS
-	$(INSTALL) -D -m 0644 $(@D)/data/srs-g1-be.bin \
-		$(TARGET_DIR)/usr/share/osumania/srs-g1-be.bin
-	$(INSTALL) -D -m 0644 $(@D)/data/srs-manifest.json \
-		$(TARGET_DIR)/usr/share/osumania/srs-manifest.json
-endef
-BRIDGE_DAEMON_POST_INSTALL_TARGET_HOOKS += BRIDGE_DAEMON_INSTALL_DEV_SRS
-endif
 
 $(eval $(generic-package))

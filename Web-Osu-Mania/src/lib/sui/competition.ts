@@ -9,6 +9,7 @@ const circleUsdc = {
   testnet: "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
 };
 const network = import.meta.env.VITE_SUI_NETWORK === "mainnet" ? "mainnet" : "testnet";
+const controlledDeployment = import.meta.env.VITE_SUI_ENTRY_CONTROL === "true";
 
 export type Difficulty = "Easy" | "Hard";
 export const suiDeployment = {
@@ -23,7 +24,8 @@ export const suiDeployment = {
 };
 
 const hex32 = /^0x[0-9a-fA-F]{64}$/;
-export const configured = !!suiDeployment.packageId && !!suiDeployment.registryId &&
+export const configured = import.meta.env.VITE_SUI_SCORING_MODE === "2" &&
+  !!suiDeployment.packageId && !!suiDeployment.registryId &&
   suiDeployment.usdcType === circleUsdc[network] && hex32.test(suiDeployment.challengeId) &&
   Object.values(suiDeployment.charts).every((hash) => hex32.test(hash)) &&
   suiDeployment.charts.Easy.toLowerCase() !== suiDeployment.charts.Hard.toLowerCase();
@@ -35,7 +37,7 @@ const dynamicTable = bcs.struct("Table", { id: bcs.Address, size: bcs.u64() });
 const rankedClaim = bcs.struct("RankedClaim", {
   wallet: bcs.Address, session: bcs.Address, score: bcs.u64(), order: bcs.u64(),
 });
-const challengeObject = bcs.struct("Challenge", {
+const challengeFields = {
   id: bcs.Address,
   registry: bcs.Address,
   round_date: bcs.vector(bcs.u8()),
@@ -65,7 +67,9 @@ const challengeObject = bcs.struct("Challenge", {
   easy_refund_pool: bcs.u64(),
   hard_refund_pool: bcs.u64(),
   settled: bcs.bool(),
-});
+};
+const challengeObject = bcs.struct("Challenge", challengeFields);
+const controlledChallengeObject = bcs.struct("ControlledChallenge", { ...challengeFields, entry_open: bcs.bool() });
 
 export type RankedClaim = { wallet: string; session: string; score: bigint; order: bigint };
 export type ChallengeState = {
@@ -84,6 +88,7 @@ export type ChallengeState = {
   scoreDeadlineMs: number;
   claimDeadlineMs: number;
   settled: boolean;
+  entryOpen: boolean;
 };
 
 function hex(bytes: number[]): string {
@@ -119,7 +124,7 @@ export async function readCompetition(client: SuiGrpcClient, wallet: string, cha
   if (!content || object.object?.type !== `${suiDeployment.packageId}::competition::Challenge<${suiDeployment.usdcType}>`) {
     throw new Error("Sui challenge object does not match the configured vault.");
   }
-  const parsed = challengeObject.parse(content);
+  const parsed = (controlledDeployment ? controlledChallengeObject : challengeObject).parse(content);
   if (parsed.registry !== suiDeployment.registryId) throw new Error("Challenge registry does not match this deployment.");
   const chartHashes = { Easy: hex(parsed.easy_chart_hash), Hard: hex(parsed.hard_chart_hash) };
   if (chartHashes[difficulty].toLowerCase() !== expectedChartHash.toLowerCase() ||
@@ -142,6 +147,7 @@ export async function readCompetition(client: SuiGrpcClient, wallet: string, cha
     rankedClaims: { Easy: ranks(parsed.easy_top), Hard: ranks(parsed.hard_top) },
     startedAtMs: Number(parsed.started_at_ms), scoreDeadlineMs: Number(parsed.score_deadline_ms),
     claimDeadlineMs: Number(parsed.claim_deadline_ms), settled: parsed.settled,
+    entryOpen: !controlledDeployment || ("entry_open" in parsed && parsed.entry_open === true),
   };
 }
 

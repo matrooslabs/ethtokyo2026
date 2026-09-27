@@ -2,7 +2,7 @@ import {
   BRIDGE_FILTER, GET_INFO, GET_STATUS, SET_HEADER, START, STOP, ABORT, GET_RESULT, GET_TRACE,
   ResponseAssembler, parseInfo, parseStatus, requestReport, decodeHex, encodeHex,
   type Command, type BridgeInfo, type BridgeStatus,
-} from './protocol';
+} from './protocol.ts';
 
 // Structural interfaces keep WebHID's still-experimental browser API isolated.
 export type VendorDevice = {
@@ -77,13 +77,23 @@ export class BridgeClient {
     await this.exchange(START);
   }
 
-  async stopRecording(): Promise<{ resultHex: string; traceHex: string }> {
+  async stopRecording(requiredDurationUs: bigint): Promise<{ resultHex: string; traceHex: string }> {
+    let recordingStatus = parseStatus(await this.exchange(GET_STATUS));
+    while (recordingStatus.state === 'recording' && recordingStatus.lastError === 0 &&
+           recordingStatus.elapsedUs < requiredDurationUs) {
+      const remainingMs = Number((requiredDurationUs - recordingStatus.elapsedUs + 999n) / 1000n);
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(200, Math.max(1, remainingMs))));
+      recordingStatus = parseStatus(await this.exchange(GET_STATUS));
+    }
+    if (recordingStatus.state !== 'recording' || recordingStatus.lastError !== 0) {
+      throw new Error('BridgeOS recording ended before the final hit window. This play cannot submit a score.');
+    }
     await this.exchange(STOP);
     const result = await this.exchange(GET_RESULT);
-    if (result.length !== 465) throw new Error('Invalid BridgeOS signed result length');
+    if (result.length !== 449) throw new Error('Invalid BridgeOS Mode-B signed result length');
     const trace = await this.exchange(GET_TRACE);
-    const status = parseStatus(await this.exchange(GET_STATUS));
-    if (status.state !== 'finalized' || trace.length !== status.eventCount * 14) {
+    const finalStatus = parseStatus(await this.exchange(GET_STATUS));
+    if (finalStatus.state !== 'finalized' || trace.length !== finalStatus.eventCount * 14) {
       throw new Error('BridgeOS finalized trace does not match event count');
     }
     return { resultHex: `0x${encodeHex(result)}`, traceHex: `0x${encodeHex(trace)}` };

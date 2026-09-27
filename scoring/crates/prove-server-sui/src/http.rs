@@ -6,8 +6,8 @@
 //! Session, registered hardware and BridgeOS readiness; returns `{headerHex}` (292
 //! bytes) to send unmodified to HID SET_HEADER, then START and STOP.
 //! `POST /v1/sessions/submit` `{sessionId,resultHex,traceHex,chart}` accepts only
-//! actual HID GET_RESULT (465 bytes) and GET_TRACE (14 bytes per event), validates
-//! original signature, exact on-chain header and SHA chain, then returns a job URL.
+//! hardware GET_RESULT (449 bytes) and GET_TRACE (14 bytes per event) to validate
+//! the signed BLS12-381 commitment; the trace never goes on-chain.
 //! `GET /v1/jobs/{session_id}` reads persisted state and exact secure-relay PTB plan.
 //! `POST /v1/jobs/{session_id}/retry` reprocesses a persisted capture after restart.
 //! Jobs with `ready` payloads are NOT paid until the relay confirms `ScoreAccepted`.
@@ -31,7 +31,7 @@ pub fn router(bridge: Arc<Bridge>, token: Option<String>) -> Router {
             async move { Json(serde_json::json!({
                 "system":"gkr-sui-hardware", "srsId":mania_gkr_sui::field::hex0x(&b.srs_id),
                 "srsSmax":b.srs.smax, "registryId":b.registry, "packageId":b.package,
-                "capture":"bridgeos-v1-result-and-trace", "mode":3,
+                "capture":"bridgeos-v1-bls-committed", "mode":2,
                 "transport": if b.grpc_network.is_some() { "sui-grpc" } else { "local-json-rpc" },
                 "network":b.grpc_network
             })) }

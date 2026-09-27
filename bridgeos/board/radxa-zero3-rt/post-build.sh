@@ -41,12 +41,15 @@ optee-debug|optee-runtime|hardware-root|signed-lab|mvp-keyed)
                   "$target/usr/bin/oslat" "$target/usr/bin/determine_maximum_mpps.sh" \
                   "$target/usr/bin/trace-cmd" "$target/usr/bin/stress-ng" \
                   "$target/usr/share/osumania/srs-g1-be.bin" \
+                  "$target/usr/share/osumania/srs-g1-bls12381.bin" \
                   "$target/usr/share/osumania/srs-manifest.json"
             printf '%s\n' 'OSUMANIA_SIGNER_BACKEND=optee' \
-                'OSUMANIA_SRS=/usr/share/osumania/srs-g1-be.bin' > "$target/etc/bridge-rt.conf"
+                'OSUMANIA_SRS=/usr/share/osumania/srs-g1-bls12381.bin' > "$target/etc/bridge-rt.conf"
             printf '%s\n' 'mvp-keyed-extractable-ta-key' > "$target/etc/optee-runtime-mode"
-            : "${OSUMANIA_MVP_SRS_BANK:?mvp-keyed requires externally sourced OSUMANIA_MVP_SRS_BANK}"
-            python3 - "$project" "$OSUMANIA_MVP_SRS_BANK" "$target/usr/share/osumania" <<'PY'
+            : "${OSUMANIA_MVP_SRS_BANK:?mvp-keyed requires a generated BLS12-381 device bank}"
+            : "${OSUMANIA_MVP_SRS_SHA256:?mvp-keyed requires the bank SHA-256 pinned in the TA}"
+            : "${OSUMANIA_MVP_SRS_ID:?mvp-keyed requires the corresponding scoring SRS ID}"
+            python3 - "$OSUMANIA_MVP_SRS_BANK" "$target/usr/share/osumania" "$OSUMANIA_MVP_SRS_SHA256" "$OSUMANIA_MVP_SRS_ID" <<'PY'
 import hashlib
 import json
 import os
@@ -54,31 +57,29 @@ from pathlib import Path
 import shutil
 import sys
 
-project, supplied, dest = map(Path, sys.argv[1:])
+supplied, dest = map(Path, sys.argv[1:3])
+expected_hash, srs_id = (v.removeprefix('0x').lower() for v in sys.argv[3:5])
 bank = supplied.resolve(strict=True)
-if bank.is_relative_to(project.parent):
-    raise SystemExit('MVP SRS must be external to the ethtokyo2026 checkout')
-pin = json.loads((project / 'manifests/sources.lock').read_text())['device_srs_ceremony']
-points = pin['device_point_count']
-if points != 200000 or bank.stat().st_size != points * 64:
-    raise SystemExit('MVP SRS must contain exactly 200000 affine G1 points')
+points = 200000
+if bank.stat().st_size != points * 48:
+    raise SystemExit('Mode B bank must contain exactly 200000 compressed BLS12-381 G1 points')
 with bank.open('rb') as stream:
     digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-if digest != pin['device_bank_sha256']:
-    raise SystemExit('MVP SRS bank does not match pinned source ceremony hash')
+if digest != expected_hash or len(srs_id) != 64 or any(c not in '0123456789abcdef' for c in srs_id):
+    raise SystemExit('Mode B bank hash/SRS ID does not match the supplied SRS provisioning record')
 dest.mkdir(parents=True, exist_ok=True)
-installed = dest / 'srs-g1-be.bin'
+installed = dest / 'srs-g1-bls12381.bin'
 shutil.copyfile(bank, installed)
 os.chmod(installed, 0o444)
 public = {
-    'bytesPerPoint': 64,
-    'curve': 'BN254',
-    'file': 'srs-g1-be.bin',
+    'bytesPerPoint': 48,
+    'curve': 'BLS12-381',
+    'file': 'srs-g1-bls12381.bin',
     'firstExponent': 0,
-    'format': 'G1_AFFINE_BE_XY_V1',
+    'format': 'G1_ZCASH_COMPRESSED_V1',
     'pointCount': points,
     'sha256': '0x' + digest,
-    'srsId': '0x' + pin['srs_id'],
+    'srsId': '0x' + srs_id,
     'maxEvents': points // 4,
     'keyProtection': 'extractable private scalar compiled into OP-TEE TA; not hardware protected',
     'keyExtractable': True,
@@ -94,21 +95,22 @@ os.chmod(record, 0o444)
 PY
         else
             printf '%s\n' 'OSUMANIA_SIGNER_BACKEND=optee' \
-                'OSUMANIA_SRS=/usr/share/osumania/srs-g1-be.bin' > "$target/etc/bridge-rt.conf"
+                'OSUMANIA_SRS=/usr/share/osumania/srs-g1-bls12381.bin' > "$target/etc/bridge-rt.conf"
         fi
         chmod 0444 "$target/etc/bridge-rt.conf"
     fi
     if [ "${2:-}" = hardware-root ]; then
-        srs="$project/sources/optee-os-artifacts/hardware/srs-g1-be.bin"
-        test -s "$srs" || { echo 'Approved SRS artifact missing' >&2; exit 1; }
-        install -D -m 0444 "$srs" "$target/usr/share/osumania/srs-g1-be.bin"
+        srs="$project/sources/optee-os-artifacts/hardware/srs-g1-bls12381.bin"
+        test -s "$srs" || { echo 'Approved BLS12-381 SRS bank missing' >&2; exit 1; }
+        install -D -m 0444 "$srs" "$target/usr/share/osumania/srs-g1-bls12381.bin"
     fi
 ;;
 rng-lab|otp-lab)
     rm -f "$target/etc/init.d/S99bridge" "$target/etc/bridge-rt.conf" \
           "$target/usr/bin/osumania-optee-test" \
           "$target/lib/optee_armtz/91fc6874-8551-4b42-a95d-6ee4a147f421.ta" \
-          "$target/usr/share/osumania/srs-g1-be.bin"
+          "$target/usr/share/osumania/srs-g1-be.bin" \
+          "$target/usr/share/osumania/srs-g1-bls12381.bin"
     printf '%s\n' "${2:-}" > "$target/etc/optee-runtime-mode"
 ;;
 *) rm -f "$target/usr/bin/osumania-optee-test" ;;

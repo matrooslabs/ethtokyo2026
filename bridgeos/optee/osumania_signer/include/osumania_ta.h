@@ -15,8 +15,8 @@ enum osumania_ta_command {
 };
 
 #define OSUMANIA_TA_HEADER_SIZE 292u
-#define OSUMANIA_TA_FINAL_FIELDS_SIZE 108u /* n4 || D8 || root32 || x32 || y32 */
-#define OSUMANIA_TA_RESULT_SIZE 465u
-#define OSUMANIA_TA_DEVICE_INFO_SIZE 52u /* address20 || bitstream32 */
+#define OSUMANIA_TA_FINAL_FIELDS_SIZE 92u /* n4 || D8 || root32 || compressed G1 commitment48 */
+#define OSUMANIA_TA_RESULT_SIZE 449u
+#define OSUMANIA_TA_DEVICE_INFO_SIZE 88u /* address20 || bitstream32 || bank SHA256 32 || max events BE4 */
 
 #endif

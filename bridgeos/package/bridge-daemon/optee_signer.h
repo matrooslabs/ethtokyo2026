@@ -11,9 +11,12 @@ struct osum_signer;
 struct osum_signer_info {
     uint8_t device[20];
     uint8_t bitstream_hash[32];
+    uint8_t srs_hash[32];
+    uint32_t max_events;
 };
 
-struct osum_signer *osum_signer_open(const char *backend);
+struct osum_signer *osum_signer_open(const char *backend, const uint8_t srs_hash[32],
+                                     uint32_t max_events);
 void osum_signer_close(struct osum_signer *signer);
 bool osum_signer_ready(const struct osum_signer *signer);
 bool osum_signer_is_insecure(const struct osum_signer *signer);
@@ -25,7 +28,7 @@ int osum_signer_set_header(struct osum_signer *signer, const uint8_t header[OSUM
                            uint8_t *detail);
 int osum_signer_start(struct osum_signer *signer);
 int osum_signer_finalize(struct osum_signer *signer, uint32_t count, uint64_t duration_us,
-                         const uint8_t trace_root[32], const uint8_t commitment[64]);
+                         const uint8_t trace_root[32], const uint8_t commitment[48]);
 int osum_signer_get_result(struct osum_signer *signer, uint8_t result[OSUM_RESULT_SIZE]);
 int osum_signer_abort(struct osum_signer *signer);
 

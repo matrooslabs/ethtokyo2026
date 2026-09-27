@@ -10,7 +10,9 @@ use mania_gkr_sui::testutil::benchmark_input;
 use mania_gkr_sui::zeromorph::Srs;
 use mania_scoring_core::PlayInput;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -128,6 +130,24 @@ fn prove_cmd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn ensure_srs_mode_b(srs: &Srs) -> Result<()> {
+    anyhow::ensure!(srs.smax == 22, "Sui paid Mode B requires smax=22");
+    Ok(())
+}
+
+fn export_bank(srs: &Srs, path: &str, points: usize) -> Result<[u8; 32]> {
+    anyhow::ensure!(points > 0 && points <= srs.g1.len(), "device bank point count exceeds SRS");
+    let mut output = BufWriter::new(std::fs::File::create(path)?);
+    let mut hash = Sha256::new();
+    for point in &srs.g1[..points] {
+        let encoded = g1_to_bytes(point);
+        output.write_all(&encoded)?;
+        hash.update(encoded);
+    }
+    output.flush()?;
+    Ok(hash.finalize().into())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -142,6 +162,23 @@ fn main() -> Result<()> {
                 t.elapsed().as_secs_f64(),
                 hex::encode(srs.vk().id())
             );
+        }
+        Some("local-mode-b-srs") => {
+            let srs_path = need(&args, "--out")?;
+            let bank_path = need(&args, "--bank")?;
+            let srs = Srs::insecure_dev(22, 1);
+            srs.save(&PathBuf::from(srs_path))?;
+            let bank_hash = export_bank(&srs, &bank_path, 200_000)?;
+            println!("{}", json!({"smax":22,"bankPoints":200000,"srsId":hex0x(&srs.vk().id()),
+                "bankSha256":hex0x(&bank_hash),"warning":"INSECURE LOCAL SRS: known toxic secret; demo only"}));
+        }
+        Some("export-device-bank") => {
+            let (srs, _) = load_srs(&args)?;
+            ensure_srs_mode_b(&srs)?;
+            let points: usize = arg(&args, "--points").map(|n| n.parse()).transpose()?.unwrap_or(200_000);
+            let bank_hash = export_bank(&srs, &need(&args, "--out")?, points)?;
+            eprintln!("BLS12-381 device bank: {points} compressed points, SRS id 0x{}, SHA-256 0x{}",
+                hex::encode(srs.vk().id()), hex::encode(bank_hash));
         }
         Some("bench") => bench(&args)?,
         Some("prove") => prove_cmd(&args)?,
@@ -160,7 +197,7 @@ fn main() -> Result<()> {
         Some("prepare-chart") => mania_gkr_sui::sui::prepare_chart(&args)?,
         Some("prove-session") => mania_gkr_sui::sui::prove_session(&args)?,
         _ => bail!(
-            "usage: mania-gkr-sui srs --smax N --out FILE [--seed S]\n       mania-gkr-sui bench --srs FILE [--cases 500,3000ln] [--reps 3] [--out FILE]\n       mania-gkr-sui prove --srs FILE --input PLAY.json [--mode a|b] [--out FILE]\n       mania-gkr-sui play --case bench3000|spam10k --out PLAY.json\n       mania-gkr-sui export-move --srs FILE --out MOVE_PKG [--heavy]\n       mania-gkr-sui prepare-chart --srs FILE --input PLAY.json\n       mania-gkr-sui prove-session --srs FILE --input PLAY.json --mode a|b --header HEADER.json"
+            "usage: mania-gkr-sui local-mode-b-srs --out SRS --bank BANK (fixed smax=22; INSECURE known tau)\n       mania-gkr-sui srs --smax N --out FILE [--seed S]\n       mania-gkr-sui export-device-bank --srs FILE --out FILE [--points 200000] (smax=22 only)\n       mania-gkr-sui bench --srs FILE [--cases 500,3000ln] [--reps 3] [--out FILE]\n       mania-gkr-sui prove --srs FILE --input PLAY.json [--mode a|b] [--out FILE]\n       mania-gkr-sui play --case bench3000|spam10k --out PLAY.json\n       mania-gkr-sui export-move --srs FILE --out MOVE_PKG [--heavy]\n       mania-gkr-sui prepare-chart --srs FILE --input PLAY.json\n       mania-gkr-sui prove-session --srs FILE --input PLAY.json --mode a|b --header HEADER.json"
         ),
     }
     Ok(())

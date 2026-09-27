@@ -3,26 +3,24 @@
 use anyhow::{bail, ensure, Context, Result};
 use axum::{extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router};
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
-use mania_gkr_sui::{field::{g1_to_bytes, hex0x}, scoring::{api, encode, session::register_chart}, transcript::keccak, zeromorph::{Srs, VerifierKey}};
+use mania_gkr_sui::{field::{g1_from_bytes, g1_to_bytes, hex0x}, scoring::{api, encode, session::{register_chart, INPUT_POLICY_V2, SESSION_DOMAIN_V2}, witness::trace_rowmajor}, transcript::keccak, zeromorph::{Srs, VerifierKey}};
 use mania_scoring_core::{chart_hash, ruleset_id, sha256, trace_root, Chart, InputEvent, PlayInput, SessionFooter, SessionHeader, MAX_EVENTS};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use tokio::sync::Semaphore;
 
-const POLICY: &[u8] = b"OSUMANIA_INPUT_POLICY_V2_KZG";
-const DOMAIN: &[u8] = b"OSUMANIA_HARDWARE_SESSION_V2";
-const RESULT_SIZE: usize = 465;
+const RESULT_SIZE: usize = 449;
 const HEADER_SIZE: usize = 292;
 const INFO_SIZE: usize = 128;
-// Mode 3 stages timestamps as Move scalars and lane/action bytes in a 250 KiB
-// TraceUpload. The device accepts 50k events, but that object does not.
-const MAX_SUI_HARDWARE_EVENTS: usize = 7_000;
 
 pub struct Bridge {
     pub srs: Srs,
     pub vk: VerifierKey,
     pub srs_id: [u8; 32],
+    pub bank_hash: [u8; 32],
+    pub bank_events: u32,
     pub rpc: String,
     pub grpc_network: Option<String>,
     pub registry: String,
@@ -86,8 +84,13 @@ impl Bridge {
         fs::create_dir_all(&jobs)?;
         let vk = srs.vk();
         let srs_id = vk.id();
+        let bank_points = srs.g1.len().min(200_000);
+        let mut hash = Sha256::new();
+        for point in &srs.g1[..bank_points] { hash.update(g1_to_bytes(point)); }
+        let bank_hash: [u8; 32] = hash.finalize().into();
+        let bank_events = (bank_points / 4) as u32;
         let client = grpc_network.is_none().then(reqwest::Client::new);
-        Ok(Self { srs, vk, srs_id, rpc, grpc_network, registry, package, jobs,
+        Ok(Self { srs, vk, srs_id, bank_hash, bank_events, rpc, grpc_network, registry, package, jobs,
             client, busy: Arc::new(Semaphore::new(1)) })
     }
     async fn rpc(&self, method: &str, params: Value) -> Result<Value> {
@@ -126,7 +129,7 @@ impl Bridge {
             else { self.object(&sid, "::registry::Session").await? };
         ensure!(id(sf["registry"].as_str().context("missing registry")?)? == self.registry, "session belongs to another registry");
         ensure!(sf["consumed"] == false, "session already consumed");
-        ensure!(num(&sf["mode"])? == 3, "session is not hardware calldata mode");
+        ensure!(num(&sf["mode"])? == 2, "session is not committed Mode B");
         ensure!(num(&sf["expires_at_ms"])? > SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64, "session expired");
         let h = fields(&sf["header"])?;
         let b = |name: &str, n| bytes(&h[name], n);
@@ -139,7 +142,7 @@ impl Bridge {
             input_policy_hash: b("input_policy_hash", 32)?.try_into().unwrap(),
         };
         ensure!(hdr.session_id == hex_field::<32>(&sid)?, "session header ID mismatch");
-        ensure!(hdr.ruleset_id == ruleset_id() && hdr.input_policy_hash == sha256(POLICY), "unsupported hardware policy or ruleset");
+        ensure!(hdr.ruleset_id == ruleset_id() && hdr.input_policy_hash == sha256(INPUT_POLICY_V2), "unsupported Mode B policy or ruleset");
         let reg = if let Some(s) = &snapshot { s["registry"].clone() }
             else { self.object(&self.registry, "::registry::Registry").await? };
         ensure!(num(&reg["chain_id"])? == hdr.chain_id && bytes(&reg["verifier_tag"], 20)? == hdr.verifier, "registry domain mismatch");
@@ -197,13 +200,12 @@ fn header_bytes(h: &SessionHeader) -> [u8; HEADER_SIZE] {
     out
 }
 
-fn parse_capture(h: SessionHeader, capture: &Capture, pubkey: &str) -> Result<(PlayInput, [u8; 32], Vec<u8>, Vec<u8>)> {
+fn parse_capture(h: SessionHeader, capture: &Capture, pubkey: &str, srs: &Srs) -> Result<(PlayInput, [u8; 32], Vec<u8>, Vec<u8>)> {
     let result = parse_hex(&capture.result_hex, RESULT_SIZE)?;
     ensure!(result[..HEADER_SIZE] == header_bytes(&h), "device result header differs from on-chain Session");
     let n = u32::from_be_bytes(result[292..296].try_into().unwrap()) as usize;
     let duration = u64::from_be_bytes(result[296..304].try_into().unwrap());
-    ensure!(n <= MAX_EVENTS && n <= MAX_SUI_HARDWARE_EVENTS,
-        "device trace exceeds Sui mode-3 upload limit (7000 events)");
+    ensure!(n <= MAX_EVENTS && n <= srs.g1.len() / 4, "device trace exceeds Mode B SRS capacity");
     let trace = parse_hex(&capture.trace_hex, n * 14)?;
     let events: Vec<InputEvent> = trace.chunks_exact(14).map(|e| InputEvent {
         sequence: u32::from_be_bytes(e[..4].try_into().unwrap()),
@@ -213,14 +215,16 @@ fn parse_capture(h: SessionHeader, capture: &Capture, pubkey: &str) -> Result<(P
     let root: [u8; 32] = result[304..336].try_into().unwrap();
     ensure!(root == trace_root(&h.session_id, &events), "device trace root mismatch");
     ensure!(chart_hash(&capture.chart) == h.chart_hash, "chart does not match registered session");
-    let mut preimage = [0u8; DOMAIN.len() + 2 + 400];
-    preimage[..DOMAIN.len()].copy_from_slice(DOMAIN);
-    preimage[DOMAIN.len()..DOMAIN.len() + 2].copy_from_slice(&2u16.to_be_bytes());
-    preimage[DOMAIN.len() + 2..].copy_from_slice(&result[..400]);
+    let commitment = g1_from_bytes(&result[336..384]).context("invalid BLS12-381 trace commitment")?;
+    ensure!(commitment == srs.commit(&trace_rowmajor(&events)), "device trace commitment differs from captured trace");
+    let mut preimage = Vec::with_capacity(SESSION_DOMAIN_V2.len() + 2 + 384);
+    preimage.extend_from_slice(SESSION_DOMAIN_V2);
+    preimage.extend_from_slice(&2u16.to_be_bytes());
+    preimage.extend_from_slice(&result[..384]);
     let digest = sha256(&preimage);
-    let signature = Signature::from_slice(&result[400..464])?;
+    let signature = Signature::from_slice(&result[384..448])?;
     ensure!(signature.normalize_s().is_none(), "device signature is not low-s");
-    let recovery = RecoveryId::from_byte(result[464].checked_sub(27).context("invalid recovery byte")?).context("invalid recovery byte")?;
+    let recovery = RecoveryId::from_byte(result[448].checked_sub(27).context("invalid recovery byte")?).context("invalid recovery byte")?;
     let recovered = VerifyingKey::recover_from_prehash(&digest, &signature, recovery)?;
     ensure!(recovered.to_encoded_point(true).as_bytes() == parse_hex(pubkey, 33)?.as_slice(), "hardware signature does not match registry device");
     let input = PlayInput { header: h, footer: SessionFooter { event_count: n as u32, duration_us: duration, trace_root: root }, chart: capture.chart.clone(), events };
@@ -236,42 +240,31 @@ async fn start(State(s): State<Arc<Bridge>>, Json(req): Json<Start>) -> Response
         ensure!(info[..2] == 1u16.to_be_bytes() && info[2..4] == 64u16.to_be_bytes(), "unsupported BridgeOS protocol");
         ensure!(info[8..28] == h.device && info[28..60] == h.bitstream_hash && info[60..92] == h.input_policy_hash,
             "hardware identity, bitstream or input policy mismatch");
-        ensure!(u32::from_be_bytes(info[124..128].try_into().unwrap()) > 0, "hardware trace SRS unavailable");
-        ensure!(info[92..124] != [0; 32], "hardware trace SRS unavailable");
-        Ok::<_, anyhow::Error>(json!({"sessionId":id(&req.session_id)?, "headerHex":hex0x(&header_bytes(&h)), "mode":"hardware-calldata"}))
+        ensure!(u32::from_be_bytes(info[124..128].try_into().unwrap()) == s.bank_events,
+            "device BLS bank capacity differs from scoring SRS");
+        ensure!(info[92..124] == s.bank_hash, "device BLS bank differs from scoring SRS");
+        Ok::<_, anyhow::Error>(json!({"sessionId":id(&req.session_id)?, "headerHex":hex0x(&header_bytes(&h)), "mode":"committed"}))
     }.await { Ok(v) => Json(v).into_response(), Err(e) => err(StatusCode::UNPROCESSABLE_ENTITY, e) }
 }
 
-fn relay_payload(s: &Bridge, sid: &str, input: &PlayInput, trace: &[u8], result: &[u8], p: &api::Proved, score: &Value) -> Value {
-    let target = |name: &str| format!("{}::registry::{name}", s.package);
+fn relay_payload(s: &Bridge, sid: &str, input: &PlayInput, result: &[u8], p: &api::Proved, score: &Value) -> Value {
     let proof = encode::proof_items(&p.proof);
     let proof_groups = encode::group_items(&proof, mania_gkr_sui::sui::GROUP_BYTES);
-    let trace_batches: Vec<Vec<String>> = trace.chunks(14 * 32 * 20)
-        .map(|batch| batch.chunks(14 * 32).map(hex0x).collect()).collect();
     json!({
-        "kind":"sui-programmable-transaction", "registryId":s.registry, "sessionId":sid,
-        "clockId":"0x6", "packageId":s.package,
-        "steps":[
-            {"target":target("new_trace_upload"), "arguments":[{"object":sid}], "returns":"trace"},
-            {"target":target("append_trace"), "repeatFor":"traceBatches", "arguments":[{"result":"trace"},{"pure":"vector<vector<u8>>", "from":"traceBatches[*]"}]},
-            {"target":target("submit_hardware"), "arguments":[{"object":s.registry},{"object":sid},{"result":"trace"},
-                {"pure":"u64", "value":input.footer.duration_us.to_string()},
-                {"pure":"vector<u8>", "value":hex0x(&result[336..400])},
-                {"pure":"vector<u64>", "value":p.proof.lane_bits},
-                {"pure":"vector<u64>", "value":p.proof.counts},
-                {"makeMoveVec":"vector<vector<vector<u8>>>", "from":"proofGroups"},
-                {"pure":"vector<u8>", "value":hex0x(&result[400..])}, {"object":"0x6"}]}
-        ],
-        "traceBatches":trace_batches,
+        "kind":"sui-programmable-transaction", "mode":"committed",
+        "registryId":s.registry, "sessionId":sid, "packageId":s.package,
+        "n":input.footer.event_count.to_string(), "root":hex0x(&input.footer.trace_root),
+        "traceCommitment":hex0x(&result[336..384]), "duration":input.footer.duration_us.to_string(),
+        "laneBits":p.proof.lane_bits, "counts":p.proof.counts,
+        "signature":hex0x(&result[384..449]),
         "proofGroups":proof_groups.iter().map(|group| group.iter().map(|b| hex0x(b)).collect::<Vec<_>>()).collect::<Vec<_>>(),
         "sessionDigest":hex0x(&p.statement.session_digest), "result":score,
-        "note":"Relay builds proofGroups as individual pure vector<vector<u8>> PTB inputs, then MakeMoveVec; use original bytes and signature, never sign or rebind the capture. Confirm ScoreAccepted on-chain before crediting the player."
     })
 }
 
 async fn run(s: &Bridge, capture: &Capture) -> Result<Value> {
     let (hdr, registration) = s.session(&capture.session_id).await?;
-    let (input, digest, trace, result) = parse_capture(hdr, capture, registration["pubkey"].as_str().context("device pubkey missing")?)?;
+    let (input, digest, _trace, result) = parse_capture(hdr, capture, registration["pubkey"].as_str().context("device pubkey missing")?, &s.srs)?;
     // Native witness validation checks all scoring constraints using the unmodified device trace.
     let reg = register_chart(&s.srs, &input.chart)?;
     let onchain = fields(&registration["chart"])?;
@@ -279,9 +272,11 @@ async fn run(s: &Bridge, capture: &Capture) -> Result<Value> {
     for (field, actual) in [("m", reg.record.m), ("bits", reg.record.bits), ("components", reg.record.components), ("max_end", reg.record.max_end)] {
         ensure!(num(&onchain[field])? == actual, "on-chain chart {field} mismatch");
     }
-    let p = api::prove_sealed_calldata(&s.srs, &input, &reg.record, digest)?;
-    let verified = api::verify(&s.vk, &p.statement, &p.proof, Some(&input.events))?;
-    Ok(relay_payload(s, &id(&capture.session_id)?, &input, &trace, &result, &p, &json!(verified)))
+    let commitment = g1_from_bytes(&result[336..384]).context("invalid signed commitment")?;
+    let p = api::prove_sealed_committed(&s.srs, &input, &reg.record, commitment)?;
+    ensure!(p.statement.session_digest == digest, "proof does not match signed Mode B capture");
+    let verified = api::verify(&s.vk, &p.statement, &p.proof, None)?;
+    Ok(relay_payload(s, &id(&capture.session_id)?, &input, &result, &p, &json!(verified)))
 }
 
 async fn submit(State(s): State<Arc<Bridge>>, Json(capture): Json<Capture>) -> Response {

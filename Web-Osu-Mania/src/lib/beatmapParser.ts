@@ -128,8 +128,7 @@ export const parseOsz = async (
   beatmap: Beatmap,
   replayMods?: EncodedMods,
   replayColumnMap?: number[],
-  isLocalSource = false,
-  paidCapture = false,
+  { isLocalSource = false, paidCapture = false }: { isLocalSource?: boolean; paidCapture?: boolean } = {},
 ): Promise<BeatmapData> => {
   const zipReader = new ZipReader(new BlobReader(blob));
   const entries = await zipReader.getEntries();

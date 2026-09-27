@@ -20,7 +20,7 @@ def refuse(reason):
 def external_file(name):
     path = Path(name).expanduser().resolve(strict=True)
     if not path.is_file() or path == PROJECT.parent or PROJECT.parent in path.parents:
-        refuse('key and SRS inputs must be files outside the ethtokyo2026 checkout')
+        refuse('private key and trust inputs must remain outside the ethtokyo2026 checkout')
     return path
 
 
@@ -55,22 +55,25 @@ def read_scalar(path):
 def main():
     if len(sys.argv) != 8:
         refuse('usage: prepare-mvp-key.py DEVICE_PEM SRS_BANK TA_PUB BOOT_PUB PUBLIC_H PRIVATE_H IDENTITY_JSON')
-    device, bank, ta_pub, boot_pub = map(external_file, sys.argv[1:5])
+    device, ta_pub, boot_pub = map(external_file, (sys.argv[1], sys.argv[3], sys.argv[4]))
+    bank = Path(sys.argv[2]).expanduser().resolve(strict=True)
+    if not bank.is_file():
+        refuse('device SRS bank must be a file')
     public_header, private_header, identity = map(lambda x: Path(x).resolve(), sys.argv[5:8])
     policy_dir = PROJECT / 'sources/optee-os-artifacts/mvp-policy'
     if public_header.parent != policy_dir or identity.parent != policy_dir:
         refuse('public policy and identity must be mvp-policy artifacts')
     if private_header == public_header or private_header.exists() or private_header.parent == PROJECT.parent or PROJECT.parent in private_header.parents:
         refuse('private header must be a new file outside the checkout')
-    pinned = json.loads((PROJECT / 'manifests/sources.lock').read_text())['device_srs_ceremony']
-    if bank.stat().st_size != pinned['device_point_count'] * 64:
-        refuse('device SRS is not 200,000 G1 points')
+    srs_id = os.environ.get('OSUMANIA_MVP_SRS_ID', '').removeprefix('0x').lower()
+    if len(srs_id) != 64 or any(c not in '0123456789abcdef' for c in srs_id):
+        refuse('OSUMANIA_MVP_SRS_ID must identify the scoring SRS')
+    if bank.stat().st_size != 200000 * 48:
+        refuse('Mode B device bank must contain exactly 200,000 compressed BLS12-381 G1 points')
     digest = hashlib.sha256()
     with bank.open('rb') as source:
         while chunk := source.read(1 << 20):
             digest.update(chunk)
-    if digest.hexdigest() != pinned['device_bank_sha256']:
-        refuse('device SRS differs from the pinned PSE ceremony bank')
     scalar, address = read_scalar(device)
     ta_der = openssl(['pkey', '-pubin', '-in', str(ta_pub), '-outform', 'DER'])
     boot_der = openssl(['pkey', '-pubin', '-in', str(boot_pub), '-outform', 'DER'])
@@ -87,10 +90,12 @@ def main():
             target.write('#define OSUMANIA_MVP_PRIVATE_KEY_BYTES ' + initializer(scalar) + '\n')
         public_header.write_text('/* MVP public release marker, NOT an FPGA bitstream attestation. */\n'
                                  '#define OSUMANIA_PROVISIONED_BITSTREAM_HASH ' + initializer(marker) + '\n'
-                                 '#define OSUMANIA_PROVISIONED_SRS 1\n')
+                                 '#define OSUMANIA_PROVISIONED_SRS 1\n'
+                                 '#define OSUMANIA_PROVISIONED_SRS_HASH ' + initializer(digest.digest()) + '\n'
+                                 '#define OSUMANIA_PROVISIONED_SRS_POINTS 200000\n')
         identity.write_text(json.dumps({
             'device_address': '0x' + address.hex(), 'build_marker': '0x' + marker.hex(),
-            'srs_sha256': digest.hexdigest(), 'srs_id': '0x' + pinned['srs_id'],
+            'srs_sha256': digest.hexdigest(), 'srs_id': '0x' + srs_id,
             'boot_public_der_sha256': hashlib.sha256(boot_der).hexdigest(),
             'ta_public_der_sha256': hashlib.sha256(ta_der).hexdigest(),
             'key_security': 'EXTRACTABLE_FROM_SD_IMAGE', 'hardware_root': False,

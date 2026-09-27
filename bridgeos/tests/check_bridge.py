@@ -6,11 +6,14 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "package/bridge-daemon"
 VECTORS = ROOT / "tests/bridge-crypto-vectors.json"
-SRS = SRC / "data/srs-g1-be.bin"
+SRS = ROOT / "tests/vendor-hid/vectors/srs-g1-bls12381.bin"
+sys.path.insert(0, str(ROOT / "tests/vendor-hid"))
+import check_vectors as bls
 
 
 def build_library(path):
@@ -49,7 +52,8 @@ class Tx(C.Structure):
 
 
 class SignerInfo(C.Structure):
-    _fields_ = [("device", C.c_uint8 * 20), ("bitstream_hash", C.c_uint8 * 32)]
+    _fields_ = [("device", C.c_uint8 * 20), ("bitstream_hash", C.c_uint8 * 32),
+                ("srs_hash", C.c_uint8 * 32), ("max_events", C.c_uint32)]
 
 
 def configure(lib):
@@ -65,7 +69,7 @@ def configure(lib):
     lib.osum_tx_begin.argtypes = [C.POINTER(Tx), C.c_uint8, C.c_uint8, C.c_uint32,
                                   C.c_uint32, READ, C.c_void_p]
     lib.osum_tx_next.argtypes = [C.POINTER(Tx), C.POINTER(C.c_uint8)]
-    lib.osum_signer_open.argtypes = [C.c_char_p]; lib.osum_signer_open.restype = C.c_void_p
+    lib.osum_signer_open.argtypes = [C.c_char_p, C.POINTER(C.c_uint8), C.c_uint32]; lib.osum_signer_open.restype = C.c_void_p
     lib.osum_signer_close.argtypes = [C.c_void_p]
     lib.osum_signer_get_info.argtypes = [C.c_void_p, C.POINTER(SignerInfo)]
     lib.osum_signer_set_header.argtypes = [C.c_void_p, C.POINTER(C.c_uint8), C.POINTER(C.c_uint8)]
@@ -104,7 +108,7 @@ def test_protocol(lib):
     assert lib.osum_rx_report(C.byref(rx), (C.c_uint8 * 64).from_buffer_copy(zero), C.byref(req)) == 0
     assert req.message_type == 0x11 and req.length == 0
 
-    response = bytes((i * 29 + 1) & 0xff for i in range(465))
+    response = bytes((i * 29 + 1) & 0xff for i in range(449))
     @READ
     def copy(_ctx, offset, dst, length):
         C.memmove(dst, response[offset:offset + length], length); return 0
@@ -116,14 +120,16 @@ def test_protocol(lib):
         assert status == 1
         raw = bytes(out); offset = int.from_bytes(raw[8:12], "big")
         assert raw[:8] == bytes.fromhex("4d012001a0b0c0d0")
-        assert int.from_bytes(raw[12:16], "big") == 465
-        take = min(48, 465 - offset); rebuilt += raw[16:16 + take]
+        assert int.from_bytes(raw[12:16], "big") == 449
+        take = min(48, 449 - offset); rebuilt += raw[16:16 + take]
         assert raw[16 + take:] == b"\0" * (48 - take); packets += 1
     assert packets == 10 and bytes(rebuilt) == response
 
 
 def test_crypto(lib):
     vectors = json.loads(VECTORS.read_text())["cases"]
+    bank = SRS.read_bytes()
+    assert not lib.osum_crypto_create(os.fsencode(SRC / "data/srs-g1-be.bin"))
     assert not lib.osum_crypto_create(None)
     for case in vectors:
         crypto = lib.osum_crypto_create(os.fsencode(SRS)); assert crypto
@@ -137,11 +143,10 @@ def test_crypto(lib):
                 assert bytes(event.wire) == item["sequence"].to_bytes(4, "big") + \
                     item["timestamp_us"].to_bytes(8, "big") + bytes([item["lane"], item["action"]])
                 assert lib.osum_crypto_add(crypto, C.byref(event)) == 0
-            root, commitment = (C.c_uint8 * 32)(), (C.c_uint8 * 64)()
+            root, commitment = (C.c_uint8 * 32)(), (C.c_uint8 * 48)()
             assert lib.osum_crypto_finalize(crypto, root, commitment) == 0
             assert bytes(root) == bytes.fromhex(case["traceRoot"][2:]), case["name"]
-            expected = b"".join(int(value, 16).to_bytes(32, "big") for value in case["traceCommitment"])
-            assert bytes(commitment) == expected, case["name"]
+            assert bytes(commitment) == bls.commitment(bank, case["events"]), case["name"]
         finally:
             lib.osum_crypto_destroy(crypto)
 
@@ -187,29 +192,36 @@ def recover(digest, signature):
 def test_signer(lib):
     os.environ["DEV_INSECURE_PRIVATE_KEY"] = "11" * 32
     os.environ["OSUMANIA_BITSTREAM_HASH"] = "44" * 32
-    signer = lib.osum_signer_open(b"dev-insecure"); assert signer
+    bank_hash = hashlib.sha256(SRS.read_bytes()).digest()
+    signer = lib.osum_signer_open(b"dev-insecure", (C.c_uint8 * 32).from_buffer_copy(bank_hash), 65)
+    assert signer
     try:
         info = SignerInfo(); assert lib.osum_signer_get_info(signer, C.byref(info)) == 0
+        assert bytes(info.srs_hash) == bank_hash and info.max_events == 65
         doc = json.loads(VECTORS.read_text())
         header = bytearray.fromhex(doc["cases"][0]["headerPackedV2"][2:])
         header[144:164] = bytes(info.device); header[228:260] = bytes(info.bitstream_hash)
         header_c = (C.c_uint8 * 292).from_buffer_copy(header); detail = C.c_uint8()
+        assert lib.osum_signer_set_header(signer, header_c, C.byref(detail)) != 0 and detail.value == 3
+        header[260:292] = bls.POLICY
+        header_c = (C.c_uint8 * 292).from_buffer_copy(header)
         assert lib.osum_signer_start(signer) != 0
         assert lib.osum_signer_set_header(signer, header_c, C.byref(detail)) == 0
         assert lib.osum_signer_start(signer) == 0
-        root = bytes(range(32)); commitment = bytes(range(64))
-        assert lib.osum_signer_finalize(signer, 33, 1234567,
+        root = bls.trace_root(bytes(header[60:92]), [])
+        commitment = b"\xc0" + bytes(47)
+        assert lib.osum_signer_finalize(signer, 0, 1234567,
             (C.c_uint8 * 32).from_buffer_copy(root),
-            (C.c_uint8 * 64).from_buffer_copy(commitment)) == 0
-        a, b = (C.c_uint8 * 465)(), (C.c_uint8 * 465)()
+            (C.c_uint8 * 48).from_buffer_copy(commitment)) == 0
+        a, b = (C.c_uint8 * 449)(), (C.c_uint8 * 449)()
         assert lib.osum_signer_get_result(signer, a) == 0 and lib.osum_signer_get_result(signer, b) == 0
         result = bytes(a); assert result == bytes(b) and result[:292] == header
-        fields = (33).to_bytes(4, "big") + (1234567).to_bytes(8, "big") + root + commitment
-        assert result[292:400] == fields
-        preimage = b"OSUMANIA_HARDWARE_SESSION_V2" + (2).to_bytes(2, "big") + bytes(header) + fields
-        assert len(preimage) == 430
+        fields = (0).to_bytes(4, "big") + (1234567).to_bytes(8, "big") + root + commitment
+        assert result[292:384] == fields
+        preimage = b"OSUMANIA_HARDWARE_SESSION_V2_BLS12381" + b"\x00\x02" + bytes(header) + fields
+        assert len(preimage) == 423
         digest = hashlib.sha256(preimage).digest()
-        assert recover(digest, result[400:]) == mul(int("11" * 32, 16), G)
+        assert recover(digest, result[384:]) == mul(int("11" * 32, 16), G)
         assert lib.osum_signer_abort(signer) == 0
     finally:
         lib.osum_signer_close(signer)
@@ -220,7 +232,7 @@ def main():
         library = Path(directory) / "libbridgecheck.so"; build_library(library)
         lib = C.CDLL(str(library)); configure(lib)
         test_protocol(lib); test_crypto(lib); test_signer(lib)
-    print("PASS byte-exact HID framing, 10 canonical SHA/BN254 vectors, 430-byte signing preimage/result")
+    print("PASS byte-exact HID framing, canonical trace SHA/BLS commitments and 423-byte Mode B signed digest")
 
 
 if __name__ == "__main__":
